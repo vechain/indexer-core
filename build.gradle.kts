@@ -1,29 +1,20 @@
 plugins {
     kotlin("jvm") version "1.7.22"
+    id("java-library")
     id("maven-publish")
     id("signing")
-}
-
-repositories {
-    mavenCentral()
 }
 
 group = "org.vechain"
 version = "1.0-SNAPSHOT"
 
-java.sourceCompatibility = JavaVersion.VERSION_17
+repositories {
+    mavenCentral()
+}
 
 java {
     withJavadocJar()
     withSourcesJar()
-}
-
-val sourcesJar = tasks.register<Jar>("sourcesJar") {
-    archiveClassifier.set("sources")
-}
-
-val javadocJar = tasks.register<Jar>("javadocJar") {
-    archiveClassifier.set("javadoc")
 }
 
 tasks.withType<Test> {
