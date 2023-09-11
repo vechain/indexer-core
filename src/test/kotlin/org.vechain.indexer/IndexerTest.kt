@@ -43,9 +43,9 @@ internal class IndexerTest {
             val indexerIterationsNumber = 1L
 
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                {
-                    buildBlock(getBlockNumberSlot.captured)
-                }
+                    {
+                        buildBlock(getBlockNumberSlot.captured)
+                    }
             every { responseMocker.getLastSyncedBlockNumber() } returns lastSyncedBlockNumber
             every { responseMocker.processBlock(any()) } just Runs
 
@@ -66,9 +66,9 @@ internal class IndexerTest {
             val indexerIterationsNumber = 100L
 
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                {
-                    buildBlock(getBlockNumberSlot.captured)
-                }
+                    {
+                        buildBlock(getBlockNumberSlot.captured)
+                    }
             every { responseMocker.getLastSyncedBlockNumber() } returns lastSyncedBlockNumber
             every { responseMocker.processBlock(any()) } just Runs
 
@@ -91,9 +91,9 @@ internal class IndexerTest {
             val indexerIterationsNumber = 100L
 
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                {
-                    buildBlock(getBlockNumberSlot.captured)
-                }
+                    {
+                        buildBlock(getBlockNumberSlot.captured)
+                    }
             every { responseMocker.getLastSyncedBlockNumber() } returns lastSyncedBlockNumber
             every { responseMocker.processBlock(any()) } just Runs
 
@@ -120,23 +120,23 @@ internal class IndexerTest {
                 val errorBlockNumber = 100L
 
                 coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        buildBlock(getBlockNumberSlot.captured)
-                    }
+                        {
+                            buildBlock(getBlockNumberSlot.captured)
+                        }
                 every { responseMocker.getLastSyncedBlockNumber() } returns
-                    startBlock andThen
-                    iterationsWithoutError
+                        startBlock andThen
+                        iterationsWithoutError
                 var calledAlready = false
                 every { responseMocker.processBlock(capture(processBlockNumberSlot)) } answers
-                    {
-                        if (
-                            !calledAlready &&
+                        {
+                            if (
+                                !calledAlready &&
                                 processBlockNumberSlot.captured.number == errorBlockNumber
-                        ) {
-                            calledAlready = true
-                            throw Exception("Unknown exception")
+                            ) {
+                                calledAlready = true
+                                throw Exception("Unknown exception")
+                            }
                         }
-                    }
 
                 // Run the indexer for another two iterations after the error block
                 val job = launch { indexer.start(errorBlockNumber + 2) }
@@ -154,6 +154,46 @@ internal class IndexerTest {
             }
 
         @Test
+        fun `Indexer should restart at current block when thor node rate limit is hit`() =
+            runBlocking {
+                val startBlock = 0L
+                val iterationsWithoutError = 99L
+                val tooManyRequestsBlockNumber = 100L
+
+                var rateLimitedAlready = false
+                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                        {
+                            if (
+                                !rateLimitedAlready &&
+                                getBlockNumberSlot.captured == tooManyRequestsBlockNumber
+                            ) {
+                                rateLimitedAlready = true
+                                throw Exception("Too Many Requests")
+                            }
+                            buildBlock(getBlockNumberSlot.captured)
+                        }
+                every { responseMocker.getLastSyncedBlockNumber() } returns
+                        startBlock andThen
+                        iterationsWithoutError
+
+                every { responseMocker.processBlock(any()) } just Runs
+
+                // Run the indexer for another two iterations after the rate limited block number
+                val job = launch { indexer.start(tooManyRequestsBlockNumber + 2) }
+                job.join()
+
+                expect {
+                    // Indexer should have advanced processing after successfully restarting
+                    // processing of faulty block
+                    that(indexer.currentBlockNumber).isEqualTo(tooManyRequestsBlockNumber + 1)
+                    // Indexer should switch back to SYNCING status error detection
+                    that(indexer.status).isEqualTo(Status.SYNCING)
+                    // Indexer should restart & rollback processing at the error block number
+                    verify(exactly = 1) { responseMocker.rollback(tooManyRequestsBlockNumber) }
+                }
+            }
+
+        @Test
         fun `Indexer should restart at block previous to current block when a re-organization is detected`() =
             runBlocking {
                 val startBlock = 0L
@@ -161,17 +201,17 @@ internal class IndexerTest {
                 val reorgBlockNumber = 100L
 
                 coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        // At block 100, the parent id is invalid
-                        val parentId =
-                            if (getBlockNumberSlot.captured == reorgBlockNumber) "0x02321321"
-                            else "0x${maxOf(getBlockNumberSlot.captured - 1, 0)}"
-                        buildBlock(getBlockNumberSlot.captured, parentId)
-                    }
+                        {
+                            // At block 100, the parent id is invalid
+                            val parentId =
+                                if (getBlockNumberSlot.captured == reorgBlockNumber) "0x02321321"
+                                else "0x${maxOf(getBlockNumberSlot.captured - 1, 0)}"
+                            buildBlock(getBlockNumberSlot.captured, parentId)
+                        }
 
                 every { responseMocker.getLastSyncedBlockNumber() } returns
-                    startBlock andThen
-                    iterationsWithoutError
+                        startBlock andThen
+                        iterationsWithoutError
                 every { responseMocker.processBlock(any()) } just Runs
 
                 // Run indexer for a few iterations more after re-organization detected
@@ -200,9 +240,9 @@ internal class IndexerTest {
             val iterations = 100L
 
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                {
-                    buildBlock(getBlockNumberSlot.captured)
-                }
+                    {
+                        buildBlock(getBlockNumberSlot.captured)
+                    }
             every { responseMocker.getLastSyncedBlockNumber() } returns startBlock
             every { responseMocker.processBlock(any()) } just Runs
 
@@ -228,12 +268,12 @@ internal class IndexerTest {
             val blockNotFound = 99L
 
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                {
-                    if (getBlockNumberSlot.captured >= blockNotFound) {
-                        throw BlockNotFoundException("Block not found")
+                    {
+                        if (getBlockNumberSlot.captured >= blockNotFound) {
+                            throw BlockNotFoundException("Block not found")
+                        }
+                        buildBlock(getBlockNumberSlot.captured)
                     }
-                    buildBlock(getBlockNumberSlot.captured)
-                }
             coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(blockNotFound) }
             every { responseMocker.getLastSyncedBlockNumber() } returns 0 andThen blockNotFound
             every { responseMocker.processBlock(any()) } just Runs
@@ -258,13 +298,13 @@ internal class IndexerTest {
                 // Block is not found the first time indexer tries to fetch it
                 var calledAlready = false
                 coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        if (!calledAlready && getBlockNumberSlot.captured == blockNotFound) {
-                            calledAlready = true
-                            throw BlockNotFoundException("Block not found")
+                        {
+                            if (!calledAlready && getBlockNumberSlot.captured == blockNotFound) {
+                                calledAlready = true
+                                throw BlockNotFoundException("Block not found")
+                            }
+                            buildBlock(getBlockNumberSlot.captured)
                         }
-                        buildBlock(getBlockNumberSlot.captured)
-                    }
                 // Simulate a gap between last synced and current best block from chain
                 coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(iterations) }
                 every { responseMocker.getLastSyncedBlockNumber() } returns 0 andThen blockNotFound
@@ -291,13 +331,13 @@ internal class IndexerTest {
 
             // Simulate re-organization by detecting invalid parent block id at reorgBlock
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                {
-                    // At reorgBlock, the parent id is invalid
-                    val parentId =
-                        if (getBlockNumberSlot.captured == reorgBlock) "0x02321321"
-                        else "0x${maxOf(getBlockNumberSlot.captured - 1, 0)}"
-                    buildBlock(getBlockNumberSlot.captured, parentId)
-                }
+                    {
+                        // At reorgBlock, the parent id is invalid
+                        val parentId =
+                            if (getBlockNumberSlot.captured == reorgBlock) "0x02321321"
+                            else "0x${maxOf(getBlockNumberSlot.captured - 1, 0)}"
+                        buildBlock(getBlockNumberSlot.captured, parentId)
+                    }
 
             every { responseMocker.getLastSyncedBlockNumber() } returns 0 andThen reorgBlock - 1
             every { responseMocker.processBlock(any()) } just Runs
@@ -318,19 +358,19 @@ internal class IndexerTest {
             val unknownExceptionBlock = 100L
 
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                {
-                    buildBlock(getBlockNumberSlot.captured)
-                }
+                    {
+                        buildBlock(getBlockNumberSlot.captured)
+                    }
             every { responseMocker.getLastSyncedBlockNumber() } returns
-                0 andThen
-                unknownExceptionBlock - 1
+                    0 andThen
+                    unknownExceptionBlock - 1
             // Exception is thrown when processing block unknownExceptionBlock
             every { responseMocker.processBlock(capture(processBlockNumberSlot)) } answers
-                {
-                    if (processBlockNumberSlot.captured.number == unknownExceptionBlock) {
-                        throw Exception("Unknown exception")
+                    {
+                        if (processBlockNumberSlot.captured.number == unknownExceptionBlock) {
+                            throw Exception("Unknown exception")
+                        }
                     }
-                }
 
             val job = launch { indexer.start(unknownExceptionBlock + 1) }
             job.join()
@@ -342,5 +382,34 @@ internal class IndexerTest {
                 that(indexer.status).isEqualTo(Status.ERROR)
             }
         }
+
+        @Test
+        fun `Indexer should switch to ERROR status upon rate limit exception when fetching block`() =
+            runBlocking {
+                val tooManyRequestsBlockNumber = 100L
+
+                // Exception is thrown when attempting to fetch block tooManyRequestsBlockNumber
+                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                        {
+                            if (getBlockNumberSlot.captured != tooManyRequestsBlockNumber)
+                                buildBlock(getBlockNumberSlot.captured)
+                            else throw Exception("Too Many Requests")
+                        }
+
+                every { responseMocker.getLastSyncedBlockNumber() } returns
+                        0 andThen
+                        tooManyRequestsBlockNumber - 1
+                every { responseMocker.processBlock(capture(processBlockNumberSlot)) } just Runs
+
+                val job = launch { indexer.start(tooManyRequestsBlockNumber + 1) }
+                job.join()
+
+                expect {
+                    // The current block number should match the exception block
+                    that(indexer.currentBlockNumber).isEqualTo(tooManyRequestsBlockNumber)
+                    // The indexer status should switch to ERROR
+                    that(indexer.status).isEqualTo(Status.ERROR)
+                }
+            }
     }
 }
