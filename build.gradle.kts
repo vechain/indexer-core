@@ -1,5 +1,11 @@
 plugins {
     kotlin("jvm") version "1.7.22"
+    id("maven-publish")
+    id("signing")
+}
+
+repositories {
+    mavenCentral()
 }
 
 group = "org.vechain"
@@ -7,8 +13,22 @@ version = "1.0-SNAPSHOT"
 
 java.sourceCompatibility = JavaVersion.VERSION_17
 
-repositories {
-    mavenCentral()
+java {
+    withJavadocJar()
+    withSourcesJar()
+}
+
+val sourcesJar = tasks.register<Jar>("sourcesJar") {
+    archiveClassifier.set("sources")
+}
+
+val javadocJar = tasks.register<Jar>("javadocJar") {
+    archiveClassifier.set("javadoc")
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
+    testLogging.showStandardStreams = true
 }
 
 dependencies {
@@ -23,13 +43,4 @@ dependencies {
     testImplementation("io.strikt:strikt-core:0.34.1")
 
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.9.3")
-}
-
-tasks.withType<Test> {
-    useJUnitPlatform()
-    testLogging.showStandardStreams = true
-}
-
-tasks.getByName<Jar>("jar") {
-    enabled = true
 }
