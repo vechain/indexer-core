@@ -67,6 +67,10 @@ publishing {
     }
 }
 
+signing {
+    sign(publishing.publications["mavenJava"])
+}
+
 tasks.withType<Test> {
     useJUnitPlatform()
     testLogging.showStandardStreams = true
