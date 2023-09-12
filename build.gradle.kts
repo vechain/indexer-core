@@ -17,6 +17,56 @@ java {
     withSourcesJar()
 }
 
+publishing {
+    publications {
+        create<MavenPublication>("mavenJava") {
+            artifactId = "indexer-core"
+            from(components["java"])
+
+            versionMapping {
+                usage("java-api") {
+                    fromResolutionOf("runtimeClasspath")
+                }
+                usage("java-runtime") {
+                    fromResolutionResult()
+                }
+            }
+
+            pom {
+                name.set("indexer-core")
+                description.set("This package contains an abstract VeChainThor indexer class. This class can be extended to create a custom indexer.")
+                url.set("https://github.com/vechainfoundation/indexer-core")
+                licenses {
+                    license {
+                        name.set("GNU Lesser General Public License v3.0")
+                        url.set("https://github.com/vechainfoundation/indexer-core/blob/main/LICENSE")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("VeWorldDeveloper")
+                        name.set("VeWorld Developer")
+                        email.set("veworlddeveloper@gmail.com")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:git://github.com/vechainfoundation/indexer-core.git")
+                    developerConnection.set("scm:git:ssh://github.com/vechainfoundation/indexer-core.git")
+                    url.set("https://github.com/vechainfoundation/indexer-core")
+                }
+            }
+        }
+    }
+
+    repositories {
+        maven {
+            val releasesRepoUrl = uri(layout.buildDirectory.dir("repos/releases"))
+            val snapshotsRepoUrl = uri(layout.buildDirectory.dir("repos/snapshots"))
+            url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
+        }
+    }
+}
+
 tasks.withType<Test> {
     useJUnitPlatform()
     testLogging.showStandardStreams = true
