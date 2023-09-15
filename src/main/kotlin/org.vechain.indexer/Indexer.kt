@@ -1,8 +1,8 @@
 package org.vechain.indexer
 
+import kotlinx.coroutines.*
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-import kotlinx.coroutines.delay
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.BlockNotFoundException
@@ -68,6 +68,20 @@ abstract class Indexer(
         currentBlockNumber = blockNumber
         status = Status.SYNCING
         previousBlockId = getBlockFromChain(maxOf(blockNumber - 1, 0)).id
+    }
+
+    /**
+     * Triggers the non-blocking suspendable start() function inside its required coroutine scope.
+     */
+    fun startInCoroutine(iterations: Long? = null) {
+        CoroutineScope(Dispatchers.Default).launch {
+            try {
+                start(iterations)
+            } catch (e: Exception) {
+                logger.error("Error starting indexer ${this.javaClass.simpleName}: ", e)
+                throw Exception(e.message, e)
+            }
+        }
     }
 
     /** Starts the indexer processing */
