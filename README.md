@@ -24,3 +24,9 @@ block.
 This is where the rollback method comes in. In some scenarios such as a chain re-organization, the indexer will need to roll
 back to a previous block in order to maintain data integrity. Further to this, any database updates in the processBlock
 method should be atomic i.e. they should either complete fully or fail completely.
+
+## Java compatibility
+
+When using the indexer-core package in a Java project, prefer using `startInCoroutine()` to start your indexer implementation,
+as the regular `start()` is a suspend function for which the caller has to supply a coroutine scope.
+Otherwise, the package is Java compatible as is.
