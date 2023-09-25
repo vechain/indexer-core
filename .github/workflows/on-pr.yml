@@ -10,5 +10,5 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-gradle:
+  test:
     uses: ./.github/workflows/test.yml
