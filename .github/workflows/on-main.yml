@@ -13,12 +13,14 @@ jobs:
     outputs:
       latest-tag: ${{ steps.latest-tag.outputs.latest-tag }}
     steps:
-      - id: latest-tag
+      - name: Get latest tag
+        id: latest-tag
         run: echo "latest-tag=${{ github.ref == 'refs/heads/main' && 'dev-latest' || github.ref_name }}" >> "$GITHUB_OUTPUT"
   test:
     name: Test
     uses: ./.github/workflows/test.yml
 
   publish-test-results:
-    uses: ./.github/workflows/publish-test-results.yml
+    name: Publish test results
     needs: test
+    uses: ./.github/workflows/publish-test-results.yml
