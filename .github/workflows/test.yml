@@ -21,4 +21,4 @@ jobs:
           java-version: '17'
 
       - name: Test
-        run: ./gradlew :package:cleanTest :package:test
+        run: ./gradlew cleanTest test
