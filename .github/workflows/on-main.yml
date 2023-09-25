@@ -18,3 +18,7 @@ jobs:
   test:
     name: Test
     uses: ./.github/workflows/test.yml
+
+  publish-test-results:
+    uses: ./.github/workflows/publish-test-results.yml
+    needs: test

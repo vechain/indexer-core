@@ -6,6 +6,8 @@ plugins {
     id("java-library")
     id("maven-publish")
     id("signing")
+    id("jacoco-report-aggregation")
+    jacoco
 }
 
 group = "org.vechain"
@@ -93,7 +95,32 @@ tasks.withType<Test> {
         showExceptions = true
         showStackTraces = true
     }
+    finalizedBy(tasks.jacocoTestReport)
 }
+
+tasks.register<JacocoReport>("codeCoverageReport") {
+    // If a subproject applies the 'jacoco' plugin, add the result it to the report
+    subprojects {
+        val subproject = this
+        subproject.plugins.withType<JacocoPlugin>().configureEach {
+            subproject.tasks
+                .matching { it.extensions.findByType<JacocoTaskExtension>() != null }
+                .configureEach {
+                    val testTask = this
+                    sourceSets(subproject.sourceSets.main.get())
+                    executionData(testTask)
+                }
+        }
+    }
+
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        csv.required.set(false)
+    }
+}
+
+tasks.jacocoTestReport { dependsOn(tasks.test) }
 
 dependencies {
     implementation("com.github.kittinunf.fuel:fuel:2.3.1")
