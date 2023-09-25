@@ -1,0 +1,20 @@
+name: Setup & Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+
+jobs:
+  setup-env:
+    name: Setup Environment
+    runs-on: ubuntu-latest
+    outputs:
+      latest-tag: ${{ steps.latest-tag.outputs.latest-tag }}
+    steps:
+      - id: latest-tag
+        run: echo "latest-tag=${{ github.ref == 'refs/heads/main' && 'dev-latest' || github.ref_name }}" >> "$GITHUB_OUTPUT"
+  test:
+    name: Test
+    uses: ./.github/workflows/test.yml
