@@ -29,16 +29,14 @@ jobs:
         uses: mikepenz/action-junit-report@v3
         if: success() || failure()
         with:
-          report_paths: indexer-core/build/test-results/test/TEST-*.xml
+          report_paths: build/test-results/test/TEST-*.xml
 
       - name: Copy HTML Test Report
         if: github.ref == 'refs/heads/main'
         run: |
-          mkdir -p static/indexer-core
-          if [ -d "indexer-core/build/reports/jacoco/test/html" ]; then
-            cp -r indexer-core/build/reports/jacoco/test/html static/indexer-core/coverage
-            cp -r indexer-core/build/reports/tests/test static/indexer-core/tests
-          fi
+          mkdir -p static
+          cp -r build/reports/jacoco/test/html static/coverage
+          cp -r build/reports/tests/test static/tests
 
       - name: Upload Test Results
         uses: actions/upload-artifact@v2
