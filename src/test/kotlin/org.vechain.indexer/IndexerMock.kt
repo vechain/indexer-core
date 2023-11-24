@@ -3,14 +3,15 @@ package org.vechain.indexer
 import org.vechain.indexer.thor.client.DefaultThorClient
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.BlockIdentifier
 
 class IndexerMock(private val mocker: IndexerResponseMocker, thorClientMock: ThorClient) :
     Indexer(DefaultThorClient("notarealurl"), 0L) {
 
     override val thorClient: ThorClient = thorClientMock
 
-    override fun getLastSyncedBlockNumber(): Long {
-        return mocker.getLastSyncedBlockNumber()
+    override fun getLastSyncedBlock(): BlockIdentifier? {
+        return mocker.getLastSyncedBlock()
     }
 
     override fun rollback(blockNumber: Long) {
@@ -23,7 +24,7 @@ class IndexerMock(private val mocker: IndexerResponseMocker, thorClientMock: Tho
 }
 
 interface IndexerResponseMocker {
-    fun getLastSyncedBlockNumber(): Long
+    fun getLastSyncedBlock(): BlockIdentifier?
 
     fun rollback(blockNumber: Long)
 
