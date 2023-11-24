@@ -47,8 +47,8 @@ internal class IndexerTest {
                     {
                         buildBlock(getBlockNumberSlot.captured)
                     }
-            every { responseMocker.getLastSyncedBlock() } returns BlockIdentifier(number = 100L, id = "0x100", parentID = "0x99") andThen
-                    BlockIdentifier(number = 99L, id = "0x99", parentID = "0x98")
+            every { responseMocker.getLastSyncedBlock() } returns BlockIdentifier(number = 100L, id = "0x100") andThen
+                    BlockIdentifier(number = 99L, id = "0x99")
             every { responseMocker.processBlock(any()) } just Runs
 
             val job = launch { indexer.start(indexerIterationsNumber) }
@@ -137,7 +137,7 @@ internal class IndexerTest {
         @Test
         fun `Indexer should restart at current block when unknown exception is thrown`() =
             runBlocking {
-                val finalBlock = BlockIdentifier(number = 99L, id = "0x99", parentID = "0x98")
+                val finalBlock = BlockIdentifier(number = 99L, id = "0x99")
                 val errorBlockNumber = 100L
 
                 coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
@@ -178,7 +178,7 @@ internal class IndexerTest {
         @Test
         fun `Indexer should restart at current block when thor node rate limit is hit`() =
             runBlocking {
-                val finalBlock = BlockIdentifier(number = 99L, id = "0x99", parentID = "0x98")
+                val finalBlock = BlockIdentifier(number = 99L, id = "0x99")
                 val tooManyRequestsBlockNumber = 100L
 
                 var rateLimitedAlready = false
@@ -219,7 +219,7 @@ internal class IndexerTest {
         fun `Indexer should restart at block previous to current block when a re-organization is detected`() =
             runBlocking {
 
-                val finalBlock = BlockIdentifier(number = 98L, id = "0x98", parentID = "0x97")
+                val finalBlock = BlockIdentifier(number = 98L, id = "0x98")
                 val reorgBlockNumber = 100L
 
                 coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
@@ -287,7 +287,7 @@ internal class IndexerTest {
 
         @Test
         fun `Indexer should switch to FULLY_SYNCED status when block not found`() = runBlocking {
-            val blockNotFound = BlockIdentifier(number = 99L, id = "0x99", parentID = "0x98")
+            val blockNotFound = BlockIdentifier(number = 99L, id = "0x99")
 
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
                     {
@@ -317,7 +317,7 @@ internal class IndexerTest {
         fun `Indexer should ensure whether it is FULLY_SYNCED and switch back to SYNCING`() =
             runBlocking {
                 val iterations = 101L
-                val blockNotFound = BlockIdentifier(number = 99L, id = "0x99", parentID = "0x98")
+                val blockNotFound = BlockIdentifier(number = 99L, id = "0x99")
 
                 // Block is not found the first time indexer tries to fetch it
                 var calledAlready = false
@@ -354,7 +354,7 @@ internal class IndexerTest {
         @Test
         fun `Indexer should switch to REORG status upon chain re-organization`() = runBlocking {
             val reorgBlock = 100L
-            val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99", parentID = "0x98")
+            val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
 
             // Simulate re-organization by detecting invalid parent block id at reorgBlock
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
@@ -385,7 +385,7 @@ internal class IndexerTest {
         @Test
         fun `Indexer should switch to ERROR status upon unknown exception thrown`() = runBlocking {
             val unknownExceptionBlock = 100L
-            val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99", parentID = "0x98")
+            val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
 
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
                     {
@@ -418,7 +418,7 @@ internal class IndexerTest {
         fun `Indexer should switch to ERROR status upon rate limit exception when fetching block`() =
             runBlocking {
                 val tooManyRequestsBlockNumber = 100L
-                val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99", parentID = "0x98")
+                val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
 
                 // Exception is thrown when attempting to fetch block tooManyRequestsBlockNumber
                 coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers

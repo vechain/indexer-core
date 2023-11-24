@@ -216,7 +216,7 @@ abstract class Indexer(
         currentBlockNumber++
 
         // Set the previous block id.
-        previousBlock = BlockIdentifier(number = block.number, id = block.id, parentID = block.parentID)
+        previousBlock = BlockIdentifier(number = block.number, id = block.id)
 
         timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
     }

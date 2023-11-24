@@ -3,7 +3,7 @@
 This package contains an abstract VeChainThor indexer class. This class can be extended to create a custom indexer.
 Simply extend the class and implement the abstract methods:
 
-- `getLastSyncedBlock` - should return the number, ID and ParentID of the last block that was synchronised by the indexer.
+- `getLastSyncedBlock` - should return the number and ID of the last block that was synchronised by the indexer.
 - `rollback` - should undo the effects of processing a block. This is used when the indexer needs to roll back to
   a previous block for example in the event of a re-organization or on startup to ensure data integrity.
 - `processBlock` - the core business logic of the indexer. Generally the block data will be parsed and stored in a
