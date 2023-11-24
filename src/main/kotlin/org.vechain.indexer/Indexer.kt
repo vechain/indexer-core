@@ -44,7 +44,7 @@ abstract class Indexer(
     val name: String
         get() = this.javaClass.simpleName
 
-    private val logger: Logger = LoggerFactory.getLogger(this::class.java)
+    protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     var status = Status.SYNCING
         private set
