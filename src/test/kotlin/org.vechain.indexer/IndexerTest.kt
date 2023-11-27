@@ -383,6 +383,55 @@ internal class IndexerTest {
         }
 
         @Test
+        fun `Indexer should not trigger a REORG when previous block is null`() = runBlocking {
+
+            // Simulate re-organization by detecting invalid parent block id at reorgBlock
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                    {
+                        buildBlock(getBlockNumberSlot.captured)
+                    }
+
+            every { responseMocker.getLastSyncedBlock() } returns null
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(1L) }
+            job.join()
+
+            expect {
+                // The current block number should match the re-organization block
+                that(indexer.currentBlockNumber).isEqualTo(1L)
+                // The indexer status should switch to REORG
+                that(indexer.status).isEqualTo(Status.SYNCING)
+            }
+        }
+
+        @Test
+        fun `Indexer should not trigger a REORG when previous block id is null`() = runBlocking {
+            val lastSyncedBlock = BlockIdentifier(number = 99L)
+            val previousBlock = BlockIdentifier(number = 98L)
+
+            // Simulate re-organization by detecting invalid parent block id at reorgBlock
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                    {
+                        buildBlock(getBlockNumberSlot.captured)
+                    }
+
+            every { responseMocker.getLastSyncedBlock() } returns lastSyncedBlock andThen
+                    previousBlock
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(1L) }
+            job.join()
+
+            expect {
+                // The current block number should match the re-organization block
+                that(indexer.currentBlockNumber).isEqualTo(100L)
+                // The indexer status should switch to REORG
+                that(indexer.status).isEqualTo(Status.SYNCING)
+            }
+        }
+
+        @Test
         fun `Indexer should switch to ERROR status upon unknown exception thrown`() = runBlocking {
             val unknownExceptionBlock = 100L
             val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")

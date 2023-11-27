@@ -129,7 +129,7 @@ abstract class Indexer(
             block.isFinalized
 
             // Check for chain re-organization.
-            if (currentBlockNumber > startBlock && previousBlock?.id != block.parentID)
+            if (currentBlockNumber > startBlock && previousBlock?.id?.let { it != block.parentID } == true)
                 throw ReorgException(
                     "Chain re-organization detected @ Block $currentBlockNumber with parent block ID ${block.parentID}"
                 )
