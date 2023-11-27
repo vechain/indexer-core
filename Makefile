@@ -10,7 +10,7 @@ build: #@ Build the library with Gradle.
 .PHONY:build
 
 # Publishing
-publish-local: #@ Publish the library to my local maven repo.
+publish-local: build #@ Publish the library to my local maven repo.
 	./gradlew publishToMavenLocal
-publish: #@ Publish the library to Maven Central.
+publish: build #@ Publish the library to Maven Central.
 	./gradlew release
