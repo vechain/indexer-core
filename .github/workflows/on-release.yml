@@ -30,7 +30,7 @@ jobs:
 
       - name: Ensure the project version matches the tag name (the workflow will fail if they don't match)
         run: |
-          if [ "${{ github.event.release.tag_name }}" != "$(./gradlew properties -q | grep '^version:' | awk '{print $2}')" ]; then
+          if [ "${{ github.event.release.tag_name }}" != "$PROJECT_VERSION" ]; then
             echo "Error: Tag name (${{ github.event.release.tag_name }}) does not match the project version ($PROJECT_VERSION)"
             exit 1
           fi
