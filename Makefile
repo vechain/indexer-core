@@ -13,4 +13,4 @@ build: #@ Build the library with Gradle.
 publish-local: build #@ Publish the library to my local maven repo.
 	./gradlew publishToMavenLocal
 publish: build #@ Publish the library to Maven Central.
-	./gradlew release
+	./gradlew publishMavenJavaPublicationToMavenRepository
