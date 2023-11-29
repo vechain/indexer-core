@@ -23,16 +23,25 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Extract Project Version from Gradle
+      - name: Extract Default Project Version from Gradle
         run: |
-            echo "PROJECT_VERSION=$(./gradlew properties -q | grep '^version:' | awk '{print $2}')" >> $GITHUB_ENV
+            echo "DEFAULT_PROJECT_VERSION=$(./gradlew properties -q | grep '^version:' | awk '{print $2}')" >> $GITHUB_ENV
 
-      - name: Ensure the project version matches the tag name (the workflow will fail if they don't match)
+      - name: Ensure the default project version matches the tag name (the workflow will fail if they don't match)
         run: |
-          if [ "${{ github.event.release.tag_name }}" != "$PROJECT_VERSION" ]; then
-            echo "Error: Tag name (${{ github.event.release.tag_name }}) does not match the project version ($PROJECT_VERSION)"
+          if [ "${{ github.event.release.tag_name }}" != "$DEFAULT_PROJECT_VERSION" ]; then
+            echo "Error: Tag name (${{ github.event.release.tag_name }}) does not match the project version ($DEFAULT_PROJECT_VERSION)"
             exit 1
           fi
+
+      - name: If this is a prerelease, append -SNAPSHOT to the version
+        run: |
+          if ${{ github.event.release.prerelease }}; then
+            VERSION="${DEFAULT_PROJECT_VERSION}-SNAPSHOT"
+          else
+            VERSION=$DEFAULT_PROJECT_VERSION
+          fi
+          echo "PROJECT_VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Build the artifact
         run: ./gradlew build
