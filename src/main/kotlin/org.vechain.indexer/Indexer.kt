@@ -262,6 +262,7 @@ abstract class Indexer(
 
     /**
      * Returns the last block that was successfully processed.
+     * If no block was processed, returns null.
      *
      * @return last synced block
      */
