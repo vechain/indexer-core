@@ -426,7 +426,7 @@ internal class IndexerTest {
             expect {
                 // The current block number should match the re-organization block
                 that(indexer.currentBlockNumber).isEqualTo(100L)
-                // The indexer status should switch to REORG
+                // The indexer status should remain SYNCING
                 that(indexer.status).isEqualTo(Status.SYNCING)
             }
         }
