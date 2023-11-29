@@ -63,7 +63,7 @@ internal class IndexerTest {
         }
 
         @Test
-        fun `Start indexer should initialise with rolling back last synced block - no last synced block found`() = runBlocking {
+        fun `Start indexer should initialise with rolling back the startBlock when no last synced block found`() = runBlocking {
             val indexerIterationsNumber = 1L
 
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
