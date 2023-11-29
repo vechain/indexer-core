@@ -71,7 +71,7 @@ abstract class Indexer(
         currentBlockNumber = lastSyncedBlockNumber
         status = Status.SYNCING
 
-        // Set the previous block if there was one for the previous block number
+        // Set the previous block to the previously synced block if it exists, or null otherwise.
         val lastBlock = getLastSyncedBlock()
         previousBlock = if (lastBlock?.number == lastSyncedBlockNumber - 1L) {
             lastBlock
@@ -125,8 +125,6 @@ abstract class Indexer(
             if (status == Status.ERROR || status == Status.REORG) restart()
 
             val block = getBlockFromChain(currentBlockNumber)
-
-            block.isFinalized
 
             // Check for chain re-organization.
             if (currentBlockNumber > startBlock && previousBlock?.id?.let { it != block.parentID } == true)
