@@ -11,10 +11,12 @@ plugins {
 }
 
 group = "org.vechain"
-version = "1.0.1"
+version = "2.0.0"
 
 repositories {
     mavenCentral()
+    // local .m2 repo
+    mavenLocal()
 }
 
 java {
@@ -77,7 +79,10 @@ publishing {
 }
 
 signing {
-    sign(publishing.publications["mavenJava"])
+    // Check if the current task is not 'publishToMavenLocal'
+    if (!gradle.startParameter.taskNames.contains("publishToMavenLocal")) {
+        sign(publishing.publications.getByName("mavenJava"))
+    }
 }
 
 tasks.withType<Test> {

@@ -1,0 +1,54 @@
+name: On release publish to maven central
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  pull-requests: write
+  packages: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Java
+        uses: actions/setup-java@v2
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Extract Project Version from Gradle
+        run: |
+            echo "PROJECT_VERSION=$(./gradlew properties -q | grep '^version:' | awk '{print $2}')" >> $GITHUB_ENV
+
+      - name: Ensure the project version matches the tag name (the workflow will fail if they don't match)
+        run: |
+          if [ "${{ github.event.release.tag_name }}" != "$PROJECT_VERSION" ]; then
+            echo "Error: Tag name (${{ github.event.release.tag_name }}) does not match the project version ($PROJECT_VERSION)"
+            exit 1
+          fi
+
+      - name: Build the artifact
+        run: ./gradlew build
+
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.GPG_SECRET_KEY }}" | gpg --batch --import
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill all
+          echo "GPG TTY:"
+          tty
+
+      - name: Publish the artifact to maven
+        run: ./gradlew publishMavenJavaPublicationToMavenRepository
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SECRET_KEY }}
+          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}

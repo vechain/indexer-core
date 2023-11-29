@@ -9,6 +9,7 @@ import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.BlockIdentifier
 
 /** The possible states the indexer can be */
 enum class Status {
@@ -28,11 +29,11 @@ const val INITIAL_BACKOFF_PERIOD = 10_000L
 abstract class Indexer(
     protected open val thorClient: ThorClient,
     private val startBlock: Long = 0L,
-    private val syncLoggerInterval: Long = 1000L,
+    private val syncLoggerInterval: Long = 1_000L,
 ) {
 
-    /** ID of the block before the currently latest block processed */
-    private var previousBlockId: String? = null
+    /** The last block that was successfully synchronised */
+    private var previousBlock: BlockIdentifier? = null
 
     /**
      * Number of indexer iterations remaining in case a given number of iterations has been
@@ -57,17 +58,24 @@ abstract class Indexer(
     private var backoffPeriod = 0L
 
     /** Initialises the indexer processing */
-    private suspend fun initialise(
-        blockNumber: Long = maxOf(getLastSyncedBlockNumber(), startBlock)
+    private fun initialise(
+        blockNumber: Long? = null,
     ) {
+        // If no block number is provided, get the last synced block. If no block is found, start from the beginning.
+        val lastSyncedBlockNumber = blockNumber ?: getLastSyncedBlock()?.number ?: startBlock
 
         // To ensure data integrity roll back changes made in the last block
-        rollback(blockNumber)
+        rollback(lastSyncedBlockNumber)
 
         // Initialise fields
-        currentBlockNumber = blockNumber
+        currentBlockNumber = lastSyncedBlockNumber
         status = Status.SYNCING
-        previousBlockId = getBlockFromChain(maxOf(blockNumber - 1, 0)).id
+
+        // Set the previous block to the previously synced block if it exists, or null otherwise.
+        val lastBlock = getLastSyncedBlock()
+        previousBlock = if (lastBlock?.number == lastSyncedBlockNumber - 1L) {
+            lastBlock
+        } else null
     }
 
     /**
@@ -119,7 +127,7 @@ abstract class Indexer(
             val block = getBlockFromChain(currentBlockNumber)
 
             // Check for chain re-organization.
-            if (currentBlockNumber > startBlock && previousBlockId != block.parentID)
+            if (currentBlockNumber > startBlock && previousBlock?.id?.let { it != block.parentID } == true)
                 throw ReorgException(
                     "Chain re-organization detected @ Block $currentBlockNumber with parent block ID ${block.parentID}"
                 )
@@ -206,7 +214,7 @@ abstract class Indexer(
         currentBlockNumber++
 
         // Set the previous block id.
-        previousBlockId = block.id
+        previousBlock = BlockIdentifier(number = block.number, id = block.id)
 
         timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
     }
@@ -254,10 +262,11 @@ abstract class Indexer(
 
     /**
      * Returns the last block that was successfully processed.
+     * If no block was processed, returns null.
      *
-     * @return last synced block number
+     * @return last synced block
      */
-    abstract fun getLastSyncedBlockNumber(): Long
+    abstract fun getLastSyncedBlock(): BlockIdentifier?
 
     /**
      * Rolls back changes made in the given block number. The block number will always be the last
