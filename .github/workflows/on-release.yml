@@ -22,6 +22,11 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          server-id: ossrh
+          server-username: ${{ secrets.OSSRH_USERNAME }}
+          server-password: ${{ secrets.OSSRH_PASSWORD }}
+          gpg-private-key: ${{ secrets.GPG_SECRET_KEY }}
+          gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Extract Default Project Version from Gradle
         run: |
@@ -48,9 +53,10 @@ jobs:
 
       - name: Import GPG key
         run: |
+          # Install gpg secret key
           echo "${{ secrets.GPG_SECRET_KEY }}" | gpg --batch --import
-          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
-          gpgconf --kill all
+          # Verify gpg secret key
+          gpg --list-secret-keys --keyid-format LONG
 
       - name: Publish the artifact to maven
         run: ./gradlew publishMavenJavaPublicationToMavenRepository
