@@ -22,11 +22,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          server-id: ossrh
-          server-username: ${{ secrets.OSSRH_USERNAME }}
-          server-password: ${{ secrets.OSSRH_PASSWORD }}
-          gpg-private-key: ${{ secrets.GPG_SECRET_KEY }}
-          gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Extract Default Project Version from Gradle
         run: |
