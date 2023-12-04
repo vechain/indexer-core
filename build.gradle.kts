@@ -84,8 +84,8 @@ signing {
     // Signing is required unless explicitly skipped
     isRequired = !project.hasProperty("skipSigning")
 
-    val signingKey = findProperty("signingKey") as String
-    val signingPassword = findProperty("signingPassword") as String
+    val signingKey = findProperty("signingKey") as String?
+    val signingPassword = findProperty("signingPassword") as String?
     useInMemoryPgpKeys(signingKey, signingPassword)
 
     sign(publishing.publications.getByName("mavenJava"))
