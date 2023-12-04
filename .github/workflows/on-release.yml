@@ -62,5 +62,6 @@ jobs:
         run: ./gradlew publishMavenJavaPublicationToMavenRepository
         env:
           ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
+          ORG_GRADLE_PROJECT_signingSecretKeyRingFile: /home/runner/.gnupg/secring.gpg
           ORG_GRADLE_PROJECT_ossrhUsername: ${{ secrets.OSSRH_USERNAME }}
           ORG_GRADLE_PROJECT_ossrhPassword: ${{ secrets.OSSRH_PASSWORD }}
