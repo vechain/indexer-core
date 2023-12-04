@@ -46,17 +46,10 @@ jobs:
       - name: Build the artifact
         run: ./gradlew build
 
-      - name: Import GPG key
-        run: |
-          # Install gpg secret key
-          echo "${{ secrets.GPG_SECRET_KEY }}" | gpg --batch --import
-          # Verify gpg secret key
-          gpg --list-secret-keys --keyid-format LONG
-
       - name: Publish the artifact to maven
-        run: ./gradlew publishMavenJavaPublicationToMavenRepository
+        run: ./gradlew publish
         env:
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SECRET_KEY }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
-          ORG_GRADLE_PROJECT_signingSecretKeyRingFile: /home/runner/.gnupg/secring.gpg
           ORG_GRADLE_PROJECT_ossrhUsername: ${{ secrets.OSSRH_USERNAME }}
           ORG_GRADLE_PROJECT_ossrhPassword: ${{ secrets.OSSRH_PASSWORD }}

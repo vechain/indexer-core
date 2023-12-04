@@ -81,10 +81,14 @@ publishing {
 }
 
 signing {
-    // Check if the current task is not 'publishToMavenLocal'
-    if (!gradle.startParameter.taskNames.contains("publishToMavenLocal")) {
-        sign(publishing.publications.getByName("mavenJava"))
-    }
+    // Signing is required unless explicitly skipped
+    isRequired = !project.hasProperty("skipSigning")
+
+    val signingKey = findProperty("signingKey") as String
+    val signingPassword = findProperty("signingPassword") as String
+    useInMemoryPgpKeys(signingKey, signingPassword)
+
+    sign(publishing.publications.getByName("mavenJava"))
 }
 
 tasks.withType<Test> {
