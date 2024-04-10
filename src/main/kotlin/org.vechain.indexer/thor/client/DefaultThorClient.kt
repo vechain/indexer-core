@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.EventFilter
+import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.utils.JsonUtils
 
 /**
@@ -20,6 +22,27 @@ class DefaultThorClient(
 ) : ThorClient {
 
     private val objectMapper = JsonUtils.mapper
+
+    override suspend fun queryEventLogs(eventFilter: EventFilter): List<EventLog> {
+        val (_, _, result) =
+            Fuel.post("${baseUrl}/logs/event")
+                .appendHeader(*headers)
+                .body(objectMapper.writeValueAsBytes(eventFilter))
+                .response()
+
+        val responseBody =
+            when (result) {
+                is Result.Success -> result.get().toString(Charsets.UTF_8)
+                is Result.Failure ->
+                    throw Exception("Query event logs request failed with error: ${result.error}")
+                else -> null
+            }
+
+        return objectMapper.readValue(
+            responseBody,
+            objectMapper.typeFactory.constructCollectionType(List::class.java, EventLog::class.java)
+        )
+    }
 
     override suspend fun getBlock(blockNumber: Long): Block =
         withContext(Dispatchers.IO) {

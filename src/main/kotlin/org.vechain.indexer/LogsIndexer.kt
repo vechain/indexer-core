@@ -1,32 +1,19 @@
-package org.vechain.indexer
-
-import kotlinx.coroutines.*
-import java.time.LocalDateTime
-import java.time.ZoneOffset
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.vechain.indexer.INITIAL_BACKOFF_PERIOD
+import org.vechain.indexer.Status
 import org.vechain.indexer.exception.BlockNotFoundException
-import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
-import org.vechain.indexer.thor.model.Block
-import org.vechain.indexer.thor.model.BlockIdentifier
+import org.vechain.indexer.thor.model.*
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 
-/** The possible states the indexer can be */
-enum class Status {
-    /** Indexer is processing blocks */
-    SYNCING,
-    /** Indexing is up-to-date with the latest on-chain block */
-    FULLY_SYNCED,
-    /** A chain re-organization has been detected during processing */
-    REORG,
-    /** Indexer encountered an unknown exception during processing */
-    ERROR
-}
-
-/** Initial processing backoff duration */
-const val INITIAL_BACKOFF_PERIOD = 10_000L
-
-abstract class Indexer(
+abstract class LogsIndexer(
+    private val criteriaSet: List<CriteriaSet>,
     protected open val thorClient: ThorClient,
     private val startBlock: Long = 0L,
     private val syncLoggerInterval: Long = 1_000L,
@@ -117,40 +104,39 @@ abstract class Indexer(
 
     /** The core indexer logic */
     private tailrec suspend fun run() {
-        try {
-            if (hasNoRemainingIterations()) return
 
-            backoffDelay()
+        val results = mutableMapOf<Number, List<EventLog>>()
+        var offset = 0
+        val amountOfBlocks = 10_000
+        val limit = 10_000
 
-            if (status == Status.ERROR || status == Status.REORG) restart()
+        logger.info("Processing logs from block $currentBlockNumber")
 
-            val block = getBlockFromChain(currentBlockNumber)
+        do {
+            val request = EventFilter(
+                criteriaSet = criteriaSet,
+                range = Range(from = currentBlockNumber, to = currentBlockNumber + amountOfBlocks, unit = "block"),
+                order = "asc",
+                options = Options(offset = offset, limit = limit)
+            )
 
-            // Check for chain re-organization.
-            if (currentBlockNumber > startBlock && previousBlock?.id?.let { it != block.parentID } == true)
-                throw ReorgException(
-                    "Chain re-organization detected @ Block $currentBlockNumber with parent block ID ${block.parentID}"
-                )
+            offset += limit
 
-            if (logger.isDebugEnabled)
-                logger.debug("Processing @ Block $currentBlockNumber ($status)")
-            else if (status != Status.SYNCING || currentBlockNumber % syncLoggerInterval == 0L)
-                logger.info("Processing @ Block $currentBlockNumber ($status)")
+            val response = getLogsFromChain(request)
 
-            processBlock(block)
+            //put each log in the map, indexed by block number
+            response.forEach { log ->
+                val blockNumber = log.meta.blockNumber
+                results[blockNumber] = results.getOrDefault(blockNumber, emptyList()) + log
+            }
 
-            postProcessBlock(block)
-        } catch (ex: BlockNotFoundException) {
-            logger.info("Block $currentBlockNumber not found. Indexer may be fully synchronised.")
-            handleFullySynced()
-            ensureFullySynced()
-        } catch (e: ReorgException) {
-            logger.error("REORG @ Block $currentBlockNumber")
-            handleReorg()
-        } catch (e: Exception) {
-            logger.error("Error while processing block $currentBlockNumber", e)
-            handleError()
+        } while (response.isNotEmpty())
+
+        if (results.isNotEmpty()) {
+            processLogs(results)
         }
+
+        postProcessLogs(results, amountOfBlocks)
 
         run()
     }
@@ -187,42 +173,32 @@ abstract class Indexer(
         status = Status.REORG
     }
 
-    /**
-     * Ensures that indexer is fully synced, recalculates the backoff period & increments the
-     * current block number
-     *
-     * @param block the block to undergo post-processing
-     */
-    private suspend fun postProcessBlock(block: Block) {
+    private suspend fun postProcessLogs(logs: Map<Number, List<EventLog>>, amountOfBlocks: Int){
 
-        // Every 20 blocks, check if we are fully synced.
         if (status == Status.FULLY_SYNCED && currentBlockNumber % 20 == 0L) {
             ensureFullySynced()
         }
 
-        // If we are fully synced, recalculate the backoff period.
         if (status == Status.FULLY_SYNCED) {
+            val lastLog = logs.values.flatten().maxByOrNull { it.meta.blockNumber }!!
             val currentEpoch =
                 LocalDateTime.now(ZoneOffset.UTC).toInstant(ZoneOffset.UTC).toEpochMilli()
-            val timeSinceLastBlock = maxOf(currentEpoch - block.timestamp.times(1000), 0)
+            val timeSinceLastBlock = maxOf(currentEpoch - lastLog.meta.blockTimestamp.times(1000), 0)
             backoffPeriod = maxOf(0, INITIAL_BACKOFF_PERIOD - (timeSinceLastBlock)) + 100
 
             logger.info("Success @ Block $currentBlockNumber ($timeSinceLastBlock ms since mine)")
         }
 
-        // Increment the current block.
-        currentBlockNumber++
-
-        // Set the previous block id.
-        previousBlock = BlockIdentifier(number = block.number, id = block.id)
-
+        currentBlockNumber += amountOfBlocks
+        val prev = thorClient.getBlock(currentBlockNumber - 1)
+        previousBlock = BlockIdentifier(number = prev.number, id = prev.id)
         timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
     }
 
     /** Ensures that indexer is not behind on-chain best block when in fully synced state */
     private suspend fun ensureFullySynced() {
         if (status == Status.FULLY_SYNCED) {
-            val latestBlock = getBestBlockFromChain()
+            val latestBlock = thorClient.getBestBlock()
             if (latestBlock.number > currentBlockNumber) {
                 logger.info(
                     "$name - Changing status to SYNCING (indexerBlock=${currentBlockNumber}, latestBlock=${latestBlock.number})"
@@ -242,23 +218,14 @@ abstract class Indexer(
      * Returns the block identified by its number from the chain, or throw a BlockNotFoundException
      * if it doesn't exist.
      *
-     * @param blockNumber the block number
-     * @return the block corresponding to the number
+     * @param criteriaSet the criteria set to be used to query the chain
+     * @return the
      * @throws BlockNotFoundException if no block is found with that number
      */
-    private suspend fun getBlockFromChain(blockNumber: Long): Block {
-        return thorClient.getBlock(blockNumber)
+    private suspend fun getLogsFromChain(criteriaSet: EventFilter): List<EventLog> {
+        return thorClient.queryEventLogs(criteriaSet)
     }
 
-    /**
-     * Returns the latest block from the chain
-     *
-     * @return the chain best block
-     * @throws BlockNotFoundException if not found
-     */
-    private suspend fun getBestBlockFromChain(): Block {
-        return thorClient.getBestBlock()
-    }
 
     /**
      * Returns the last block that was successfully processed.
@@ -279,7 +246,7 @@ abstract class Indexer(
     /**
      * Holds the business logic for this indexer.
      *
-     * @param block the block to be processed
+     * @param logs the event logs to be processed
      */
-    abstract fun processBlock(block: Block)
+    abstract fun processLogs(logs: Map<Number, List<EventLog>>)
 }

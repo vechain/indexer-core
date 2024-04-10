@@ -18,13 +18,13 @@ import strikt.api.expectThat
 import strikt.assertions.isEqualTo
 
 @ExtendWith(MockKExtension::class)
-internal class IndexerTest {
+internal class BlockIndexerTest {
 
     @MockK private lateinit var responseMocker: IndexerResponseMocker
 
     @MockK private lateinit var thorClient: ThorClient
 
-    private lateinit var indexer: Indexer
+    private lateinit var indexer: BlockIndexer
 
     private val getBlockNumberSlot = slot<Long>()
     private val processBlockSlot = slot<Block>()
@@ -37,7 +37,7 @@ internal class IndexerTest {
     }
 
     @Nested
-    inner class IndexerStart {
+    inner class BlockIndexerStart {
 
         @Test
         fun `Start indexer should initialise with rolling back last synced block`() = runBlocking {
@@ -132,7 +132,7 @@ internal class IndexerTest {
     }
 
     @Nested
-    inner class IndexerRestart {
+    inner class BlockIndexerRestart {
 
         @Test
         fun `Indexer should restart at current block when unknown exception is thrown`() =
@@ -256,7 +256,7 @@ internal class IndexerTest {
     }
 
     @Nested
-    inner class IndexerStatus {
+    inner class BlockIndexerStatus {
         @Test
         fun `Indexer starting & processing block is at the SYNCING status`() = runBlocking {
             val iterations = 100L
