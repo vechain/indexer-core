@@ -12,7 +12,7 @@ plugins {
 
 group = "org.vechain"
 
-val projectVersion = System.getenv("PROJECT_VERSION") ?: "2.0.1"
+val projectVersion = System.getenv("PROJECT_VERSION") ?: "2.0.0"
 version = projectVersion
 
 repositories {
@@ -39,11 +39,6 @@ publishing {
                 usage("java-runtime") {
                     fromResolutionResult()
                 }
-            }
-
-            java {
-                withJavadocJar()
-                withSourcesJar()
             }
 
             pom {
