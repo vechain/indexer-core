@@ -41,11 +41,6 @@ publishing {
                 }
             }
 
-            java {
-                withJavadocJar()
-                withSourcesJar()
-            }
-
             pom {
                 name.set("indexer-core")
                 description.set("This package contains an abstract VeChainThor indexer class. This class can be extended to create a custom indexer.")
