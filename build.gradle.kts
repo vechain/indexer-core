@@ -7,7 +7,16 @@ plugins {
     id("maven-publish")
     id("signing")
     id("jacoco-report-aggregation")
+    id "org.sonarqube" version "4.4.1.3373"
     jacoco
+}
+
+sonar {
+  properties {
+    property "sonar.projectKey", "vechain_indexer-core"
+    property "sonar.organization", "vechain"
+    property "sonar.host.url", "https://sonarcloud.io"
+  }
 }
 
 group = "org.vechain"
