@@ -7,7 +7,7 @@ plugins {
     id("maven-publish")
     id("signing")
     id("jacoco-report-aggregation")
-    id "org.sonarqube" version "4.4.1.3373"
+    id("org.sonarqube") version "4.4.1.3373"
     jacoco
 }
 
