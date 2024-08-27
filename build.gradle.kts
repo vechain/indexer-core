@@ -13,9 +13,9 @@ plugins {
 
 sonar {
   properties {
-    property "sonar.projectKey", "vechain_indexer-core"
-    property "sonar.organization", "vechain"
-    property "sonar.host.url", "https://sonarcloud.io"
+    property("sonar.projectKey", "vechain_indexer-core")
+    property("sonar.organization", "vechain")
+    property("sonar.host.url", "https://sonarcloud.io")
   }
 }
 
