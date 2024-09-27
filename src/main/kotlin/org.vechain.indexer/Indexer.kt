@@ -132,8 +132,8 @@ abstract class Indexer(
                     "Chain re-organization detected @ Block $currentBlockNumber with parent block ID ${block.parentID}"
                 )
 
-            if (logger.isDebugEnabled)
-                logger.debug("Processing @ Block $currentBlockNumber ($status)")
+            if (logger.isTraceEnabled)
+                logger.trace("Processing @ Block $currentBlockNumber ($status)")
             else if (status != Status.SYNCING || currentBlockNumber % syncLoggerInterval == 0L)
                 logger.info("Processing @ Block $currentBlockNumber ($status)")
 
