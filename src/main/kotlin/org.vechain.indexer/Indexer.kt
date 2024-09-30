@@ -104,7 +104,7 @@ abstract class Indexer(
     }
 
     /** Restarts the processing based on the current indexer status */
-    private suspend fun restart() {
+    private fun restart() {
         // Initialise the indexer
         when (status) {
             Status.ERROR -> initialise(currentBlockNumber)
