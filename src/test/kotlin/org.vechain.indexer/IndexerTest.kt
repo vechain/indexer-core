@@ -1,5 +1,7 @@
 package org.vechain.indexer
 
+import com.github.kittinunf.fuel.core.FuelError
+import com.github.kittinunf.fuel.core.Response
 import io.mockk.*
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
@@ -7,6 +9,7 @@ import kotlinx.coroutines.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.extension.ExtendWith
 import org.vechain.indexer.BlockTestBuilder.Companion.buildBlock
 import org.vechain.indexer.exception.BlockNotFoundException
@@ -132,6 +135,256 @@ internal class IndexerTest {
     }
 
     @Nested
+    inner class IndexerRetry {
+        @Test
+        fun `Indexer should set status to ERROR when retries are exhausted`() = runBlocking {
+            val tooManyRequestsBlockNumber = 100L
+            val maxRetries = 5
+            var attempts = 0
+
+            // Simulate 429 Too Many Requests on all attempts
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers {
+                if (getBlockNumberSlot.captured == tooManyRequestsBlockNumber) {
+                    attempts++
+                    throw FuelError.wrap(
+                        Exception("Too Many Requests"),
+                        response = mockk {
+                            every { statusCode } returns 429
+                        }
+                    )
+                }
+                buildBlock(getBlockNumberSlot.captured)
+            }
+
+            every { responseMocker.getLastSyncedBlock() } returns null
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(iterations = tooManyRequestsBlockNumber + 1) }
+            job.join()
+
+            expect {
+                // Verify the block fetch was retried the maximum number of times
+                coVerify(exactly = maxRetries) { thorClient.getBlock(tooManyRequestsBlockNumber) }
+                // Verify the indexer status switched to ERROR
+                that(indexer.status).isEqualTo(Status.ERROR)
+                // Verify no exception is thrown
+                that(attempts).isEqualTo(maxRetries)
+            }
+        }
+
+        @Test
+        fun `Indexer should resume processing after resolving 429 Too Many Requests`() = runBlocking {
+            val tooManyRequestsBlockNumber = 100L
+            var attempts = 0
+
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers {
+                if (getBlockNumberSlot.captured == tooManyRequestsBlockNumber && attempts < 2) {
+                    attempts++
+                    throw FuelError.wrap(
+                        Exception("Too Many Requests"),
+                        response = mockk {
+                            every { statusCode } returns 429
+                        }
+                    )
+                }
+                buildBlock(getBlockNumberSlot.captured)
+            }
+
+            every { responseMocker.getLastSyncedBlock() } returns null
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(iterations = tooManyRequestsBlockNumber + 2) }
+            job.join()
+            job.cancelAndJoin()
+
+            expect {
+                coVerify(atLeast = 3, atMost = 4) { thorClient.getBlock(tooManyRequestsBlockNumber) }
+                that(indexer.currentBlockNumber).isEqualTo(102)
+                that(indexer.status).isEqualTo(Status.SYNCING)
+            }
+        }
+
+        @Test
+        fun `Indexer should retry with exponential backoff before restarting after rate limit is hit`() =
+            runBlocking {
+                val tooManyRequestsBlockNumber = 100L
+
+                // Simulate 429 Too Many Requests on the first two attempts
+                var attempts = 0
+                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers {
+                    if (getBlockNumberSlot.captured == tooManyRequestsBlockNumber && attempts < 2) {
+                        attempts++
+                        throw FuelError.wrap(
+                            Exception("Too Many Requests"), // Provide a Throwable
+                            response = mockk {
+                                every { statusCode } returns 429 // Mock the response with statusCode 429
+                            }
+                        )
+                    }
+                    buildBlock(getBlockNumberSlot.captured)
+                }
+
+                every { responseMocker.getLastSyncedBlock() } returns null
+                every { responseMocker.processBlock(any()) } just Runs
+
+                val job = launch { indexer.start(tooManyRequestsBlockNumber + 1) }
+                job.join()
+
+                expect {
+                    // Verify that retries were attempted before succeeding
+                    that(attempts).isEqualTo(2)
+                    // Verify that processing continued successfully after retries
+                    that(indexer.currentBlockNumber).isEqualTo(tooManyRequestsBlockNumber + 1)
+                    // Verify the status is SYNCING after retries
+                    that(indexer.status).isEqualTo(Status.SYNCING)
+                }
+            }
+
+        @Test
+        fun `Indexer should switch to ERROR status after exhausting retries for rate limit exception`() = runBlocking {
+            val tooManyRequestsBlockNumber = 100L
+            val maxRetries = 5
+
+            // Simulate 429 Too Many Requests on all attempts
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers {
+                if (getBlockNumberSlot.captured == tooManyRequestsBlockNumber) {
+                    throw FuelError.wrap(
+                        Exception("Too Many Requests"),
+                        response = mockk {
+                            every { statusCode } returns 429 // Mock the response with statusCode 429
+                        }
+                    )
+                }
+                buildBlock(getBlockNumberSlot.captured)
+            }
+
+            every { responseMocker.getLastSyncedBlock() } returns null
+            every { responseMocker.processBlock(any()) } just Runs
+
+            // Start the indexer
+            val job = launch { indexer.start(iterations = tooManyRequestsBlockNumber + 1) }
+            job.join()
+
+            expect {
+                // Use coVerify for suspend function verification
+                coVerify(exactly = maxRetries) { thorClient.getBlock(tooManyRequestsBlockNumber) }
+
+                // Verify the current block number is still the one that caused the rate limit exception
+                that(indexer.currentBlockNumber).isEqualTo(tooManyRequestsBlockNumber)
+
+                // Verify the indexer status switched to ERROR
+                that(indexer.status).isEqualTo(Status.ERROR)
+            }
+        }
+
+        @Test
+        fun `Indexer should not retry on non-429 errors`() = runBlocking {
+            val errorBlockNumber = 100L
+
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers {
+                if (getBlockNumberSlot.captured == errorBlockNumber) {
+                    throw Exception("Some non-429 error")
+                }
+                buildBlock(getBlockNumberSlot.captured)
+            }
+
+            every { responseMocker.getLastSyncedBlock() } returns null
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(iterations = errorBlockNumber + 1) }
+            job.join()
+
+            expect {
+                // Verify the block fetch was not retried
+                coVerify(exactly = 1) { thorClient.getBlock(errorBlockNumber) }
+
+                // Verify the current block number is still the one that caused the error
+                that(indexer.currentBlockNumber).isEqualTo(errorBlockNumber)
+
+                // Verify the indexer status switched to ERROR
+                that(indexer.status).isEqualTo(Status.ERROR)
+            }
+        }
+
+        @Test
+        fun `Indexer should stop retrying after reaching max retries`() = runBlocking {
+            val tooManyRequestsBlockNumber = 100L
+            val maxRetries = 5
+            var attempts = 0
+
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers {
+                if (getBlockNumberSlot.captured == tooManyRequestsBlockNumber && attempts < maxRetries) {
+                    attempts++
+                    throw FuelError.wrap(
+                        Exception("Too Many Requests"),
+                        response = mockk {
+                            every { statusCode } returns 429
+                        }
+                    )
+                }
+                buildBlock(getBlockNumberSlot.captured)
+            }
+
+            every { responseMocker.getLastSyncedBlock() } returns null
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(iterations = tooManyRequestsBlockNumber + 1) }
+            job.join()
+
+            expect {
+                // Verify the block fetch was retried the maximum number of times
+                coVerify(exactly = maxRetries) { thorClient.getBlock(tooManyRequestsBlockNumber) }
+
+                // Verify the current block number is still the one that caused the error
+                that(indexer.currentBlockNumber).isEqualTo(tooManyRequestsBlockNumber)
+
+                // Verify the indexer status switched to ERROR
+                that(indexer.status).isEqualTo(Status.ERROR)
+            }
+        }
+
+        @Test
+        fun `Indexer should apply exponential backoff delays between retries`() = runBlocking {
+            val tooManyRequestsBlockNumber = 100L
+            val maxRetries = 3
+            val initialDelay = 1000L
+            var attempts = 0
+
+            val delayTimes = mutableListOf<Long>()
+            mockkStatic("kotlinx.coroutines.DelayKt")
+            coEvery { delay(capture(delayTimes)) } just Runs
+
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers {
+                if (getBlockNumberSlot.captured == tooManyRequestsBlockNumber && attempts < maxRetries) {
+                    attempts++
+                    throw FuelError.wrap(
+                        Exception("Too Many Requests"),
+                        response = mockk {
+                            every { statusCode } returns 429
+                        }
+                    )
+                }
+                buildBlock(getBlockNumberSlot.captured)
+            }
+
+            every { responseMocker.getLastSyncedBlock() } returns null
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(iterations = tooManyRequestsBlockNumber + 1) }
+            job.join()
+
+            expect {
+                // Verify delays are applied as exponential backoff
+                that(delayTimes).isEqualTo(
+                    listOf(initialDelay, initialDelay * 2, initialDelay * 4).toMutableList()
+                )
+            }
+
+            unmockkStatic("kotlinx.coroutines.DelayKt")
+        }
+    }
+
+    @Nested
     inner class IndexerRestart {
 
         @Test
@@ -172,46 +425,6 @@ internal class IndexerTest {
                     that(indexer.status).isEqualTo(Status.SYNCING)
                     // Indexer should restart & rollback processing at the error block number
                     verify(exactly = 1) { responseMocker.rollback(errorBlockNumber) }
-                }
-            }
-
-        @Test
-        fun `Indexer should restart at current block when thor node rate limit is hit`() =
-            runBlocking {
-                val finalBlock = BlockIdentifier(number = 99L, id = "0x99")
-                val tooManyRequestsBlockNumber = 100L
-
-                var rateLimitedAlready = false
-                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                        {
-                            if (
-                                !rateLimitedAlready &&
-                                getBlockNumberSlot.captured == tooManyRequestsBlockNumber
-                            ) {
-                                rateLimitedAlready = true
-                                throw Exception("Too Many Requests")
-                            }
-                            buildBlock(getBlockNumberSlot.captured)
-                        }
-                every { responseMocker.getLastSyncedBlock() } returns
-                        null andThen
-                        null andThen
-                        finalBlock
-
-                every { responseMocker.processBlock(any()) } just Runs
-
-                // Run the indexer for another two iterations after the rate limited block number
-                val job = launch { indexer.start(tooManyRequestsBlockNumber + 2) }
-                job.join()
-
-                expect {
-                    // Indexer should have advanced processing after successfully restarting
-                    // processing of faulty block
-                    that(indexer.currentBlockNumber).isEqualTo(tooManyRequestsBlockNumber + 1)
-                    // Indexer should switch back to SYNCING status error detection
-                    that(indexer.status).isEqualTo(Status.SYNCING)
-                    // Indexer should restart & rollback processing at the error block number
-                    verify(exactly = 1) { responseMocker.rollback(tooManyRequestsBlockNumber) }
                 }
             }
 
