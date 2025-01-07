@@ -1,11 +1,14 @@
 package org.vechain.indexer.thor.client
 
+import com.fasterxml.jackson.core.type.TypeReference
 import com.github.kittinunf.fuel.Fuel
 import com.github.kittinunf.result.Result
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.EventLog
+import org.vechain.indexer.thor.model.EventLogsRequest
 import org.vechain.indexer.utils.JsonUtils
 
 /**
@@ -58,5 +61,25 @@ class DefaultThorClient(
                 }
 
             return@withContext objectMapper.readValue(responseBody, Block::class.java)
+        }
+
+    override suspend fun getEventLogs(req: EventLogsRequest): List<EventLog> =
+        withContext(Dispatchers.IO) {
+            val (_, _, result) =
+                Fuel.post("${baseUrl}/logs/event")
+                    .body(JsonUtils.mapper.writeValueAsBytes(req))
+                    .appendHeader(*headers)
+                    .response()
+
+            val responseBody =
+                when (result) {
+                    is Result.Success -> result.get().toString(Charsets.UTF_8)
+                    is Result.Failure ->
+                        throw Exception("Get best block request failed with error: ${result.error}")
+
+                    else -> null
+                }
+
+            return@withContext objectMapper.readValue(responseBody, object : TypeReference<List<EventLog>>() {})
         }
 }

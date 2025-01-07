@@ -26,7 +26,7 @@ enum class Status {
 /** Initial processing backoff duration */
 const val INITIAL_BACKOFF_PERIOD = 10_000L
 
-abstract class Indexer(
+abstract class BlockIndexer(
     protected open val thorClient: ThorClient,
     private val startBlock: Long = 0L,
     private val syncLoggerInterval: Long = 1_000L,
@@ -93,7 +93,7 @@ abstract class Indexer(
     }
 
     /** Starts the indexer processing */
-    suspend fun start(iterations: Long? = null) {
+    open suspend fun start(iterations: Long? = null) {
         remainingIterations = iterations
 
         // Initialise the indexer
