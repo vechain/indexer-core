@@ -72,70 +72,40 @@ abstract class LogsIndexer(
             for (output in tx.outputs) {
                 output.events.forEach { event ->
                     for (criteria in criteriaSet) {
-                        var matches = true
 
-                        if (criteria.address != null && event.address != criteria.address) {
-                            matches = false
-                        }
-                        if (criteria.topic0 != null) {
-                            if (event.topics.isEmpty()) {
-                                matches = false
-                            } else if (event.topics[0] != criteria.topic0) {
-                                matches = false
-                            }
-                        }
-                        if (criteria.topic1 != null) {
-                            if (event.topics.size < 2) {
-                                matches = false
-                            } else if (event.topics[1] != criteria.topic1) {
-                                matches = false
-                            }
-                        }
-                        if (criteria.topic2 != null) {
-                            if (event.topics.size < 3) {
-                                matches = false
-                            } else if (event.topics[2] != criteria.topic2) {
-                                matches = false
-                            }
-                        }
-                        if (criteria.topic3 != null) {
-                            if (event.topics.size < 4) {
-                                matches = false
-                            } else if (event.topics[3] != criteria.topic3) {
-                                matches = false
-                            }
-                        }
-                        if (criteria.topic4 != null) {
-                            if (event.topics.size < 5) {
-                                matches = false
-                            } else if (event.topics[4] != criteria.topic4) {
-                                matches = false
-                            }
-                        }
+                        val isMatching = listOf(
+                            criteria.address?.let { event.address == it },
+                            criteria.topic0?.let { event.topics.getOrNull(0) == it },
+                            criteria.topic1?.let { event.topics.getOrNull(1) == it },
+                            criteria.topic2?.let { event.topics.getOrNull(2) == it },
+                            criteria.topic3?.let { event.topics.getOrNull(3) == it },
+                            criteria.topic4?.let { event.topics.getOrNull(4) == it }
+                        ).all { it == true }
 
-                        if (matches) {
-                            val ev = EventLog(
-                                address = event.address,
-                                topics = event.topics,
-                                data = event.data,
-                                meta = EventMeta(
-                                    blockID = block.id,
-                                    blockNumber = block.number,
-                                    blockTimestamp = block.timestamp,
-                                    txID = tx.id,
-                                    txOrigin = tx.origin,
-                                    clauseIndex = 0,
-                                )
+                        if (!isMatching) continue
+
+                        val ev = EventLog(
+                            address = event.address,
+                            topics = event.topics,
+                            data = event.data,
+                            meta = EventMeta(
+                                blockID = block.id,
+                                blockNumber = block.number,
+                                blockTimestamp = block.timestamp,
+                                txID = tx.id,
+                                txOrigin = tx.origin,
+                                clauseIndex = 0,
                             )
+                        )
 
-                            eventLogs.add(ev)
+                        eventLogs.add(ev)
 
-                            return@forEach
-                        }
+                        return@forEach
                     }
                 }
             }
         }
+
 
         if (eventLogs.isNotEmpty()) this.processLogs(eventLogs)
     }
