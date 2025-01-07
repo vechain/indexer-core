@@ -1,6 +1,8 @@
 package org.vechain.indexer
 
+import com.github.kittinunf.fuel.core.FuelError
 import kotlinx.coroutines.*
+import kotlin.math.min
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import org.slf4j.Logger
@@ -239,15 +241,18 @@ abstract class Indexer(
     }
 
     /**
-     * Returns the block identified by its number from the chain, or throw a BlockNotFoundException
-     * if it doesn't exist.
+     * Fetches the block identified by its number from the blockchain.
+     * Implements retry logic with exponential backoff to handle transient errors such as rate limiting (HTTP 429).
      *
-     * @param blockNumber the block number
-     * @return the block corresponding to the number
-     * @throws BlockNotFoundException if no block is found with that number
+     * @param blockNumber the block number to fetch
+     * @return the block corresponding to the given number
+     * @throws BlockNotFoundException if the block is not found
+     * @throws Exception if all retries are exhausted or a non-retryable error occurs
      */
     private suspend fun getBlockFromChain(blockNumber: Long): Block {
-        return thorClient.getBlock(blockNumber)
+        return retryWithExponentialBackoff {
+            thorClient.getBlock(blockNumber)
+        }
     }
 
     /**
@@ -258,6 +263,45 @@ abstract class Indexer(
      */
     private suspend fun getBestBlockFromChain(): Block {
         return thorClient.getBestBlock()
+    }
+
+    /**
+     * Retries a suspendable block of code with exponential backoff for HTTP 429 (Too Many Requests) errors.
+     *
+     * @param retries Maximum retry attempts (default: 5).
+     * @param initialDelay Initial delay in milliseconds (default: 1000ms).
+     * @param maxDelay Maximum delay cap in milliseconds (default: 16000ms).
+     * @param block The suspendable block to execute.
+     * @return The result of the block if successful.
+     * @throws Exception If retries are exhausted or a non-retryable error occurs.
+     */
+    private suspend fun <T> retryWithExponentialBackoff(
+        retries: Int = 5,
+        initialDelay: Long = 1000L,
+        maxDelay: Long = 16000L,
+        block: suspend () -> T
+    ): T {
+        var remainingRetries = retries
+        var delayTime = initialDelay
+
+        while (remainingRetries > 0) {
+            try {
+                return block() // Execute the suspendable block
+            } catch (e: FuelError) {
+                if (e.response.statusCode == 429) {
+                    logger.warn("HTTP 429 received. Retrying... Remaining retries: $remainingRetries")
+                    delay(delayTime)
+                    delayTime = min(delayTime * 2, maxDelay)
+                    remainingRetries--
+                } else {
+                    throw e // Non-429 errors are not retried
+                }
+            }
+        }
+
+        // Throw an exception if retries are exhausted
+        logger.error("Max retries exhausted. Throwing exception.")
+        throw Exception("Max retries exhausted due to HTTP 429")
     }
 
     /**
