@@ -140,6 +140,7 @@ dependencies {
     implementation("org.slf4j:slf4j-api:1.7.32")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.9.3")
+    testImplementation("com.github.kittinunf.fuel:fuel:2.3.1")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.1")
     testImplementation("io.mockk:mockk:1.13.5")
     testImplementation("io.strikt:strikt-core:0.34.1")
