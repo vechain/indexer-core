@@ -72,15 +72,14 @@ abstract class LogsIndexer(
             for (output in tx.outputs) {
                 output.events.forEach { event ->
                     for (criteria in criteriaSet) {
-
                         val isMatching = listOf(
-                            criteria.address?.let { event.address == it },
-                            criteria.topic0?.let { event.topics.getOrNull(0) == it },
-                            criteria.topic1?.let { event.topics.getOrNull(1) == it },
-                            criteria.topic2?.let { event.topics.getOrNull(2) == it },
-                            criteria.topic3?.let { event.topics.getOrNull(3) == it },
-                            criteria.topic4?.let { event.topics.getOrNull(4) == it }
-                        ).all { it == true }
+                            criteria.address == null || event.address == criteria.address,
+                            criteria.topic0 == null || event.topics.getOrNull(0) == criteria.topic0,
+                            criteria.topic1 == null || event.topics.getOrNull(1) == criteria.topic1,
+                            criteria.topic2 == null || event.topics.getOrNull(2) == criteria.topic2,
+                            criteria.topic3 == null || event.topics.getOrNull(3) == criteria.topic3,
+                            criteria.topic4 == null || event.topics.getOrNull(4) == criteria.topic4
+                        ).all { it }
 
                         if (!isMatching) continue
 
