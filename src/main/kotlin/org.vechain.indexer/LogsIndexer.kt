@@ -9,8 +9,14 @@ abstract class LogsIndexer(
     override val thorClient: ThorClient,
     startBlock: Long = 0L,
     syncLoggerInterval: Long = 1_000L,
-    private val criteriaSet: List<EventCriteria>,
+    private var criteriaSet: List<EventCriteria>,
 ) : BlockIndexer(thorClient, startBlock, syncLoggerInterval) {
+
+    init {
+        criteriaSet = criteriaSet.map {
+            EventCriteria(address = it.address?.lowercase())
+        }
+    }
 
     abstract fun processLogs(events: List<EventLog>)
 
@@ -25,7 +31,7 @@ abstract class LogsIndexer(
         val finalized = thorClient.getBestBlock().number - 1000
         val lastSynced = this.getLastSyncedBlock()
 
-        logger.info("need to sync form ${lastSynced?.number ?: 0}")
+        logger.info("need to sync from ${lastSynced?.number ?: 0}")
 
         var offset = lastSynced?.number ?: 0
         var current = 0L
