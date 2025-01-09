@@ -36,20 +36,21 @@ class DefaultThorClient(
     override suspend fun getBestBlock(): Block =
         executeWithRetry { fetchBlock("$baseUrl/blocks/best?expanded=true") }
 
-    internal fun fetchBlock(url: String): Block {
-        val (_, _, result) = Fuel.get(url).appendHeader(*headers).response()
-        val responseBody = when (result) {
-            is Result.Success -> result.get().toString(Charsets.UTF_8)
-            is Result.Failure -> throw Exception("Request failed with error: ${result.error}")
-            else -> null
-        }
+    internal suspend fun fetchBlock(url: String): Block =
+        withContext(Dispatchers.IO) {
+            val (_, _, result) = Fuel.get(url).appendHeader(*headers).response()
+            val responseBody = when (result) {
+                is Result.Success -> result.get().toString(Charsets.UTF_8)
+                is Result.Failure -> throw Exception("Request failed with error: ${result.error}")
+                else -> null
+            }
 
-        if (responseBody.isNullOrEmpty() || responseBody.trim() == "null") {
-            throw BlockNotFoundException("Block not found")
-        }
+            if (responseBody.isNullOrEmpty() || responseBody.trim() == "null") {
+                throw BlockNotFoundException("Block not found")
+            }
 
-        return objectMapper.readValue(responseBody, Block::class.java)
-    }
+            return@withContext objectMapper.readValue(responseBody, Block::class.java)
+        }
 
     /**
      * Executes a suspendable block of code with retry logic for handling transient errors,
