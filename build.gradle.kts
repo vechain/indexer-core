@@ -43,7 +43,9 @@ publishing {
 
             pom {
                 name.set("indexer-core")
-                description.set("This package contains an abstract VeChainThor indexer class. This class can be extended to create a custom indexer.")
+                description.set(
+                    "This package contains an abstract VeChainThor indexer class. This class can be extended to create a custom indexer.",
+                )
                 url.set("https://github.com/vechainfoundation/indexer-core")
                 licenses {
                     license {
@@ -81,9 +83,6 @@ publishing {
 }
 
 signing {
-    // Signing is required unless explicitly skipped
-    isRequired = !project.hasProperty("skipSigning")
-
     val signingKey = findProperty("signingKey") as String?
     val signingPassword = findProperty("signingPassword") as String?
     useInMemoryPgpKeys(signingKey, signingPassword)
@@ -99,7 +98,7 @@ tasks.withType<Test> {
             TestLogEvent.PASSED,
             TestLogEvent.SKIPPED,
             TestLogEvent.STANDARD_ERROR,
-            TestLogEvent.STANDARD_OUT
+            TestLogEvent.STANDARD_OUT,
         )
         exceptionFormat = TestExceptionFormat.FULL
         showCauses = true
@@ -138,6 +137,7 @@ dependencies {
     implementation("com.github.kittinunf.fuel:fuel-coroutines:2.3.1")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.14.2")
     implementation("org.slf4j:slf4j-api:1.7.32")
+    implementation("org.bouncycastle:bcprov-jdk15on:1.70")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.9.3")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.1")
