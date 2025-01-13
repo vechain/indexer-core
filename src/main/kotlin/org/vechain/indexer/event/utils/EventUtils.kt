@@ -37,10 +37,6 @@ object EventUtils {
         // Validate the number of topics for indexed parameters
         val indexedInputs = inputs.filter { it.indexed }
         if (indexedInputs.size + 1 != event.topics.size) {
-            logger.info("Decoding event: ${abiElement.name}")
-            logger.info("Event topics: ${event.topics}")
-            logger.info("Event data: ${event.data}")
-            logger.info("AbiElement inputs: $inputs")
             throw IllegalArgumentException("Mismatch between ABI indexed inputs and event topics count")
         }
 
