@@ -1,26 +1,33 @@
 package org.vechain.indexer
 
 import kotlinx.coroutines.*
-import java.time.LocalDateTime
-import java.time.ZoneOffset
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.vechain.indexer.event.AbiManager
+import org.vechain.indexer.event.GenericEventIndexer
+import org.vechain.indexer.event.model.GenericEventParameters
+import org.vechain.indexer.event.model.IndexedEvent
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 
 /** The possible states the indexer can be */
 enum class Status {
     /** Indexer is processing blocks */
     SYNCING,
+
     /** Indexing is up-to-date with the latest on-chain block */
     FULLY_SYNCED,
+
     /** A chain re-organization has been detected during processing */
     REORG,
+
     /** Indexer encountered an unknown exception during processing */
-    ERROR
+    ERROR,
 }
 
 /** Initial processing backoff duration */
@@ -30,8 +37,8 @@ abstract class Indexer(
     protected open val thorClient: ThorClient,
     private val startBlock: Long = 0L,
     private val syncLoggerInterval: Long = 1_000L,
+    protected open val abiManager: AbiManager? = null, // Optional AbiManager
 ) {
-
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
 
@@ -46,6 +53,49 @@ abstract class Indexer(
 
     protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
+    /**
+     * Processes events from the block using the `GenericEventIndexer`.
+     * This is optional and will only work if an `AbiManager` is provided.
+     */
+    protected open fun processBlockEvents(block: Block): List<Pair<IndexedEvent<GenericEventParameters>, GenericEventParameters>> {
+        if (abiManager == null) {
+            logger.warn("ABI Manager is not configured. Skipping event processing.")
+            return emptyList()
+        }
+
+        val eventIndexer = GenericEventIndexer<GenericEventParameters>(abiManager!!)
+        return eventIndexer.getEvents(block)
+    }
+
+    /**
+     * Processes block events based on optional ABI names, event names, and contract address.
+     *
+     * @param block The block to process.
+     * @param abiNames Optional list of ABI file names to filter events (e.g., ["b3tr", "erc721"]). Defaults to an empty list, meaning all ABIs.
+     * @param eventNames Optional list of event names to filter (e.g., ["Transfer", "Approval"]). Defaults to an empty list, meaning all events.
+     * @param contractAddress Optional contract address to filter events. If null, events from all addresses are processed.
+     * @return A list of decoded events, each paired with its metadata.
+     */
+    protected open fun processBlockEventsByFilters(
+        block: Block,
+        abiNames: List<String> = emptyList(),
+        eventNames: List<String> = emptyList(),
+        contractAddress: String? = null,
+    ): List<Pair<IndexedEvent<GenericEventParameters>, GenericEventParameters>> {
+        if (abiManager == null) {
+            logger.warn("ABI Manager is not configured. Skipping event processing.")
+            return emptyList()
+        }
+
+        val eventIndexer = GenericEventIndexer<GenericEventParameters>(abiManager!!)
+        return eventIndexer.getEventsByFilters(
+            block = block,
+            abiNames = abiNames,
+            eventNames = eventNames,
+            contractAddress = contractAddress, // Pass the contract address filter
+        )
+    }
+
     var status = Status.SYNCING
         private set
 
@@ -58,9 +108,7 @@ abstract class Indexer(
     private var backoffPeriod = 0L
 
     /** Initialises the indexer processing */
-    private fun initialise(
-        blockNumber: Long? = null,
-    ) {
+    private fun initialise(blockNumber: Long? = null) {
         // If no block number is provided, get the last synced block. If no block is found, start from the beginning.
         val lastSyncedBlockNumber = blockNumber ?: getLastSyncedBlock()?.number ?: startBlock
 
@@ -73,9 +121,12 @@ abstract class Indexer(
 
         // Set the previous block to the previously synced block if it exists, or null otherwise.
         val lastBlock = getLastSyncedBlock()
-        previousBlock = if (lastBlock?.number == lastSyncedBlockNumber - 1L) {
-            lastBlock
-        } else null
+        previousBlock =
+            if (lastBlock?.number == lastSyncedBlockNumber - 1L) {
+                lastBlock
+            } else {
+                null
+            }
     }
 
     /**
@@ -127,15 +178,17 @@ abstract class Indexer(
             val block = getBlockFromChain(currentBlockNumber)
 
             // Check for chain re-organization.
-            if (currentBlockNumber > startBlock && previousBlock?.id?.let { it != block.parentID } == true)
+            if (currentBlockNumber > startBlock && previousBlock?.id?.let { it != block.parentID } == true) {
                 throw ReorgException(
-                    "Chain re-organization detected @ Block $currentBlockNumber with parent block ID ${block.parentID}"
+                    "Chain re-organization detected @ Block $currentBlockNumber with parent block ID ${block.parentID}",
                 )
+            }
 
-            if (logger.isTraceEnabled)
+            if (logger.isTraceEnabled) {
                 logger.trace("Processing @ Block $currentBlockNumber ($status)")
-            else if (status != Status.SYNCING || currentBlockNumber % syncLoggerInterval == 0L)
+            } else if (status != Status.SYNCING || currentBlockNumber % syncLoggerInterval == 0L) {
                 logger.info("Processing @ Block $currentBlockNumber ($status)")
+            }
 
             processBlock(block)
 
@@ -194,7 +247,6 @@ abstract class Indexer(
      * @param block the block to undergo post-processing
      */
     private suspend fun postProcessBlock(block: Block) {
-
         // Every 20 blocks, check if we are fully synced.
         if (status == Status.FULLY_SYNCED && currentBlockNumber % 20 == 0L) {
             ensureFullySynced()
@@ -225,7 +277,7 @@ abstract class Indexer(
             val latestBlock = getBestBlockFromChain()
             if (latestBlock.number > currentBlockNumber) {
                 logger.info(
-                    "$name - Changing status to SYNCING (indexerBlock=${currentBlockNumber}, latestBlock=${latestBlock.number})"
+                    "$name - Changing status to SYNCING (indexerBlock=$currentBlockNumber, latestBlock=${latestBlock.number})",
                 )
                 status = Status.SYNCING
             }
@@ -246,9 +298,7 @@ abstract class Indexer(
      * @return the block corresponding to the number
      * @throws BlockNotFoundException if no block is found with that number
      */
-    private suspend fun getBlockFromChain(blockNumber: Long): Block {
-        return thorClient.getBlock(blockNumber)
-    }
+    private suspend fun getBlockFromChain(blockNumber: Long): Block = thorClient.getBlock(blockNumber)
 
     /**
      * Returns the latest block from the chain
@@ -256,9 +306,7 @@ abstract class Indexer(
      * @return the chain best block
      * @throws BlockNotFoundException if not found
      */
-    private suspend fun getBestBlockFromChain(): Block {
-        return thorClient.getBestBlock()
-    }
+    private suspend fun getBestBlockFromChain(): Block = thorClient.getBestBlock()
 
     /**
      * Returns the last block that was successfully processed.
