@@ -1,6 +1,6 @@
 package org.vechain.indexer.event.model.generic
 
-data class IndexedEvent<T : EventParameters>(
+data class IndexedEvent(
     val id: String,
     val blockId: String,
     val blockNumber: Long,
@@ -8,7 +8,7 @@ data class IndexedEvent<T : EventParameters>(
     val txId: String,
     val origin: String?,
     val raw: RawEvent,
-    val params: T,
+    val params: GenericEventParameters,
     val address: String,
     val eventType: String,
     val clauseIndex: Long,

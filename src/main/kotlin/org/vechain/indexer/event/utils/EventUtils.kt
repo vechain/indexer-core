@@ -1,24 +1,21 @@
 package org.vechain.indexer.event.utils
 
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
-import org.vechain.indexer.event.model.AbiElement
-import org.vechain.indexer.event.model.GenericEventParameters
-import org.vechain.indexer.event.types.TypesUtils
+import org.vechain.indexer.event.model.abi.AbiElement
+import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.thor.model.TxEvent
 import org.web3j.abi.EventEncoder
+import org.web3j.abi.TypeDecoder
+import org.web3j.abi.datatypes.AbiTypes
+import org.web3j.utils.Numeric
 
 object EventUtils {
-    val logger: Logger = LoggerFactory.getLogger(this::class.java)
-
     /**
-     * Computes the Keccak256 hash of an event's canonical signature, used as a unique identifier
-     * in Ethereum and VeChain blockchains. Example: `Transfer(address,address,uint256)`.
+     * Computes the Keccak256 hash of an event's canonical signature.
      *
-     * @param canonicalName The canonical signature of the event.
+     * @param canonicalName The canonical signature of the event (e.g., `Transfer(address,address,uint256)`).
      * @return A 64-character hexadecimal string representing the event's Keccak256 hash.
      */
-    fun getEventSignature(canonicalName: String): String = HexUtils.removePrefix(EventEncoder.buildEventSignature(canonicalName))
+    fun getEventSignature(canonicalName: String): String = Numeric.cleanHexPrefix(EventEncoder.buildEventSignature(canonicalName))
 
     /**
      * Decodes an event based on its ABI element and topics/data.
@@ -34,36 +31,62 @@ object EventUtils {
         val decodedParameters = mutableMapOf<String, Any>()
         val inputs = abiElement.inputs
 
-        // Validate the number of topics for indexed parameters
+        // Validate inputs and topics
         val indexedInputs = inputs.filter { it.indexed }
         if (indexedInputs.size + 1 != event.topics.size) {
-            throw IllegalArgumentException("Mismatch between ABI indexed inputs and event topics count")
+            throw IllegalArgumentException(
+                "Mismatch between ABI indexed inputs (${indexedInputs.size}) and event topics (${event.topics.size})",
+            )
         }
 
+        // Decode parameters
         var topicIndex = 1 // Skip the event signature
         var dataOffset = 0 // Offset for non-indexed parameters in the `data` field
 
-        inputs.forEach { input ->
-            val value =
-                if (input.indexed) {
-                    if (topicIndex >= event.topics.size) {
-                        throw IllegalArgumentException("Missing topic for indexed parameter: ${input.name}")
+        for (input in inputs) {
+            val decodedValue =
+                when {
+                    input.indexed -> {
+                        if (topicIndex >= event.topics.size) {
+                            throw IllegalArgumentException("Missing topic for indexed parameter: ${input.name}")
+                        }
+                        decodeType(event.topics[topicIndex++], input.type)
                     }
-                    val topic = event.topics[topicIndex++]
-                    TypesUtils.getType(input.type).decode(topic, TypesUtils.getType(input.type).getClaas(), input.name)
-                } else {
-                    val segment = extractDataSegment(event.data, dataOffset++)
-                    TypesUtils.getType(input.type).decode(segment, TypesUtils.getType(input.type).getClaas(), input.name)
+                    else -> {
+                        val segment = extractDataSegment(event.data, dataOffset++)
+                        decodeType(segment, input.type)
+                    }
                 }
-
-            decodedParameters[input.name] = value
+            decodedParameters[input.name] = decodedValue
         }
 
         return GenericEventParameters(decodedParameters, abiElement.name ?: "Unknown")
     }
 
     /**
-     * Extracts a segment of the data field based on the parameter index.
+     * Decodes a value from a topic or data segment using Web3j's type system.
+     *
+     * @param hexValue The hex string to decode.
+     * @param solidityType The Solidity type as a string (e.g., "uint256", "address").
+     * @return The decoded value as an object.
+     */
+    private fun decodeType(
+        hexValue: String,
+        solidityType: String,
+    ): Any {
+        val typeClass =
+            AbiTypes.getType(solidityType)
+                ?: throw IllegalArgumentException("Unsupported Solidity type: $solidityType")
+
+        return try {
+            TypeDecoder.decode(hexValue, 0, typeClass).value
+        } catch (e: Exception) {
+            throw IllegalArgumentException("Error decoding value for type $solidityType: $hexValue", e)
+        }
+    }
+
+    /**
+     * Extracts a 32-byte segment of the data field based on the parameter index.
      *
      * @param data The data field of the event.
      * @param index The index of the parameter in the data field.
@@ -74,7 +97,10 @@ object EventUtils {
         index: Int,
     ): String {
         val offset = index * 64
-        val rawSegment = HexUtils.removePrefix(data).substring(offset, offset + 64)
-        return HexUtils.addPrefix(rawSegment)
+        val cleanData = Numeric.cleanHexPrefix(data)
+        if (offset + 64 > cleanData.length) {
+            throw IllegalArgumentException("Data segment out of bounds for index $index")
+        }
+        return Numeric.prependHexPrefix(cleanData.substring(offset, offset + 64))
     }
 }
