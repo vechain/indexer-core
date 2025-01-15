@@ -4,9 +4,11 @@ import kotlinx.coroutines.*
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.AbiManager
+import org.vechain.indexer.event.BusinessEventManager
+import org.vechain.indexer.event.BusinessEventProcessor
 import org.vechain.indexer.event.GenericEventIndexer
-import org.vechain.indexer.event.model.GenericEventParameters
-import org.vechain.indexer.event.model.IndexedEvent
+import org.vechain.indexer.event.model.generic.GenericEventParameters
+import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
@@ -38,6 +40,7 @@ abstract class Indexer(
     private val startBlock: Long = 0L,
     private val syncLoggerInterval: Long = 1_000L,
     protected open val abiManager: AbiManager? = null, // Optional AbiManager
+    protected open val businessEventManager: BusinessEventManager? = null, // Optional BusinessEventManager
 ) {
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
@@ -54,46 +57,73 @@ abstract class Indexer(
     protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     /**
-     * Processes events from the block using the `GenericEventIndexer`.
-     * This is optional and will only work if an `AbiManager` is provided.
+     * Processes all events from a block.
+     * Returns all events decoded and processed by the `GenericEventIndexer`.
      */
-    protected open fun processBlockEvents(block: Block): List<Pair<IndexedEvent<GenericEventParameters>, GenericEventParameters>> {
-        if (abiManager == null) {
-            logger.warn("ABI Manager is not configured. Skipping event processing.")
-            return emptyList()
+    protected open fun processBlockEventsWithBusinessLogic(block: Block): List<Pair<IndexedEvent, GenericEventParameters>> {
+        val decodedEvents = processGenericEvents(block)
+
+        // If the business event manager is not configured, return only the decoded generic events
+        if (businessEventManager == null) {
+            logger.warn("Business Event Manager is not configured. Skipping business event processing.")
+            return decodedEvents
         }
 
-        val eventIndexer = GenericEventIndexer<GenericEventParameters>(abiManager!!)
-        return eventIndexer.getEvents(block)
+        // Process business events using the BusinessEventProcessor
+        return BusinessEventProcessor(businessEventManager!!).processEvents(decodedEvents)
     }
 
     /**
-     * Processes block events based on optional ABI names, event names, and contract address.
-     *
-     * @param block The block to process.
-     * @param abiNames Optional list of ABI file names to filter events (e.g., ["b3tr", "erc721"]). Defaults to an empty list, meaning all ABIs.
-     * @param eventNames Optional list of event names to filter (e.g., ["Transfer", "Approval"]). Defaults to an empty list, meaning all events.
-     * @param contractAddress Optional contract address to filter events. If null, events from all addresses are processed.
-     * @return A list of decoded events, each paired with its metadata.
+     * Processes business events only from a block.
+     * Filters and returns only business events using the `BusinessEventProcessor`.
+     */
+    protected open fun processBlockBusinessEvents(block: Block): List<Pair<IndexedEvent, GenericEventParameters>> {
+        val decodedEvents = processGenericEvents(block)
+
+        // If the business event manager is not configured, return only the decoded generic events
+        if (businessEventManager == null) {
+            logger.warn("Business Event Manager is not configured. Skipping business event processing.")
+            return decodedEvents
+        }
+
+        // Retrieve only the business events
+        return BusinessEventProcessor(businessEventManager!!).getOnlyBusinessEvents(decodedEvents)
+    }
+
+    /**
+     * Processes events from a block based on optional filters (ABI names, event names, and contract address).
      */
     protected open fun processBlockEventsByFilters(
         block: Block,
         abiNames: List<String> = emptyList(),
         eventNames: List<String> = emptyList(),
         contractAddress: String? = null,
-    ): List<Pair<IndexedEvent<GenericEventParameters>, GenericEventParameters>> {
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
         if (abiManager == null) {
             logger.warn("ABI Manager is not configured. Skipping event processing.")
             return emptyList()
         }
 
-        val eventIndexer = GenericEventIndexer<GenericEventParameters>(abiManager!!)
+        val eventIndexer = GenericEventIndexer(abiManager!!)
         return eventIndexer.getEventsByFilters(
             block = block,
             abiNames = abiNames,
             eventNames = eventNames,
-            contractAddress = contractAddress, // Pass the contract address filter
+            contractAddress = contractAddress,
         )
+    }
+
+    /**
+     * Helper method to process generic events from a block using `GenericEventIndexer`.
+     */
+    private fun processGenericEvents(block: Block): List<Pair<IndexedEvent, GenericEventParameters>> {
+        if (abiManager == null) {
+            logger.warn("ABI Manager is not configured. Skipping event processing.")
+            return emptyList()
+        }
+
+        val eventIndexer = GenericEventIndexer(abiManager!!)
+        return eventIndexer.getEventsByFilters(block)
     }
 
     var status = Status.SYNCING
