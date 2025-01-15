@@ -1,4 +1,4 @@
-package org.vechain.indexer.event.model
+package org.vechain.indexer.event.model.abi
 
 data class InputOutput(
     val internalType: String,

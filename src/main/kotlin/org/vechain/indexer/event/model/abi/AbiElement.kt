@@ -1,4 +1,4 @@
-package org.vechain.indexer.event.model
+package org.vechain.indexer.event.model.abi
 
 import org.vechain.indexer.event.utils.EventUtils
 
@@ -12,10 +12,11 @@ data class AbiElement(
     var signature: String? = null,
 ) {
     fun setSignature(): String {
-        signature = when (type) {
-            "event", "function" -> EventUtils.getEventSignature("${name}(${inputs.joinToString(",") { it.type }})")
-            else -> null // Constructors and errors don't need a signature
-        }
+        signature =
+            when (type) {
+                "event", "function" -> EventUtils.getEventSignature("$name(${inputs.joinToString(",") { it.type }})")
+                else -> null // Constructors and errors don't need a signature
+            }
         return signature ?: ""
     }
 }

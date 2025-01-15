@@ -1,5 +1,4 @@
-package org.vechain.indexer.event.model
-
+package org.vechain.indexer.event.model.generic
 
 /**
  * Represents the raw data of a blockchain event.
@@ -9,5 +8,5 @@ package org.vechain.indexer.event.model
  */
 data class RawEvent(
     val data: String, // The raw event data (hex-encoded string).
-    val topics: List<String> // The topics associated with the event (hex-encoded strings).
+    val topics: List<String>, // The topics associated with the event (hex-encoded strings).
 )

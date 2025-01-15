@@ -1,4 +1,4 @@
-package org.vechain.indexer.event.model
+package org.vechain.indexer.event.model.generic
 
 data class IndexedEvent<T : EventParameters>(
     val id: String,
@@ -12,6 +12,5 @@ data class IndexedEvent<T : EventParameters>(
     val address: String,
     val eventType: String,
     val clauseIndex: Long,
-    val signature: String
+    val signature: String,
 )
-
