@@ -1,10 +1,9 @@
 package org.vechain.indexer.event
 
 import com.fasterxml.jackson.core.type.TypeReference
-import org.springframework.core.io.Resource
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver
 import org.vechain.indexer.event.model.business.BusinessEventDefinition
 import org.vechain.indexer.utils.JsonUtils
+import java.io.File
 
 class BusinessEventManager {
     private val businessEvents = mutableMapOf<String, BusinessEventDefinition>()
@@ -12,22 +11,29 @@ class BusinessEventManager {
     /**
      * Loads business events from the specified resource path into memory.
      *
-     * @param resourcePath The path to the business event JSON files.
+     * @param resourcePath The path to the business event JSON files (e.g., "businessEvents").
      */
     fun loadBusinessEvents(resourcePath: String) {
-        val resolver = PathMatchingResourcePatternResolver()
-        val resources: Array<Resource> = resolver.getResources(resourcePath)
-        resources.forEach { resource ->
+        val classLoader = Thread.currentThread().contextClassLoader
+        val resourceDir =
+            classLoader.getResource(resourcePath)
+                ?: throw IllegalArgumentException("Invalid business events directory: $resourcePath")
+
+        val eventFiles =
+            File(resourceDir.toURI()).listFiles { file -> file.extension == "json" }
+                ?: throw IllegalArgumentException("No business event files found in $resourcePath")
+
+        eventFiles.forEach { file ->
             try {
                 val businessEventDefinition =
                     JsonUtils.mapper.readValue(
-                        resource.inputStream,
+                        file.inputStream(),
                         object : TypeReference<BusinessEventDefinition>() {},
                     )
-                val businessEventName = resource.filename?.removeSuffix(".json") ?: "unknown"
+                val businessEventName = file.nameWithoutExtension
                 businessEvents[businessEventName] = businessEventDefinition
             } catch (e: Exception) {
-                println("Failed to load business event from ${resource.filename}: ${e.message}")
+                println("Failed to load business event from ${file.name}: ${e.message}")
             }
         }
     }
