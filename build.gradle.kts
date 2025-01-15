@@ -83,9 +83,6 @@ publishing {
 }
 
 signing {
-    // Signing is required unless explicitly skipped
-    isRequired = !project.hasProperty("skipSigning")
-
     val signingKey = findProperty("signingKey") as String?
     val signingPassword = findProperty("signingPassword") as String?
     useInMemoryPgpKeys(signingKey, signingPassword)
@@ -140,8 +137,6 @@ dependencies {
     implementation("com.github.kittinunf.fuel:fuel-coroutines:2.3.1")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.14.2")
     implementation("org.slf4j:slf4j-api:1.7.32")
-    implementation("org.springframework:spring-core:6.1.14")
-    implementation("org.springframework:spring-context:6.1.14")
     implementation("org.web3j:abi:4.9.7")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.9.3")
