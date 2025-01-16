@@ -2,10 +2,9 @@ package org.vechain.indexer.event.utils
 
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.generic.GenericEventParameters
+import org.vechain.indexer.event.types.Types
 import org.vechain.indexer.thor.model.TxEvent
 import org.web3j.abi.EventEncoder
-import org.web3j.abi.TypeDecoder
-import org.web3j.abi.datatypes.AbiTypes
 import org.web3j.utils.Numeric
 
 object EventUtils {
@@ -28,7 +27,7 @@ object EventUtils {
         event: TxEvent,
         abiElement: AbiElement,
     ): GenericEventParameters {
-        val decodedParameters = mutableMapOf<String, Any>()
+        val decodedParameters = mutableMapOf<String, Any?>()
         val inputs = abiElement.inputs
 
         // Validate inputs and topics
@@ -45,22 +44,19 @@ object EventUtils {
 
         for (input in inputs) {
             val decodedValue =
-                when {
-                    input.indexed -> {
-                        if (topicIndex >= event.topics.size) {
-                            throw IllegalArgumentException("Missing topic for indexed parameter: ${input.name}")
-                        }
-                        decodeType(event.topics[topicIndex++], input.type)
-                    }
-                    else -> {
-                        val segment = extractDataSegment(event.data, dataOffset++)
-                        decodeType(segment, input.type)
-                    }
+                if (input.indexed) {
+                    decodeType(event.topics[topicIndex++], input.type)
+                } else {
+                    val segment = extractDataSegment(event.data, dataOffset++)
+                    decodeType(segment, input.type, fullData = event.data, startPosition = (dataOffset - 1) * 64)
                 }
             decodedParameters[input.name] = decodedValue
         }
 
-        return GenericEventParameters(decodedParameters, abiElement.name ?: "Unknown")
+        return GenericEventParameters(
+            returnValues = decodedParameters.filterValues { it != null }.mapValues { it.value as Any }, // Filter out nulls and cast to Any
+            eventType = abiElement.name ?: "Unknown",
+        )
     }
 
     /**
@@ -73,17 +69,18 @@ object EventUtils {
     private fun decodeType(
         hexValue: String,
         solidityType: String,
-    ): Any {
-        val typeClass =
-            AbiTypes.getType(solidityType)
-                ?: throw IllegalArgumentException("Unsupported Solidity type: $solidityType")
-
-        return try {
-            TypeDecoder.decode(hexValue, 0, typeClass).value
-        } catch (e: Exception) {
-            throw IllegalArgumentException("Error decoding value for type $solidityType: $hexValue", e)
-        }
-    }
+        fullData: String? = null, // Pass full data for dynamic types
+        startPosition: Int = 0, // Start position in the data field
+    ): Any =
+        Types
+            .values()
+            .firstOrNull {
+                it.isType(
+                    solidityType,
+                )
+            }?.decode(hexValue, Any::class.java, solidityType, fullData, startPosition)
+            ?.actualValue
+            ?: throw IllegalArgumentException("Unsupported Solidity type: $solidityType")
 
     /**
      * Extracts a 32-byte segment of the data field based on the parameter index.

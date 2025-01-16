@@ -4,7 +4,7 @@ import org.vechain.indexer.event.utils.EventUtils
 
 data class AbiElement(
     val name: String?,
-    val type: String, // e.g., "constructor", "event", "function", "error"
+    val type: String,
     val anonymous: Boolean = false,
     val stateMutability: String? = null,
     val inputs: List<InputOutput> = emptyList(),
@@ -15,7 +15,7 @@ data class AbiElement(
         signature =
             when (type) {
                 "event", "function" -> EventUtils.getEventSignature("$name(${inputs.joinToString(",") { it.type }})")
-                else -> null // Constructors and errors don't need a signature
+                else -> null
             }
         return signature ?: ""
     }
