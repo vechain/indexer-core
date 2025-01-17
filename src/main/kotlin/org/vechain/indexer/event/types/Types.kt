@@ -17,11 +17,10 @@ enum class Types {
             fullData: String?,
             startPosition: Int,
         ): DecodedValue<T> {
-            // Ensure the input length is valid
             if (encoded.length < 64) {
                 throw IllegalArgumentException("Invalid address length: $encoded")
             }
-            val decoded = "0x" + encoded.takeLast(40) // Extract 20 bytes (last 40 characters)
+            val decoded = "0x" + encoded.takeLast(40)
             return DecodedValue(decoded, clazz, clazz.cast(decoded), name)
         }
 
@@ -40,14 +39,6 @@ enum class Types {
             fullData: String?,
             startPosition: Int,
         ): DecodedValue<T> {
-            val bitSize = if (name == "uint") 256 else name.removePrefix("uint").toIntOrNull() ?: 256
-
-            // Ensure the bit size is valid
-            if (bitSize !in 8..256 || bitSize % 8 != 0) {
-                throw IllegalArgumentException("Invalid uint bit size: $bitSize")
-            }
-
-            // Decode the value (all uint types are decoded the same way as a BigInteger)
             val decoded = Numeric.decodeQuantity(encoded)
             return DecodedValue(decoded.toString(), clazz, clazz.cast(decoded), name)
         }
@@ -82,12 +73,9 @@ enum class Types {
             fullData: String?,
             startPosition: Int,
         ): DecodedValue<T> {
-            // Ensure the input is a valid bytes32
             if (encoded.length != 66 || !encoded.startsWith("0x")) {
                 throw IllegalArgumentException("Invalid bytes32 value: $encoded")
             }
-
-            // Return the original hex value
             return DecodedValue(encoded, clazz, clazz.cast(encoded), name)
         }
 
@@ -104,13 +92,41 @@ enum class Types {
             fullData: String?,
             startPosition: Int,
         ): DecodedValue<T> {
-            val dataToDecode = fullData ?: encoded // Use fullData if available; otherwise, fallback to encoded
+            val dataToDecode = fullData ?: encoded
             decodeAbiString(dataToDecode, startPosition)?.let {
                 return DecodedValue(it, clazz, clazz.cast(it), name)
             } ?: throw IllegalArgumentException("Error decoding string at offset: $startPosition")
         }
 
         override fun getClaas(): Class<*> = String::class.java
+    },
+
+    ARRAY {
+        override fun isType(typeName: String): Boolean = typeName.endsWith("[]") || typeName.matches(Regex(".+\\[\\d+\\]"))
+
+        override fun <T> decode(
+            encoded: String,
+            clazz: Class<T>,
+            name: String,
+            fullData: String?,
+            startPosition: Int,
+        ): DecodedValue<T> {
+            val elementType =
+                when {
+                    name.endsWith("[]") -> name.removeSuffix("[]")
+                    name.matches(Regex(".+\\[\\d+\\]")) -> name.substringBeforeLast("[")
+                    else -> throw IllegalArgumentException("Invalid array type: $name")
+                }
+
+            val decodedElements = decodeArray(elementType, fullData ?: encoded, startPosition)
+
+            // Convert the list to a JSON-like string representation
+            val stringRepresentation = decodedElements.joinToString(prefix = "[", postfix = "]") { it.toString() }
+
+            return DecodedValue(stringRepresentation, clazz, clazz.cast(decodedElements), name)
+        }
+
+        override fun getClaas(): Class<*> = List::class.java
     }, ;
 
     abstract fun isType(typeName: String): Boolean
@@ -134,23 +150,19 @@ enum class Types {
         ): String? {
             val inputData = Numeric.cleanHexPrefix(encodedString)
             try {
-                // Extract the offset at the given startPosition
                 if (inputData.length < startPosition + 64) {
                     throw IllegalArgumentException("Data is too short for extracting offset")
                 }
                 val offsetHex = inputData.substring(startPosition, startPosition + 64)
                 val offset = Numeric.decodeQuantity(Numeric.prependHexPrefix(offsetHex)).toInt()
 
-                // Check if offset is valid
                 if (offset * 2 + 64 > inputData.length) {
                     throw IllegalArgumentException("Invalid offset or data length")
                 }
 
-                // Extract the string length at the offset
                 val lengthHex = inputData.substring(offset * 2, offset * 2 + 64)
                 val length = Numeric.decodeQuantity(Numeric.prependHexPrefix(lengthHex)).toInt()
 
-                // Extract the actual string content
                 val stringStart = offset * 2 + 64
                 val stringEnd = stringStart + length * 2
 
@@ -169,5 +181,47 @@ enum class Types {
                 return null
             }
         }
+
+        fun decodeArray(
+            elementType: String,
+            fullData: String,
+            startPosition: Int,
+        ): List<Any> {
+            val inputData = Numeric.cleanHexPrefix(fullData)
+
+            val arrayOffsetHex = inputData.substring(startPosition, (startPosition + 64))
+            val arrayOffset = Numeric.decodeQuantity(Numeric.prependHexPrefix(arrayOffsetHex)).toInt() * 2
+
+            val arrayLengthHex = inputData.substring(arrayOffset, arrayOffset + 64)
+            val arrayLength = Numeric.decodeQuantity(Numeric.prependHexPrefix(arrayLengthHex)).toInt()
+
+            val decodedArray = mutableListOf<Any>()
+            var currentOffset = arrayOffset + 64 // Start after the array length field
+            for (i in 0 until arrayLength) {
+                val elementData = inputData.substring(currentOffset, currentOffset + 64)
+                try {
+                    val prefixedElementData = Numeric.prependHexPrefix(elementData) // Ensure the `0x` prefix is added
+                    val element = decodeBasicType<Any>(elementType, prefixedElementData) // Decode individual elements
+                    decodedArray.add(element.actualValue)
+                } catch (e: Exception) {
+                    logger.error("Error decoding element $i of type $elementType at offset $currentOffset: ${e.message}")
+                    throw e
+                }
+
+                currentOffset += 64
+            }
+
+            return decodedArray
+        }
+
+        private inline fun <reified T> decodeBasicType(
+            typeName: String,
+            encoded: String,
+        ): DecodedValue<T> =
+            Types
+                .values()
+                .firstOrNull { it.isType(typeName) }
+                ?.decode(encoded, T::class.java, typeName, null, 0) // Pass correct type to decode
+                ?: throw IllegalArgumentException("Unsupported type: $typeName")
     }
 }
