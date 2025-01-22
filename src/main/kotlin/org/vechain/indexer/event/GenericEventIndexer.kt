@@ -29,10 +29,10 @@ class GenericEventIndexer(
         block: Block,
         abiNames: List<String> = emptyList(),
         eventNames: List<String> = emptyList(),
-        contractAddress: String? = null,
+        contractAddresses: List<String> = emptyList(),
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
         val configuredEvents = getConfiguredEvents(abiNames, eventNames)
-        return processEvents(block, configuredEvents, contractAddress)
+        return processEvents(block, configuredEvents, contractAddresses)
     }
 
     /**
@@ -58,12 +58,12 @@ class GenericEventIndexer(
     private fun processEvents(
         block: Block,
         configuredEvents: List<AbiElement>,
-        contractAddress: String?,
+        contractAddresses: List<String>,
     ): List<Pair<IndexedEvent, GenericEventParameters>> =
         block.transactions.flatMap { tx ->
             tx.outputs.flatMapIndexed { outputIndex, output ->
                 output.events.mapIndexedNotNull { eventIndex, event ->
-                    if (isEventValid(event, configuredEvents, contractAddress)) {
+                    if (isEventValid(event, configuredEvents, contractAddresses)) {
                         decodeEvent(event, configuredEvents, tx, block, outputIndex, eventIndex)
                     } else {
                         null
@@ -78,13 +78,13 @@ class GenericEventIndexer(
     private fun isEventValid(
         event: TxEvent,
         configuredEvents: List<AbiElement>,
-        contractAddress: String?,
+        contractAddresses: List<String>,
     ): Boolean {
         val matchesAbi =
             configuredEvents.any {
                 it.signature == Numeric.cleanHexPrefix(event.topics[0])
             }
-        val matchesContract = contractAddress == null || event.address.equals(contractAddress, ignoreCase = true)
+        val matchesContract = contractAddresses.isEmpty() || contractAddresses.any { it.equals(event.address, ignoreCase = true) }
 
         return event.topics.isNotEmpty() && matchesAbi && matchesContract
     }

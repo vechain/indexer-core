@@ -64,7 +64,7 @@ internal class GenericEventIndexerTest {
             expectThat(result).isNotEqualTo(null)
 
             // Verify that getEventsByFilters was called with default parameters
-            verify { spyGenericEventIndexer.getEventsByFilters(block, emptyList(), emptyList(), null) }
+            verify { spyGenericEventIndexer.getEventsByFilters(block, emptyList(), emptyList(), emptyList()) }
         }
 
         @Test
@@ -124,13 +124,14 @@ internal class GenericEventIndexerTest {
             // Create block with transfer event and a different event
             val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(arrayEventClause, transferEventClause))))
 
-            every { abiManager.getAbis() } returns
-                mapOf(
-                    "AbiName" to listOf(transferAbiElement),
-                    "OtherAbiName" to listOf(arrayAbiElement),
+            every {
+                abiManager.getEventsByNames(
+                    any(),
+                    any(),
                 )
+            } returns listOf(transferAbiElement)
 
-            val result = genericEventIndexer.getEventsByFilters(block, contractAddress = "0x76Ca782B59C74d088C7D2Cce2f211BC00836c602")
+            val result = genericEventIndexer.getEventsByFilters(block, listOf("0x76Ca782B59C74d088C7D2Cce2f211BC00836c602"))
 
             expectThat(result.size).isEqualTo(1)
             expectThat(result[0].second.getReturnValues()).isEqualTo(
