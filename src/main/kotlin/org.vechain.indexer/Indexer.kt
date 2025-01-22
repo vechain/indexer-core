@@ -7,6 +7,7 @@ import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.BusinessEventProcessor
 import org.vechain.indexer.event.GenericEventIndexer
+import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.exception.BlockNotFoundException
@@ -58,72 +59,71 @@ abstract class Indexer(
 
     /**
      * Processes all events from a block.
-     * Returns all events decoded and processed by the `GenericEventIndexer`.
+     * Filters events using provided criteria and processes both generic and business events.
      */
-    protected open fun processBlockEventsWithBusinessLogic(block: Block): List<Pair<IndexedEvent, GenericEventParameters>> {
-        val decodedEvents = processGenericEvents(block)
-
-        // If the business event manager is not configured, return only the decoded generic events
-        if (businessEventManager == null) {
-            logger.warn("Business Event Manager is not configured. Skipping business event processing.")
-            return decodedEvents
-        }
-
-        // Process business events using the BusinessEventProcessor
-        return BusinessEventProcessor(businessEventManager!!).processEvents(decodedEvents)
-    }
-
-    /**
-     * Processes business events only from a block.
-     * Filters and returns only business events using the `BusinessEventProcessor`.
-     */
-    protected open fun processBlockBusinessEvents(block: Block): List<Pair<IndexedEvent, GenericEventParameters>> {
-        val decodedEvents = processGenericEvents(block)
-
-        // If the business event manager is not configured, return only the decoded generic events
-        if (businessEventManager == null) {
-            logger.warn("Business Event Manager is not configured. Skipping business event processing.")
-            return decodedEvents
-        }
-
-        // Retrieve only the business events
-        return BusinessEventProcessor(businessEventManager!!).getOnlyBusinessEvents(decodedEvents)
-    }
-
-    /**
-     * Processes events from a block based on optional filters (ABI names, event names, and contract address).
-     */
-    protected open fun processBlockEventsByFilters(
+    protected open fun processAllEvents(
         block: Block,
-        abiNames: List<String> = emptyList(),
-        eventNames: List<String> = emptyList(),
-        contractAddress: String? = null,
+        criteria: FilterCriteria = FilterCriteria(),
+        removeDuplicates: Boolean? = true,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        var updatedCriteria = criteria
+        // If business events are provided to filter by decode them
+        if (criteria.businessEventNames.isNotEmpty() &&
+            businessEventManager != null
+        ) {
+            val names = businessEventManager!!.getBusinessGenericEventNames(criteria.businessEventNames)
+            updatedCriteria = criteria.addBusinessEventNames(names)
+        }
+
+        // Decode generic events from the block based on updated criteria
+        val decodedEvents = processBlockGenericEvents(block, updatedCriteria)
+
+        // Process business events if applicable
+        return if (businessEventManager != null) {
+            val processor = BusinessEventProcessor(businessEventManager!!)
+            processor.processEvents(decodedEvents, updatedCriteria.businessEventNames)
+        } else {
+            logger.debug("Skipping business event processing as no businessEventNames are provided or manager is missing.")
+            decodedEvents
+        }
+    }
+
+    /**
+     * Processes only generic events from a block.
+     */
+    protected open fun processBlockGenericEvents(
+        block: Block,
+        criteria: FilterCriteria = FilterCriteria(),
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
         if (abiManager == null) {
-            logger.warn("ABI Manager is not configured. Skipping event processing.")
+            logger.warn("ABI Manager is not configured. Skipping generic event processing.")
             return emptyList()
         }
 
         val eventIndexer = GenericEventIndexer(abiManager!!)
         return eventIndexer.getEventsByFilters(
             block = block,
-            abiNames = abiNames,
-            eventNames = eventNames,
-            contractAddress = contractAddress,
+            abiNames = criteria.abiNames,
+            eventNames = criteria.eventNames,
+            contractAddresses = criteria.contractAddresses,
         )
     }
 
     /**
-     * Helper method to process generic events from a block using `GenericEventIndexer`.
+     * Processes only business events from a block.
      */
-    private fun processGenericEvents(block: Block): List<Pair<IndexedEvent, GenericEventParameters>> {
-        if (abiManager == null) {
-            logger.warn("ABI Manager is not configured. Skipping event processing.")
+    protected open fun processBlockBusinessEvents(
+        block: Block,
+        criteria: FilterCriteria = FilterCriteria(),
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        if (businessEventManager == null) {
+            logger.warn("Business Event Manager is not configured. Skipping business event processing.")
             return emptyList()
         }
 
-        val eventIndexer = GenericEventIndexer(abiManager!!)
-        return eventIndexer.getEventsByFilters(block)
+        val decodedEvents = processBlockGenericEvents(block, criteria)
+        val processor = BusinessEventProcessor(businessEventManager!!)
+        return processor.getOnlyBusinessEvents(decodedEvents, criteria.businessEventNames)
     }
 
     var status = Status.SYNCING

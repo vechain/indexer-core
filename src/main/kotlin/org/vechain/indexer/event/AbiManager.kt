@@ -62,6 +62,6 @@ class AbiManager {
         eventNames: List<String>,
     ): List<AbiElement> =
         abiNames.flatMap { abiName ->
-            abis[abiName]?.filter { it.type == "event" && it.name in eventNames } ?: emptyList()
+            abis[abiName]?.filter { it.type == "event" && (eventNames.isEmpty() || it.name in eventNames) } ?: emptyList()
         }
 }
