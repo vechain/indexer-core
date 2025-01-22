@@ -1,6 +1,7 @@
 package org.vechain.indexer.event.utils
 
 import org.vechain.indexer.event.model.abi.AbiElement
+import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.types.Types
 import org.vechain.indexer.thor.model.TxEvent
@@ -34,7 +35,7 @@ object EventUtils {
         val indexedInputs = inputs.filter { it.indexed }
         if (indexedInputs.size + 1 != event.topics.size) {
             throw IllegalArgumentException(
-                "Mismatch between ABI indexed inputs (${indexedInputs.size}) and event topics (${event.topics.size})",
+                "Mismatch between ABI indexed inputs and event topics",
             )
         }
 
@@ -48,7 +49,7 @@ object EventUtils {
                     decodeType(event.topics[topicIndex++], input.type)
                 } else {
                     val segment = extractDataSegment(event.data, dataOffset++)
-                    decodeType(segment, input.type, fullData = event.data, startPosition = (dataOffset - 1) * 64)
+                    decodeType(segment, input.type, fullData = event.data, startPosition = (dataOffset - 1) * 64, input.components)
                 }
             decodedParameters[input.name] = decodedValue
         }
@@ -71,6 +72,7 @@ object EventUtils {
         solidityType: String,
         fullData: String? = null, // Pass full data for dynamic types
         startPosition: Int = 0, // Start position in the data field
+        components: List<InputOutput>? = null, // Components for tuple types
     ): Any =
         Types
             .values()
@@ -78,7 +80,7 @@ object EventUtils {
                 it.isType(
                     solidityType,
                 )
-            }?.decode(hexValue, Any::class.java, solidityType, fullData, startPosition)
+            }?.decode(hexValue, Any::class.java, solidityType, fullData, startPosition, components)
             ?.actualValue
             ?: throw IllegalArgumentException("Unsupported Solidity type: $solidityType")
 

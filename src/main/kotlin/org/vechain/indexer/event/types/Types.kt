@@ -2,6 +2,7 @@ package org.vechain.indexer.event.types
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.vechain.indexer.event.model.abi.InputOutput
 import org.web3j.abi.TypeDecoder
 import org.web3j.utils.Numeric
 import java.math.BigInteger
@@ -16,6 +17,7 @@ enum class Types {
             name: String,
             fullData: String?,
             startPosition: Int,
+            components: List<InputOutput>?,
         ): DecodedValue<T> {
             if (encoded.length < 64) {
                 throw IllegalArgumentException("Invalid address length: $encoded")
@@ -38,6 +40,7 @@ enum class Types {
             name: String,
             fullData: String?,
             startPosition: Int,
+            components: List<InputOutput>?,
         ): DecodedValue<T> {
             val decoded = Numeric.decodeQuantity(encoded)
             return DecodedValue(decoded.toString(), clazz, clazz.cast(decoded), name)
@@ -55,6 +58,7 @@ enum class Types {
             name: String,
             fullData: String?,
             startPosition: Int,
+            components: List<InputOutput>?,
         ): DecodedValue<T> {
             val decoded = TypeDecoder.decodeBool(Numeric.cleanHexPrefix(encoded), 0).value
             return DecodedValue(decoded.toString(), clazz, clazz.cast(decoded), name)
@@ -72,6 +76,7 @@ enum class Types {
             name: String,
             fullData: String?,
             startPosition: Int,
+            components: List<InputOutput>?,
         ): DecodedValue<T> {
             if (encoded.length != 66 || !encoded.startsWith("0x")) {
                 throw IllegalArgumentException("Invalid bytes32 value: $encoded")
@@ -91,6 +96,7 @@ enum class Types {
             name: String,
             fullData: String?,
             startPosition: Int,
+            components: List<InputOutput>?,
         ): DecodedValue<T> {
             val dataToDecode = fullData ?: encoded
             decodeAbiString(dataToDecode, startPosition)?.let {
@@ -99,6 +105,57 @@ enum class Types {
         }
 
         override fun getClaas(): Class<*> = String::class.java
+    },
+
+    TUPLE {
+        override fun isType(typeName: String): Boolean = typeName == "tuple"
+
+        override fun <T> decode(
+            encoded: String,
+            clazz: Class<T>,
+            name: String,
+            fullData: String?,
+            startPosition: Int,
+            components: List<InputOutput>?,
+        ): DecodedValue<T> {
+            if (components == null) {
+                throw IllegalArgumentException("Components must be provided for tuple types")
+            }
+
+            val inputData = Numeric.cleanHexPrefix(fullData ?: encoded)
+            val decodedComponents = mutableMapOf<String, Any?>()
+            var currentOffset = startPosition
+
+            // Decode each component in the tuple
+            for (component in components) {
+                // Extract the next 32 bytes
+                if (inputData.length < currentOffset + 64) {
+                    throw IllegalArgumentException("Data too short for tuple component at offset $currentOffset")
+                }
+                val componentData = inputData.substring(currentOffset, currentOffset + 64)
+
+                // Decode the component based on its type
+                val decodedComponent =
+                    Types
+                        .values()
+                        .firstOrNull { it.isType(component.type) }
+                        ?.decode(
+                            encoded = Numeric.prependHexPrefix(componentData),
+                            clazz = Any::class.java,
+                            name = component.type,
+                            fullData = fullData,
+                            startPosition = currentOffset,
+                        )
+                        ?: throw IllegalArgumentException("Unsupported type in tuple: ${component.type}")
+
+                decodedComponents[component.name] = decodedComponent.actualValue
+                currentOffset += 64 // Move to the next 32-byte slot
+            }
+
+            return DecodedValue(decodedComponents.toString(), clazz, clazz.cast(decodedComponents), name)
+        }
+
+        override fun getClaas(): Class<*> = List::class.java
     },
 
     ARRAY {
@@ -110,6 +167,7 @@ enum class Types {
             name: String,
             fullData: String?,
             startPosition: Int,
+            components: List<InputOutput>?,
         ): DecodedValue<T> {
             val elementType =
                 when {
@@ -137,6 +195,7 @@ enum class Types {
         name: String,
         fullData: String?,
         startPosition: Int,
+        components: List<InputOutput>? = null,
     ): DecodedValue<T>
 
     abstract fun getClaas(): Class<*>
