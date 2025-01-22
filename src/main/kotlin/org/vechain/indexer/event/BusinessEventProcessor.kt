@@ -6,7 +6,7 @@ import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.utils.BusinessEventUtils
 
 /**
- * Processes blockchain events based on predefined business rules.
+ * Processes events based on predefined business rules.
  * Identifies and maps raw events to meaningful business events.
  */
 class BusinessEventProcessor(
@@ -15,16 +15,23 @@ class BusinessEventProcessor(
     /**
      * Processes a list of raw events, separating them into remaining events and business events.
      */
-    fun processEvents(events: List<Pair<IndexedEvent, GenericEventParameters>>): List<Pair<IndexedEvent, GenericEventParameters>> {
+    fun processEvents(
+        events: List<Pair<IndexedEvent, GenericEventParameters>>,
+        businessEventNames: List<String>,
+        removeDuplicates: Boolean = true,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
         val businessEvents = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
         val remainingEvents = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
 
         events.groupBy { it.first.txId }.forEach { (_, transactionEvents) ->
             transactionEvents.groupBy { it.first.clauseIndex.toInt() }.forEach { (_, clauseEvents) ->
-                val businessEvent = processClauseForBusinessEvent(clauseEvents)
-                if (businessEvent != null) {
-                    businessEvents.add(businessEvent)
-                } else {
+                val businessEvent = processClauseForBusinessEvent(clauseEvents, businessEventNames)
+
+                // Add the business event if found
+                businessEvent?.let { businessEvents.add(it) }
+
+                // Add clauseEvents to remainingEvents if businessEvent is null or duplicates are allowed
+                if (businessEvent == null || !removeDuplicates) {
                     remainingEvents.addAll(clauseEvents)
                 }
             }
@@ -36,13 +43,16 @@ class BusinessEventProcessor(
     /**
      * Filters and returns only business events from a list of raw events.
      */
-    fun getOnlyBusinessEvents(events: List<Pair<IndexedEvent, GenericEventParameters>>): List<Pair<IndexedEvent, GenericEventParameters>> =
+    fun getOnlyBusinessEvents(
+        events: List<Pair<IndexedEvent, GenericEventParameters>>,
+        businessEventNames: List<String>,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> =
         events
             .groupBy { it.first.txId }
             .flatMap { (_, transactionEvents) ->
                 transactionEvents
                     .groupBy { it.first.clauseIndex.toInt() }
-                    .mapNotNull { (_, clauseEvents) -> processClauseForBusinessEvent(clauseEvents) }
+                    .mapNotNull { (_, clauseEvents) -> processClauseForBusinessEvent(clauseEvents, businessEventNames) }
             }
 
     /**
@@ -50,12 +60,20 @@ class BusinessEventProcessor(
      */
     private fun processClauseForBusinessEvent(
         clauseEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
-    ): Pair<IndexedEvent, GenericEventParameters>? =
-        businessEventManager
-            .getAllBusinessEvents()
+        businessEventNames: List<String>,
+    ): Pair<IndexedEvent, GenericEventParameters>? {
+        val businessEvents =
+            if (businessEventNames.isEmpty()) {
+                businessEventManager.getAllBusinessEvents() // Get all business events
+            } else {
+                businessEventManager.getBusinessEventsByNames(businessEventNames) // Filter by provided names
+            }
+
+        return businessEvents
             .asSequence()
             .mapNotNull { (_, definition) -> matchClauseToBusinessEvent(clauseEvents, definition) }
             .firstOrNull()
+    }
 
     /**
      * Matches a group of clause events to a single business event definition.
