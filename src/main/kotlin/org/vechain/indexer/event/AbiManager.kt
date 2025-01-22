@@ -1,11 +1,15 @@
 package org.vechain.indexer.event
 
 import com.fasterxml.jackson.core.type.TypeReference
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.utils.JsonUtils
 import java.io.File
 
 class AbiManager {
+    private val logger: Logger = LoggerFactory.getLogger(this::class.java)
+
     private val abis = mutableMapOf<String, List<AbiElement>>()
 
     /**
@@ -21,7 +25,11 @@ class AbiManager {
 
         val abiFiles =
             File(resourceDir.toURI()).listFiles { file -> file.extension == "json" }
-                ?: throw IllegalArgumentException("No ABI files found in $resourcePath")
+
+        if (abiFiles.isNullOrEmpty()) {
+            logger.warn("No ABI files found in directory: $resourcePath")
+            return
+        }
 
         abiFiles.forEach { file ->
             try {
@@ -30,7 +38,7 @@ class AbiManager {
                 val abiName = file.nameWithoutExtension
                 abis[abiName] = abiList
             } catch (e: Exception) {
-                println("Failed to load ABI from ${file.name}: ${e.message}")
+                logger.error("Failed to load ABI file: ${file.name}", e)
             }
         }
     }
