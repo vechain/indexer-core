@@ -21,7 +21,11 @@ class BusinessEventManager {
 
         val eventFiles =
             File(resourceDir.toURI()).listFiles { file -> file.extension == "json" }
-                ?: throw IllegalArgumentException("No business event files found in $resourcePath")
+
+        if (eventFiles.isNullOrEmpty()) {
+            println("No business event files found in directory: $resourcePath")
+            return
+        }
 
         eventFiles.forEach { file ->
             try {
@@ -46,10 +50,25 @@ class BusinessEventManager {
     fun getAllBusinessEvents(): Map<String, BusinessEventDefinition> = businessEvents
 
     /**
-     * Retrieves a specific business event definition by its name.
+     * Retrieves specific business event definitions by their names.
      *
-     * @param name The name of the business event.
-     * @return The corresponding business event definition, or null if not found.
+     * @param names The list of business event names.
+     * @return A map where the key is the business event name, and the value is the corresponding definition.
      */
-    fun getBusinessEventByName(name: String): BusinessEventDefinition? = businessEvents[name]
+    fun getBusinessEventsByNames(names: List<String>): Map<String, BusinessEventDefinition> =
+        names
+            .mapNotNull { name ->
+                businessEvents[name]?.let { name to it }
+            }.toMap()
+
+    /**
+     * Retrieves the names of the generic events within the specified business events.
+     *
+     * @param names The list of business event names.
+     * @return A flat list of event names within the specified business events.
+     */
+    fun getBusinessGenericEventNames(names: List<String>): List<String> =
+        getBusinessEventsByNames(names).flatMap { (_, businessEventDefinition) ->
+            businessEventDefinition.events.map { it.name }
+        }
 }
