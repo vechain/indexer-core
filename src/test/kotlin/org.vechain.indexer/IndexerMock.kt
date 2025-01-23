@@ -1,18 +1,29 @@
 package org.vechain.indexer
 
+import org.vechain.indexer.event.AbiManager
+import org.vechain.indexer.event.BusinessEventManager
+import org.vechain.indexer.event.model.generic.FilterCriteria
+import org.vechain.indexer.event.model.generic.GenericEventParameters
+import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.client.DefaultThorClient
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
 
-class IndexerMock(private val mocker: IndexerResponseMocker, thorClientMock: ThorClient) :
-    Indexer(DefaultThorClient("notarealurl"), 0L) {
-
+class IndexerMock(
+    private val mocker: IndexerResponseMocker,
+    thorClientMock: ThorClient,
+    abiManagerMock: AbiManager?,
+    businessEventManagerMock: BusinessEventManager?,
+    private val useMock: Boolean = false,
+) : Indexer(DefaultThorClient("notarealurl"), 0L, abiManager = abiManagerMock, businessEventManager = businessEventManagerMock) {
     override val thorClient: ThorClient = thorClientMock
 
-    override fun getLastSyncedBlock(): BlockIdentifier? {
-        return mocker.getLastSyncedBlock()
-    }
+    override val abiManager: AbiManager? = abiManagerMock
+
+    override val businessEventManager: BusinessEventManager? = businessEventManagerMock
+
+    override fun getLastSyncedBlock(): BlockIdentifier? = mocker.getLastSyncedBlock()
 
     override fun rollback(blockNumber: Long) {
         mocker.rollback(blockNumber)
@@ -21,6 +32,27 @@ class IndexerMock(private val mocker: IndexerResponseMocker, thorClientMock: Tho
     override fun processBlock(block: Block) {
         mocker.processBlock(block)
     }
+
+    public override fun processBlockGenericEvents(
+        block: Block,
+        criteria: FilterCriteria,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> =
+        if (useMock) {
+            mocker.processBlockGenericEvents(block, criteria)
+        } else {
+            super.processBlockGenericEvents(block, criteria)
+        }
+
+    public override fun processAllEvents(
+        block: Block,
+        criteria: FilterCriteria,
+        removeDuplicates: Boolean?,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processAllEvents(block, criteria, removeDuplicates)
+
+    public override fun processBlockBusinessEvents(
+        block: Block,
+        criteria: FilterCriteria,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processBlockBusinessEvents(block, criteria)
 }
 
 interface IndexerResponseMocker {
@@ -29,4 +61,9 @@ interface IndexerResponseMocker {
     fun rollback(blockNumber: Long)
 
     fun processBlock(block: Block)
+
+    fun processBlockGenericEvents(
+        block: Block,
+        criteria: FilterCriteria,
+    ): List<Pair<IndexedEvent, GenericEventParameters>>
 }

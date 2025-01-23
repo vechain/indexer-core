@@ -57,75 +57,6 @@ abstract class Indexer(
 
     protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
-    /**
-     * Processes all events from a block.
-     * Filters events using provided criteria and processes both generic and business events.
-     */
-    protected open fun processAllEvents(
-        block: Block,
-        criteria: FilterCriteria = FilterCriteria(),
-        removeDuplicates: Boolean? = true,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
-        var updatedCriteria = criteria
-        // If business events are provided to filter by decode them
-        if (criteria.businessEventNames.isNotEmpty() &&
-            businessEventManager != null
-        ) {
-            val names = businessEventManager!!.getBusinessGenericEventNames(criteria.businessEventNames)
-            updatedCriteria = criteria.addBusinessEventNames(names)
-        }
-
-        // Decode generic events from the block based on updated criteria
-        val decodedEvents = processBlockGenericEvents(block, updatedCriteria)
-
-        // Process business events if applicable
-        return if (businessEventManager != null) {
-            val processor = BusinessEventProcessor(businessEventManager!!)
-            processor.processEvents(decodedEvents, updatedCriteria.businessEventNames)
-        } else {
-            logger.debug("Skipping business event processing as no businessEventNames are provided or manager is missing.")
-            decodedEvents
-        }
-    }
-
-    /**
-     * Processes only generic events from a block.
-     */
-    protected open fun processBlockGenericEvents(
-        block: Block,
-        criteria: FilterCriteria = FilterCriteria(),
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
-        if (abiManager == null) {
-            logger.warn("ABI Manager is not configured. Skipping generic event processing.")
-            return emptyList()
-        }
-
-        val eventIndexer = GenericEventIndexer(abiManager!!)
-        return eventIndexer.getEventsByFilters(
-            block = block,
-            abiNames = criteria.abiNames,
-            eventNames = criteria.eventNames,
-            contractAddresses = criteria.contractAddresses,
-        )
-    }
-
-    /**
-     * Processes only business events from a block.
-     */
-    protected open fun processBlockBusinessEvents(
-        block: Block,
-        criteria: FilterCriteria = FilterCriteria(),
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
-        if (businessEventManager == null) {
-            logger.warn("Business Event Manager is not configured. Skipping business event processing.")
-            return emptyList()
-        }
-
-        val decodedEvents = processBlockGenericEvents(block, criteria)
-        val processor = BusinessEventProcessor(businessEventManager!!)
-        return processor.getOnlyBusinessEvents(decodedEvents, criteria.businessEventNames)
-    }
-
     var status = Status.SYNCING
         private set
 
@@ -360,4 +291,107 @@ abstract class Indexer(
      * @param block the block to be processed
      */
     abstract fun processBlock(block: Block)
+
+    /**
+     * @notice Processes all events (generic and business) in a block based on the provided criteria.
+     * @dev Updates the filter criteria with business event names if applicable.
+     *      Decodes and processes both generic and business events.
+     * @param block The blockchain block containing events to process.
+     * @param criteria Filtering criteria to determine which events to process.
+     * @param removeDuplicates Optional flag to indicate if duplicate events should be removed (default: true).
+     * @return A list of decoded events and their associated parameters.
+     */
+    protected open fun processAllEvents(
+        block: Block,
+        criteria: FilterCriteria = FilterCriteria(),
+        removeDuplicates: Boolean? = true,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        val updatedCriteria = updateCriteriaWithBusinessEvents(criteria)
+        val decodedEvents = processBlockGenericEvents(block, updatedCriteria)
+        return processBusinessEvents(decodedEvents, updatedCriteria.businessEventNames)
+    }
+
+    /**
+     * @notice Processes generic events in a block based on the provided criteria.
+     * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and returns an empty list.
+     * @param block The blockchain block containing events to process.
+     * @param criteria Filtering criteria to determine which generic events to process.
+     * @return A list of decoded generic events and their associated parameters.
+     */
+    protected open fun processBlockGenericEvents(
+        block: Block,
+        criteria: FilterCriteria = FilterCriteria(),
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        if (abiManager == null) {
+            logger.warn("ABI Manager is not configured. Skipping generic event processing.")
+            return emptyList()
+        }
+
+        val eventIndexer = GenericEventIndexer(abiManager!!)
+        return eventIndexer.getEventsByFilters(
+            block = block,
+            abiNames = criteria.abiNames,
+            eventNames = criteria.eventNames,
+            contractAddresses = criteria.contractAddresses,
+        )
+    }
+
+    /**
+     * @notice Processes only business events in a block based on the provided criteria.
+     * @dev Requires the `BusinessEventManager` to decode and process business events.
+     *      Updates the filtering criteria with business event names.
+     * @param block The blockchain block containing events to process.
+     * @param criteria Filtering criteria to determine which business events to process.
+     * @return A list of processed business events and their associated parameters.
+     */
+    protected open fun processBlockBusinessEvents(
+        block: Block,
+        criteria: FilterCriteria = FilterCriteria(),
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        if (businessEventManager == null) {
+            logger.warn("Business Event Manager is not configured. Skipping business event processing.")
+            return emptyList()
+        }
+
+        val updatedCriteria = updateCriteriaWithBusinessEvents(criteria)
+        val decodedEvents = processBlockGenericEvents(block, updatedCriteria)
+
+        val processor = BusinessEventProcessor(businessEventManager!!)
+        return processor.getOnlyBusinessEvents(decodedEvents, updatedCriteria.businessEventNames)
+    }
+
+    /**
+     * @notice Updates the filter criteria with business event names if applicable.
+     * @dev Retrieves the generic event names for the specified business event names
+     *      using the `BusinessEventManager` and adds them to the criteria.
+     * @param criteria The original filtering criteria.
+     * @return Updated filtering criteria with additional event names for business events.
+     */
+    private fun updateCriteriaWithBusinessEvents(criteria: FilterCriteria): FilterCriteria {
+        if (criteria.businessEventNames.isNotEmpty() && businessEventManager != null) {
+            val names = businessEventManager!!.getBusinessGenericEventNames(criteria.businessEventNames)
+            return criteria.addBusinessEventNames(names)
+        }
+        return criteria
+    }
+
+    /**
+     * @notice Processes business events from a list of decoded events.
+     * @dev Utilizes the `BusinessEventProcessor` to process events if the `BusinessEventManager` is configured.
+     *      Logs a debug message if the `BusinessEventManager` is not present.
+     * @param decodedEvents A list of decoded generic events and their associated parameters.
+     * @param businessEventNames A list of business event names to process.
+     * @return A list of processed business events and their associated parameters.
+     */
+    private fun processBusinessEvents(
+        decodedEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
+        businessEventNames: List<String>,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        if (businessEventManager != null) {
+            val processor = BusinessEventProcessor(businessEventManager!!)
+            return processor.processEvents(decodedEvents, businessEventNames)
+        }
+        logger.debug("Skipping business event processing as manager is missing.")
+        return decodedEvents
+    }
 }
