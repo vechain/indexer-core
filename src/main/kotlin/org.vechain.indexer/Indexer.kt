@@ -296,9 +296,9 @@ abstract class Indexer(
      * @notice Processes all events (generic and business) in a block based on the provided criteria.
      * @dev Updates the filter criteria with business event names if applicable.
      *      Decodes and processes both generic and business events.
-     * @param block The blockchain block containing events to process.
+     * @param block The block containing events to process.
      * @param criteria Filtering criteria to determine which events to process.
-     * @param removeDuplicates Optional flag to indicate if duplicate events should be removed (default: true).
+     * @param removeDuplicates Optional flag to indicate if duplicate events (i.e. generic events used to create business events) should be removed.
      * @return A list of decoded events and their associated parameters.
      */
     protected open fun processAllEvents(
@@ -314,7 +314,7 @@ abstract class Indexer(
     /**
      * @notice Processes generic events in a block based on the provided criteria.
      * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and returns an empty list.
-     * @param block The blockchain block containing events to process.
+     * @param block The block containing events to process.
      * @param criteria Filtering criteria to determine which generic events to process.
      * @return A list of decoded generic events and their associated parameters.
      */
@@ -340,7 +340,7 @@ abstract class Indexer(
      * @notice Processes only business events in a block based on the provided criteria.
      * @dev Requires the `BusinessEventManager` to decode and process business events.
      *      Updates the filtering criteria with business event names.
-     * @param block The blockchain block containing events to process.
+     * @param block The block containing events to process.
      * @param criteria Filtering criteria to determine which business events to process.
      * @return A list of processed business events and their associated parameters.
      */
