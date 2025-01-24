@@ -10,7 +10,7 @@ import org.vechain.indexer.event.utils.EventUtils
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.Transaction
 import org.vechain.indexer.thor.model.TxEvent
-import org.web3j.utils.Numeric
+import org.vechain.indexer.utils.DataUtils
 
 class GenericEventIndexer(
     private val abiManager: AbiManager,
@@ -82,7 +82,7 @@ class GenericEventIndexer(
     ): Boolean {
         val matchesAbi =
             configuredEvents.any {
-                it.signature == Numeric.cleanHexPrefix(event.topics[0])
+                it.signature == DataUtils.removePrefix(event.topics[0])
             }
         val matchesContract = contractAddresses.isEmpty() || contractAddresses.any { it.equals(event.address, ignoreCase = true) }
 
@@ -102,7 +102,7 @@ class GenericEventIndexer(
     ): Pair<IndexedEvent, GenericEventParameters>? {
         val matchingAbi =
             configuredEvents.firstOrNull { abi ->
-                abi.signature == Numeric.cleanHexPrefix(event.topics[0]) &&
+                abi.signature == DataUtils.removePrefix(event.topics[0]) &&
                     abi.inputs.count { it.indexed } + 1 == event.topics.size
             }
 
@@ -139,7 +139,7 @@ class GenericEventIndexer(
         eventIndex: Int,
         event: TxEvent,
     ): String {
-        val eventHash = Numeric.cleanHexPrefix(event.data).hashCode() // Use hash of data as a unique identifier
+        val eventHash = DataUtils.removePrefix(event.data).hashCode() // Use hash of data as a unique identifier
         return "$txId-$outputIndex-$eventIndex-${event.topics[0]}-$eventHash"
     }
 }

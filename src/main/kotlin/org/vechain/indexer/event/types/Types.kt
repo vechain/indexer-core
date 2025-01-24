@@ -3,8 +3,7 @@ package org.vechain.indexer.event.types
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.abi.InputOutput
-import org.web3j.abi.TypeDecoder
-import org.web3j.utils.Numeric
+import org.vechain.indexer.utils.DataUtils
 import java.math.BigInteger
 
 enum class Types {
@@ -42,7 +41,7 @@ enum class Types {
             startPosition: Int,
             components: List<InputOutput>?,
         ): DecodedValue<T> {
-            val decoded = Numeric.decodeQuantity(encoded)
+            val decoded = DataUtils.decodeQuantity(encoded)
             return DecodedValue(decoded.toString(), clazz, clazz.cast(decoded), name)
         }
 
@@ -60,8 +59,9 @@ enum class Types {
             startPosition: Int,
             components: List<InputOutput>?,
         ): DecodedValue<T> {
-            val decoded = TypeDecoder.decodeBool(Numeric.cleanHexPrefix(encoded), 0).value
-            return DecodedValue(decoded.toString(), clazz, clazz.cast(decoded), name)
+            val decodedValue = DataUtils.decodeQuantity(encoded) // Decode the value using HexUtils
+            val boolValue = decodedValue == BigInteger.ONE // Interpret the decoded value as a boolean
+            return DecodedValue(boolValue.toString(), clazz, clazz.cast(boolValue), name)
         }
 
         override fun getClaas(): Class<*> = Boolean::class.java
@@ -123,7 +123,7 @@ enum class Types {
                 throw IllegalArgumentException("Components must be provided for tuple types")
             }
 
-            val inputData = Numeric.cleanHexPrefix(fullData ?: encoded)
+            val inputData = DataUtils.removePrefix(fullData ?: encoded)
             val decodedComponents = mutableMapOf<String, Any?>()
             var currentOffset = startPosition
 
@@ -141,7 +141,7 @@ enum class Types {
                         .values()
                         .firstOrNull { it.isType(component.type) }
                         ?.decode(
-                            encoded = Numeric.prependHexPrefix(componentData),
+                            encoded = DataUtils.addPrefix(componentData),
                             clazz = Any::class.java,
                             name = component.type,
                             fullData = fullData,
@@ -208,20 +208,20 @@ enum class Types {
             encodedString: String,
             startPosition: Int,
         ): String? {
-            val inputData = Numeric.cleanHexPrefix(encodedString)
+            val inputData = DataUtils.removePrefix(encodedString)
             try {
                 if (inputData.length < startPosition + 64) {
                     throw IllegalArgumentException("Data is too short for extracting offset")
                 }
                 val offsetHex = inputData.substring(startPosition, startPosition + 64)
-                val offset = Numeric.decodeQuantity(Numeric.prependHexPrefix(offsetHex)).toInt()
+                val offset = DataUtils.decodeQuantity(DataUtils.addPrefix(offsetHex)).toInt()
 
                 if (offset * 2 + 64 > inputData.length) {
                     throw IllegalArgumentException("Invalid offset or data length")
                 }
 
                 val lengthHex = inputData.substring(offset * 2, offset * 2 + 64)
-                val length = Numeric.decodeQuantity(Numeric.prependHexPrefix(lengthHex)).toInt()
+                val length = DataUtils.decodeQuantity(DataUtils.addPrefix(lengthHex)).toInt()
 
                 val stringStart = offset * 2 + 64
                 val stringEnd = stringStart + length * 2
@@ -233,7 +233,7 @@ enum class Types {
                 val stringHex = inputData.substring(stringStart, stringEnd)
 
                 return String(
-                    Numeric.hexStringToByteArray(Numeric.prependHexPrefix(stringHex)),
+                    DataUtils.hexStringToByteArray(DataUtils.addPrefix(stringHex)),
                     Charsets.UTF_8,
                 )
             } catch (e: Exception) {
@@ -247,20 +247,20 @@ enum class Types {
             fullData: String,
             startPosition: Int,
         ): List<Any> {
-            val inputData = Numeric.cleanHexPrefix(fullData)
+            val inputData = DataUtils.removePrefix(fullData)
 
             val arrayOffsetHex = inputData.substring(startPosition, (startPosition + 64))
-            val arrayOffset = Numeric.decodeQuantity(Numeric.prependHexPrefix(arrayOffsetHex)).toInt() * 2
+            val arrayOffset = DataUtils.decodeQuantity(DataUtils.addPrefix(arrayOffsetHex)).toInt() * 2
 
             val arrayLengthHex = inputData.substring(arrayOffset, arrayOffset + 64)
-            val arrayLength = Numeric.decodeQuantity(Numeric.prependHexPrefix(arrayLengthHex)).toInt()
+            val arrayLength = DataUtils.decodeQuantity(DataUtils.addPrefix(arrayLengthHex)).toInt()
 
             val decodedArray = mutableListOf<Any>()
             var currentOffset = arrayOffset + 64 // Start after the array length field
             for (i in 0 until arrayLength) {
                 val elementData = inputData.substring(currentOffset, currentOffset + 64)
                 try {
-                    val prefixedElementData = Numeric.prependHexPrefix(elementData) // Ensure the `0x` prefix is added
+                    val prefixedElementData = DataUtils.addPrefix(elementData) // Ensure the `0x` prefix is added
                     val element = decodeBasicType<Any>(elementType, prefixedElementData) // Decode individual elements
                     decodedArray.add(element.actualValue)
                 } catch (e: Exception) {

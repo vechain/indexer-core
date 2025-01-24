@@ -1,21 +1,27 @@
 package org.vechain.indexer.event.utils
 
+import org.bouncycastle.jcajce.provider.digest.Keccak
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.types.Types
 import org.vechain.indexer.thor.model.TxEvent
-import org.web3j.abi.EventEncoder
-import org.web3j.utils.Numeric
+import org.vechain.indexer.utils.DataUtils
 
 object EventUtils {
     /**
      * Computes the Keccak256 hash of an event's canonical signature.
      *
      * @param canonicalName The canonical signature of the event (e.g., `Transfer(address,address,uint256)`).
-     * @return A 64-character hexadecimal string representing the event's Keccak256 hash.
+     *                      This should include the event name and parameter types in the correct order.
+     * @return A 64-character hexadecimal string representing the event's Keccak256 hash without the `0x` prefix.
      */
-    fun getEventSignature(canonicalName: String): String = Numeric.cleanHexPrefix(EventEncoder.buildEventSignature(canonicalName))
+    fun getEventSignature(canonicalName: String): String {
+        require(canonicalName.isNotBlank()) { "Canonical name must not be blank." }
+        val keccak = Keccak.Digest256()
+        val hash = keccak.digest(canonicalName.toByteArray(Charsets.UTF_8))
+        return hash.joinToString("") { "%02x".format(it) }
+    }
 
     /**
      * Decodes an event based on its ABI element and topics/data.
@@ -96,10 +102,10 @@ object EventUtils {
         index: Int,
     ): String {
         val offset = index * 64
-        val cleanData = Numeric.cleanHexPrefix(data)
+        val cleanData = DataUtils.removePrefix(data)
         if (offset + 64 > cleanData.length) {
             throw IllegalArgumentException("Data segment out of bounds for index $index")
         }
-        return Numeric.prependHexPrefix(cleanData.substring(offset, offset + 64))
+        return DataUtils.addPrefix(cleanData.substring(offset, offset + 64))
     }
 }
