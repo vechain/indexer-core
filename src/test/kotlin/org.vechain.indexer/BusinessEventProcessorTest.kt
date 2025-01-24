@@ -7,6 +7,9 @@ import org.junit.jupiter.api.Test
 import org.vechain.indexer.EventMockFactory.b3trSwapB3trEvent
 import org.vechain.indexer.EventMockFactory.b3trSwapVot3Event
 import org.vechain.indexer.EventMockFactory.createIndexedEvent
+import org.vechain.indexer.EventMockFactory.nftTransferEvent
+import org.vechain.indexer.EventMockFactory.purchaseEvent
+import org.vechain.indexer.EventMockFactory.sale
 import org.vechain.indexer.EventMockFactory.vot3SwapEventDefinition
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.BusinessEventProcessor
@@ -25,7 +28,7 @@ internal class BusinessEventProcessorTest {
     @Nested
     inner class ProcessEventsTest {
         @Test
-        fun `should process business events correctly`() {
+        fun `should process business events correctly 1`() {
             // Arrange
             val b3trSwapVot3IndexedEvent =
                 createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
@@ -50,6 +53,27 @@ internal class BusinessEventProcessorTest {
                     "amountVOT3" to BigInteger("50000000000000000000"),
                 ),
             )
+        }
+
+        @Test
+        fun `should process business events correctly 2`() {
+            // Arrange
+            val nftTransferIndexedEvent =
+                createIndexedEvent("0xb603a874d4eaa1d625243f0a416506d62f38a789", 0, nftTransferEvent)
+            val purchaseIndexedEvent =
+                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, purchaseEvent)
+
+            val events =
+                listOf(nftTransferIndexedEvent to nftTransferEvent, purchaseIndexedEvent to purchaseEvent)
+
+            every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to sale)
+
+            // Act
+            val result = processor.processEvents(events, emptyList())
+
+            // Assert
+            expectThat(result.size).isEqualTo(1)
+            expectThat(result[0].second.getEventType()).isEqualTo("FixedPriceSale")
         }
 
         @Test

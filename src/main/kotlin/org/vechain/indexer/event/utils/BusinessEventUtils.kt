@@ -3,7 +3,6 @@ package org.vechain.indexer.event.utils
 import org.vechain.indexer.event.model.business.*
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
-import org.vechain.indexer.event.types.DecodedValue
 
 object BusinessEventUtils {
     /**
@@ -31,18 +30,10 @@ object BusinessEventUtils {
         events: Map<String, Pair<IndexedEvent, GenericEventParameters>>,
     ): Boolean =
         rules.all { rule ->
-            val firstValue =
-                events[rule.firstEventName]
-                    ?.second
-                    ?.getReturnValues()
-                    ?.get(rule.firstEventProperty)
-                    ?.toString()
-            val secondValue =
-                events[rule.secondEventName]
-                    ?.second
-                    ?.getReturnValues()
-                    ?.get(rule.secondEventProperty)
-                    ?.toString()
+            val firstValue = getEventValue(events[rule.firstEventName], rule.firstEventProperty)
+
+            val secondValue = getEventValue(events[rule.secondEventName], rule.secondEventProperty)
+
             firstValue != null && secondValue != null && rule.operator.evaluate(firstValue, secondValue)
         }
 
@@ -79,18 +70,24 @@ object BusinessEventUtils {
         isStatic: Boolean,
         event: Pair<IndexedEvent, GenericEventParameters>,
     ): String? =
-        if (operand == "address") {
-            event.first.address
-                .lowercase()
-                .trim()
-        } else if (isStatic) {
+        if (isStatic) {
             operand.lowercase().trim()
         } else {
-            val value = event.second.getReturnValues()[operand]
-            (value as? DecodedValue<*>)
-                ?.actualValue
-                ?.toString()
-                ?.lowercase()
-                ?.trim() ?: value?.toString()?.lowercase()?.trim()
+            getEventValue(event, operand)?.lowercase()?.trim()
         }
+
+    /**
+     * Gets the value for the given operand from the event.
+     * Checks `GenericEventParameters` first, then falls back to `IndexedEvent`.
+     */
+    private fun getEventValue(
+        event: Pair<IndexedEvent, GenericEventParameters>?,
+        operand: String,
+    ): String? =
+        event
+            ?.second
+            ?.getReturnValues()
+            ?.get(operand)
+            ?.toString()
+            ?: event?.first?.get(operand)?.toString()
 }

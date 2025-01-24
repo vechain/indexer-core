@@ -433,6 +433,80 @@ object EventMockFactory {
                 ),
         )
 
+    val sale =
+        BusinessEventDefinition(
+            name = "FixedPriceSale",
+            sameClause = true,
+            events =
+                listOf(
+                    Event(
+                        name = "PurchaseNonCustodial",
+                        alias = "sale1",
+                        conditions = emptyList(),
+                    ),
+                    Event(
+                        name = "Transfer",
+                        alias = "transfer1",
+                        conditions = emptyList(),
+                    ),
+                ),
+            rules =
+                listOf(
+                    Rule(
+                        firstEventName = "sale1",
+                        firstEventProperty = "tokenId",
+                        secondEventName = "transfer1",
+                        secondEventProperty = "tokenId",
+                        operator = Operator.EQ,
+                        isNumber = false,
+                    ),
+                    Rule(
+                        firstEventName = "sale1",
+                        firstEventProperty = "buyer",
+                        secondEventName = "transfer1",
+                        secondEventProperty = "to",
+                        operator = Operator.EQ,
+                        isNumber = false,
+                    ),
+                    Rule(
+                        firstEventName = "sale1",
+                        firstEventProperty = "nft",
+                        secondEventName = "transfer1",
+                        secondEventProperty = "address",
+                        operator = Operator.EQ,
+                        isNumber = false,
+                    ),
+                ),
+            paramsDefinition =
+                listOf(
+                    ParamDefinition(
+                        name = "tokenId",
+                        eventName = "sale1",
+                        businessEventName = "tokenId",
+                    ),
+                    ParamDefinition(
+                        name = "buyer",
+                        eventName = "sale1",
+                        businessEventName = "buyer",
+                    ),
+                    ParamDefinition(
+                        name = "from",
+                        eventName = "transfer1",
+                        businessEventName = "seller",
+                    ),
+                    ParamDefinition(
+                        name = "nft",
+                        eventName = "sale1",
+                        businessEventName = "tokenAddress",
+                    ),
+                    ParamDefinition(
+                        name = "price",
+                        eventName = "sale1",
+                        businessEventName = "price",
+                    ),
+                ),
+        )
+
     val b3trSwapVot3Event =
         GenericEventParameters(
             eventType = "Transfer",
@@ -453,6 +527,34 @@ object EventMockFactory {
                     "to" to "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
                     "value" to BigInteger("50000000000000000000"),
                 ),
+        )
+
+    val purchaseEvent =
+        GenericEventParameters(
+            eventType = "PurchaseNonCustodial",
+            returnValues =
+                mapOf(
+                    "saleId" to 4000000647,
+                    "nft" to "0xb603a874d4eaa1d625243f0a416506d62f38a789",
+                    "tokenId" to 45,
+                    "buyer" to "0x035daf5d3ab419d60d753faa5cb3b8876a97846d",
+                    "price" to BigInteger("80000000000000000000"),
+                    "code" to "0x7665740000000000000000000000000000000000000000000000000000000000",
+                    "startingTime" to 1737498192,
+                    "isVIP180" to false,
+                    "addressVIP180" to "0x0000000000000000000000000000000000000000",
+                ),
+        )
+
+    val nftTransferEvent =
+        GenericEventParameters(
+            returnValues =
+                mapOf(
+                    "from" to "0xa52b171d88be72f2550f2ffcd166b4825656a9d7",
+                    "to" to "0x035daf5d3ab419d60d753faa5cb3b8876a97846d",
+                    "tokenId" to 45,
+                ),
+            eventType = "Transfer",
         )
 
     fun createIndexedEvent(
