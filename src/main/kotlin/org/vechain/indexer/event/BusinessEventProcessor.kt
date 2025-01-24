@@ -1,5 +1,7 @@
 package org.vechain.indexer.event
 
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.business.BusinessEventDefinition
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
@@ -12,6 +14,8 @@ import org.vechain.indexer.event.utils.BusinessEventUtils
 class BusinessEventProcessor(
     private val businessEventManager: BusinessEventManager,
 ) {
+    private val logger: Logger = LoggerFactory.getLogger(this::class.java)
+
     /**
      * Processes a list of raw events, separating them into remaining events and business events.
      */
@@ -25,14 +29,20 @@ class BusinessEventProcessor(
 
         events.groupBy { it.first.txId }.forEach { (_, transactionEvents) ->
             transactionEvents.groupBy { it.first.clauseIndex.toInt() }.forEach { (_, clauseEvents) ->
-                val businessEvent = processClauseForBusinessEvent(clauseEvents, businessEventNames)
+                try {
+                    val businessEvent = processClauseForBusinessEvent(clauseEvents, businessEventNames)
 
-                // Add the business event if found
-                businessEvent?.let { businessEvents.add(it) }
+                    // Add the business event if found
+                    businessEvent?.let { businessEvents.add(it) }
 
-                // Add clauseEvents to remainingEvents if businessEvent is null or duplicates are allowed
-                if (businessEvent == null || !removeDuplicates) {
-                    remainingEvents.addAll(clauseEvents)
+                    // Add clauseEvents to remainingEvents if businessEvent is null or duplicates are allowed
+                    if (businessEvent == null || !removeDuplicates) {
+                        remainingEvents.addAll(clauseEvents)
+                    }
+                } catch (e: Exception) {
+                    // Log the error and continue processing other events
+                    logger.error("Failed to process clause events: $clauseEvents", e)
+                    remainingEvents.addAll(clauseEvents) // Keep unprocessed events
                 }
             }
         }
@@ -83,7 +93,7 @@ class BusinessEventProcessor(
         definition: BusinessEventDefinition,
     ): Pair<IndexedEvent, GenericEventParameters>? {
         val eventsForAlias = BusinessEventUtils.mapEventsToAliases(clauseEvents, definition.events)
-        return if (BusinessEventUtils.validateRules(definition.rules, eventsForAlias)) {
+        return if (eventsForAlias.isNotEmpty() && BusinessEventUtils.validateRules(definition.rules, eventsForAlias)) {
             createBusinessEvent(eventsForAlias, definition)
         } else {
             null

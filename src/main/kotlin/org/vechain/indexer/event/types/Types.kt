@@ -67,8 +67,9 @@ enum class Types {
         override fun getClaas(): Class<*> = Boolean::class.java
     },
 
-    BYTES32 {
-        override fun isType(typeName: String): Boolean = typeName == "bytes32"
+    BYTES {
+        override fun isType(typeName: String): Boolean =
+            typeName == "bytes" || (typeName.startsWith("bytes") && typeName.removePrefix("bytes").toIntOrNull() in 1..32)
 
         override fun <T> decode(
             encoded: String,
@@ -78,8 +79,8 @@ enum class Types {
             startPosition: Int,
             components: List<InputOutput>?,
         ): DecodedValue<T> {
-            if (encoded.length != 66 || !encoded.startsWith("0x")) {
-                throw IllegalArgumentException("Invalid bytes32 value: $encoded")
+            if (encoded.length % 2 != 0 || !encoded.startsWith("0x")) {
+                throw IllegalArgumentException("Invalid bytes value: $encoded")
             }
             return DecodedValue(encoded, clazz, clazz.cast(encoded), name)
         }

@@ -330,13 +330,13 @@ internal class GenericEventIndexerTest {
 
         @Test
         fun `should throw error for invalid bytes32 value`() {
-            val invalidEncoded = "0x1234"
+            val invalidEncoded = "0x12346"
             val exception =
                 expectThrows<IllegalArgumentException> {
-                    Types.BYTES32.decode(invalidEncoded, String::class.java, "test", null, 0, null)
+                    Types.BYTES.decode(invalidEncoded, String::class.java, "test", null, 0, null)
                 }
 
-            expectThat(exception.message.subject).isEqualTo("Invalid bytes32 value: $invalidEncoded")
+            expectThat(exception.message.subject).isEqualTo("Invalid bytes value: $invalidEncoded")
         }
 
         @Test
@@ -404,7 +404,7 @@ internal class GenericEventIndexerTest {
 
         @Test
         fun `getClaas should return String class for BYTES32`() {
-            val clazz = Types.BYTES32.getClaas()
+            val clazz = Types.BYTES.getClaas()
             expectThat(clazz).isEqualTo(String::class.java)
         }
 
