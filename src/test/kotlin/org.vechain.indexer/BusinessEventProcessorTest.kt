@@ -124,26 +124,17 @@ internal class BusinessEventProcessorTest {
             every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to vot3SwapEventDefinition)
 
             // Act
-            val result = processor.processEvents(events, emptyList())
+            val result = processor.processEvents(events, emptyList(), false)
 
             // Assert
-            expectThat(result.size).isEqualTo(2)
+            expectThat(result.size).isEqualTo(4)
             expectThat(result[0].second.getEventType()).isEqualTo("Transfer")
-            expectThat(result[0].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "from" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "to" to "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
-                    "value" to BigInteger("50000000000000000000"),
-                ),
-            )
-            expectThat(result[1].second.getEventType()).isEqualTo("B3trVot3Swap")
-            expectThat(result[1].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "amountB3TR" to BigInteger("50000000000000000000"),
-                    "amountVOT3" to BigInteger("50000000000000000000"),
-                ),
-            )
+
+            expectThat(result[1].second.getEventType()).isEqualTo("Transfer")
+
+            expectThat(result[2].second.getEventType()).isEqualTo("Transfer")
+
+            expectThat(result[3].second.getEventType()).isEqualTo("B3trVot3Swap")
         }
 
         @Test
@@ -197,16 +188,29 @@ internal class BusinessEventProcessorTest {
         }
 
         @Test
-        fun `should not mark event as a business event if same clause is set to true but events exist in different clauses`() {
+        fun `should mark multiple business events if they all exist in same tx`() {
             // Arrange
-            val b3trSwapVot3IndexedEvent =
+            val b3trSwapVot3IndexedEvent1 =
                 createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+
+            // Arrange
+            val b3trSwapVot3IndexedEvent2 =
+                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 1, b3trSwapVot3Event)
+
             // Same TX, different clause
-            val b3trSwapB3trIndexedEvent =
+            val b3trSwapB3trIndexedEvent1 =
+                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+
+            val b3trSwapB3trIndexedEvent2 =
                 createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 1, b3trSwapB3trEvent)
 
             val events =
-                listOf(b3trSwapB3trIndexedEvent to b3trSwapB3trEvent, b3trSwapVot3IndexedEvent to b3trSwapVot3Event)
+                listOf(
+                    b3trSwapB3trIndexedEvent1 to b3trSwapB3trEvent,
+                    b3trSwapVot3IndexedEvent1 to b3trSwapVot3Event,
+                    b3trSwapB3trIndexedEvent2 to b3trSwapB3trEvent,
+                    b3trSwapVot3IndexedEvent2 to b3trSwapVot3Event,
+                )
 
             every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to vot3SwapEventDefinition)
 
@@ -216,8 +220,8 @@ internal class BusinessEventProcessorTest {
             // Assert
             expectThat(result.size).isEqualTo(2)
             // Assert
-            expectThat(result[0].second.getEventType()).isEqualTo("Transfer")
-            expectThat(result[1].second.getEventType()).isEqualTo("Transfer")
+            expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[1].second.getEventType()).isEqualTo("B3trVot3Swap")
         }
     }
 

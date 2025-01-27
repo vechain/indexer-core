@@ -28,22 +28,20 @@ class BusinessEventProcessor(
         val remainingEvents = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
 
         events.groupBy { it.first.txId }.forEach { (_, transactionEvents) ->
-            transactionEvents.groupBy { it.first.clauseIndex.toInt() }.forEach { (_, clauseEvents) ->
-                try {
-                    val businessEvent = processClauseForBusinessEvent(clauseEvents, businessEventNames)
+            try {
+                val matchedEvents = processTransactionForBusinessEvents(transactionEvents, businessEventNames)
 
-                    // Add the business event if found
-                    businessEvent?.let { businessEvents.add(it) }
+                businessEvents.addAll(matchedEvents)
 
-                    // Add clauseEvents to remainingEvents if businessEvent is null or duplicates are allowed
-                    if (businessEvent == null || !removeDuplicates) {
-                        remainingEvents.addAll(clauseEvents)
-                    }
-                } catch (e: Exception) {
-                    // Log the error and continue processing other events
-                    logger.error("Failed to process clause events: $clauseEvents", e)
-                    remainingEvents.addAll(clauseEvents) // Keep unprocessed events
+                if (removeDuplicates) {
+                    val matchedEventIds = matchedEvents.map { it.first.id }.toSet()
+                    remainingEvents.addAll(transactionEvents.filter { it.first.id !in matchedEventIds })
+                } else {
+                    remainingEvents.addAll(transactionEvents)
                 }
+            } catch (e: Exception) {
+                logger.error("Failed to process transaction events: $transactionEvents", e)
+                remainingEvents.addAll(transactionEvents)
             }
         }
 
@@ -59,45 +57,41 @@ class BusinessEventProcessor(
     ): List<Pair<IndexedEvent, GenericEventParameters>> =
         events
             .groupBy { it.first.txId }
-            .flatMap { (_, transactionEvents) ->
-                transactionEvents
-                    .groupBy { it.first.clauseIndex.toInt() }
-                    .mapNotNull { (_, clauseEvents) -> processClauseForBusinessEvent(clauseEvents, businessEventNames) }
-            }
+            .flatMap { (_, transactionEvents) -> processTransactionForBusinessEvents(transactionEvents, businessEventNames) }
 
     /**
-     * Processes events within a single clause to determine if it matches a business event.
+     * Processes events within a single transaction to determine if they match business events.
      */
-    private fun processClauseForBusinessEvent(
-        clauseEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
+    private fun processTransactionForBusinessEvents(
+        txEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
         businessEventNames: List<String>,
-    ): Pair<IndexedEvent, GenericEventParameters>? {
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
         val businessEvents =
             if (businessEventNames.isEmpty()) {
-                businessEventManager.getAllBusinessEvents() // Get all business events
+                businessEventManager.getAllBusinessEvents()
             } else {
-                businessEventManager.getBusinessEventsByNames(businessEventNames) // Filter by provided names
+                businessEventManager.getBusinessEventsByNames(businessEventNames)
             }
 
-        return businessEvents
-            .asSequence()
-            .mapNotNull { (_, definition) -> matchClauseToBusinessEvent(clauseEvents, definition) }
-            .firstOrNull()
-    }
+        val matchedBusinessEvents = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
 
-    /**
-     * Matches a group of clause events to a single business event definition.
-     */
-    private fun matchClauseToBusinessEvent(
-        clauseEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
-        definition: BusinessEventDefinition,
-    ): Pair<IndexedEvent, GenericEventParameters>? {
-        val eventsForAlias = BusinessEventUtils.mapEventsToAliases(clauseEvents, definition.events)
-        return if (eventsForAlias.isNotEmpty() && BusinessEventUtils.validateRules(definition.rules, eventsForAlias)) {
-            createBusinessEvent(eventsForAlias, definition)
-        } else {
-            null
+        for ((_, definition) in businessEvents) {
+            val groupedEvents =
+                if (definition.sameClause == true) {
+                    txEvents.groupBy { it.first.clauseIndex.toInt() }
+                } else {
+                    mapOf(0 to txEvents) // Treat the entire transaction as a single group
+                }
+
+            for ((_, group) in groupedEvents) {
+                val eventsForAlias = BusinessEventUtils.mapEventsToAliases(group, definition.events)
+                if (eventsForAlias.isNotEmpty() && BusinessEventUtils.validateRules(definition.rules, eventsForAlias)) {
+                    matchedBusinessEvents.add(createBusinessEvent(eventsForAlias, definition))
+                }
+            }
         }
+
+        return matchedBusinessEvents
     }
 
     /**
