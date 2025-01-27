@@ -10,6 +10,7 @@ import org.vechain.indexer.event.utils.EventUtils
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.Transaction
 import org.vechain.indexer.thor.model.TxEvent
+import org.vechain.indexer.thor.model.TxOutputs
 import org.vechain.indexer.utils.DataUtils
 
 class GenericEventIndexer(
@@ -30,9 +31,10 @@ class GenericEventIndexer(
         abiNames: List<String> = emptyList(),
         eventNames: List<String> = emptyList(),
         contractAddresses: List<String> = emptyList(),
+        vetTransfers: Boolean = false,
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
         val configuredEvents = getConfiguredEvents(abiNames, eventNames)
-        return processEvents(block, configuredEvents, contractAddresses)
+        return processEvents(block, configuredEvents, contractAddresses, vetTransfers)
     }
 
     /**
@@ -59,18 +61,26 @@ class GenericEventIndexer(
         block: Block,
         configuredEvents: List<AbiElement>,
         contractAddresses: List<String>,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> =
-        block.transactions.flatMap { tx ->
-            tx.outputs.flatMapIndexed { outputIndex, output ->
-                output.events.mapIndexedNotNull { eventIndex, event ->
+        vetTransfers: Boolean,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        val events = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
+
+        block.transactions.forEach { tx ->
+            tx.outputs.forEachIndexed { outputIndex, output ->
+                output.events.forEachIndexed { eventIndex, event ->
                     if (isEventValid(event, configuredEvents, contractAddresses)) {
-                        decodeEvent(event, configuredEvents, tx, block, outputIndex, eventIndex)
-                    } else {
-                        null
+                        decodeEvent(event, configuredEvents, tx, block, outputIndex, eventIndex)?.let {
+                            events.add(it)
+                        }
                     }
+                }
+                if (vetTransfers) {
+                    events.addAll(extractVetTransfers(output, tx, block, outputIndex))
                 }
             }
         }
+        return events
+    }
 
     /**
      * Validates if an event matches the provided ABIs and contract address filter.
@@ -131,15 +141,55 @@ class GenericEventIndexer(
     }
 
     /**
+     * Extracts VET transfers from a transaction output and returns them as events.
+     */
+    private fun extractVetTransfers(
+        output: TxOutputs,
+        tx: Transaction,
+        block: Block,
+        outputIndex: Int,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> =
+        output.transfers.mapIndexedNotNull { transferIndex, transfer ->
+            try {
+                val parameters =
+                    GenericEventParameters(
+                        mapOf(
+                            "from" to transfer.sender,
+                            "to" to transfer.recipient,
+                            "amount" to DataUtils.decodeQuantity(transfer.amount),
+                        ),
+                        "VET_TRANSFER",
+                    )
+                val indexedEvent =
+                    IndexedEvent(
+                        id = generateEventId(tx.id, outputIndex, transferIndex, transfer),
+                        blockId = block.id,
+                        blockNumber = block.number,
+                        blockTimestamp = block.timestamp,
+                        txId = tx.id,
+                        origin = tx.origin,
+                        params = parameters,
+                        address = transfer.recipient,
+                        eventType = "VET_TRANSFER",
+                        clauseIndex = outputIndex.toLong(),
+                    )
+                indexedEvent to parameters
+            } catch (ex: Exception) {
+                logger.warn("Failed to process VET transfer: ${transfer.sender} -> ${transfer.recipient}", ex)
+                null
+            }
+        }
+
+    /**
      * Generates a unique ID for an event based on its transaction, output, and topic.
      */
     private fun generateEventId(
         txId: String,
         outputIndex: Int,
         eventIndex: Int,
-        event: TxEvent,
+        event: Any,
     ): String {
-        val eventHash = DataUtils.removePrefix(event.data).hashCode() // Use hash of data as a unique identifier
-        return "$txId-$outputIndex-$eventIndex-${event.topics[0]}-$eventHash"
+        val eventHash = event.hashCode() // Use hash of the event as a unique identifier
+        return "$txId-$outputIndex-$eventIndex-$eventHash"
     }
 }

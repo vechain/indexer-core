@@ -333,6 +333,7 @@ abstract class Indexer(
             abiNames = criteria.abiNames,
             eventNames = criteria.eventNames,
             contractAddresses = criteria.contractAddresses,
+            vetTransfers = criteria.vetTransfers,
         )
     }
 

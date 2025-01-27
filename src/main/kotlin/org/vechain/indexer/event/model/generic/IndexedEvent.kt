@@ -7,12 +7,12 @@ data class IndexedEvent(
     val blockTimestamp: Long,
     val txId: String,
     val origin: String?,
-    val raw: RawEvent,
+    val raw: RawEvent? = null,
     val params: GenericEventParameters,
-    val address: String,
+    val address: String?,
     val eventType: String,
     val clauseIndex: Long,
-    val signature: String,
+    val signature: String? = null,
 ) {
     fun get(fieldName: String): Any? =
         when (fieldName) {

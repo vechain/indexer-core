@@ -82,6 +82,59 @@ internal class GenericEventIndexerTest {
         }
 
         @Test
+        fun `getEvents should return VET transfers as events if set to true`() {
+            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(arrayEventClause))))
+
+            every { abiManager.getEventsByNames(any(), any()) } returns emptyList()
+            every { abiManager.getAbis() } returns emptyMap()
+
+            val result = genericEventIndexer.getEventsByFilters(block, vetTransfers = true)
+
+            expectThat(result.size).isEqualTo(1)
+            expectThat(result[0].second.getEventType()).isEqualTo("VET_TRANSFER")
+        }
+
+        @Test
+        fun `getEvents should return events and VET transfers if part of same output`() {
+            // Define mock Block object
+            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(stringEventClause, arrayEventClause))))
+
+            val configuredEvents = listOf(stringAbiElement, arrayAbiElement)
+
+            // Mock AbiManager responses
+            every { abiManager.getAbis() } returns mapOf("AbiName" to configuredEvents)
+
+            // Execute the method under test
+            val result = genericEventIndexer.getEventsByFilters(block, vetTransfers = true)
+
+            expectThat(result.size).isEqualTo(5)
+            expectThat(result[0].second.getEventType()).isEqualTo("RewardDistributed")
+            expectThat(result[1].second.getEventType()).isEqualTo("VET_TRANSFER")
+            expectThat(result[2].second.getEventType()).isEqualTo("VET_TRANSFER")
+            expectThat(result[3].second.getEventType()).isEqualTo("AllocationVoteCast")
+            expectThat(result[4].second.getEventType()).isEqualTo("VET_TRANSFER")
+        }
+
+        @Test
+        fun `can filter for only VET Transfers by passing in VET_TRANSFER as abi name`() {
+            // Define mock Block object
+            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(stringEventClause, arrayEventClause))))
+
+            val configuredEvents = listOf(stringAbiElement, arrayAbiElement)
+
+            // Mock AbiManager responses
+            every { abiManager.getAbis() } returns mapOf("event" to configuredEvents)
+
+            // Execute the method under test
+            val result = genericEventIndexer.getEventsByFilters(block, vetTransfers = true, eventNames = listOf("VET_TRANSFER"))
+
+            expectThat(result.size).isEqualTo(3)
+            expectThat(result[0].second.getEventType()).isEqualTo("VET_TRANSFER")
+            expectThat(result[1].second.getEventType()).isEqualTo("VET_TRANSFER")
+            expectThat(result[2].second.getEventType()).isEqualTo("VET_TRANSFER")
+        }
+
+        @Test
         fun `should return empty list if no matching ABI event found`() {
             val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(arrayEventClause))))
             val abiElement = AbiElement(name = "EventName", type = "event", signature = "signature", inputs = listOf())

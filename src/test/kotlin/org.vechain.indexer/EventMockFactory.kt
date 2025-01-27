@@ -7,10 +7,7 @@ import org.vechain.indexer.event.model.enums.Operator
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.model.generic.RawEvent
-import org.vechain.indexer.thor.model.Block
-import org.vechain.indexer.thor.model.Transaction
-import org.vechain.indexer.thor.model.TxEvent
-import org.vechain.indexer.thor.model.TxOutputs
+import org.vechain.indexer.thor.model.*
 import java.math.BigInteger
 
 object EventMockFactory {
@@ -305,7 +302,19 @@ object EventMockFactory {
                             "0x00000000000000000000000000000000000000000000000008b9bdfc73f9e418000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000001507b2276657273696f6e223a20322c226465736372697074696f6e223a20225468697320697320612070686f746f206f662061207265757361626c65206375702c20726561642061626f757420746865207374756479206f6e20696d706163747320686572653a2068747470733a2f2f6b6565706375702d73747564792e73332e65752d6e6f7274682d312e616d617a6f6e6177732e636f6d2f4b6565704375702b4c43412b5265706f72742e706466222c2270726f6f66223a207b22696d616765223a2268747470733a2f2f626c75727265642d6d756773686f74732e73332e65752d6e6f7274682d312e616d617a6f6e6177732e636f6d2f313733373434303136303131365f696d6167652e706e67227d2c22696d70616374223a207b22636172626f6e223a33372c22656e65726779223a3236332c2274696d626572223a32332c22706c6173746963223a337d7d00000000000000000000000000000000",
                     ),
                 ),
-            transfers = emptyList(),
+            transfers =
+                listOf(
+                    TxTransfer(
+                        sender = "0x54a0ed27c58e4dde7f6c8bbf1f156e1d73a8dc59",
+                        recipient = "0x76Ca782B59C74d088C7D2Cce2f211BC00836c602",
+                        amount = "50000000000000000000",
+                    ),
+                    TxTransfer(
+                        sender = "0x54a0ed27c58e4dde7f6c8bbf1f156e1d73a8dc59",
+                        recipient = "0xb2f12edde215e39186cc7653aeb551c8cf1f77e3",
+                        amount = "10000000000",
+                    ),
+                ),
         )
 
     val arrayEventClause =
@@ -325,7 +334,14 @@ object EventMockFactory {
                         "0x000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000029643ed1637948cc571b23f836ade2bdb104de88e627fa6e8e3ffef1ee5a1739a899de0d0f0b39e484c8835b2369194c4c102b230c813862db383d44a4efe14d30000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000021e3b2480264f12000000000000000000000000000000000000000000000000021e3b2480264f12000",
                     ),
                 ),
-            transfers = emptyList(),
+            transfers =
+                listOf(
+                    TxTransfer(
+                        sender = "0x54a0ed27c58e4dde7f6c8bbf1f156e1d73a8dc59",
+                        recipient = "0x89A00Bb0947a30FF95BEeF77a66AEdE3842Fe5B7",
+                        amount = "50000000000000000000",
+                    ),
+                ),
         )
 
     val tupleEventClause =
