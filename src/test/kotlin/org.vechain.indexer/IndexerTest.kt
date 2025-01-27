@@ -725,11 +725,9 @@ internal class IndexerTest {
 
             every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to EventMockFactory.vot3SwapEventDefinition)
 
-            every { responseMocker.processBlockGenericEvents(any(), any()) } returns events
-
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager, true)
             // Act
-            val result = indexer.processBlockBusinessEvents(block)
+            val result = indexer.processBlockBusinessEvents(events)
             expectThat(result.size).isEqualTo(1)
             expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
             expectThat(result[0].second.getReturnValues()).isEqualTo(
@@ -745,22 +743,29 @@ internal class IndexerTest {
         fun `processBlockBusinessEvents returns empty list when manager is null`() {
             indexer = IndexerMock(responseMocker, thorClient, null, null)
 
-            val block =
-                EventMockFactory.createMockBlockWithTransactions(
-                    listOf(
-                        EventMockFactory.createMockTransaction(
-                            listOf(
-                                EventMockFactory.arrayEventClause,
-                                EventMockFactory.transferEventClause,
-                            ),
-                        ),
-                    ),
+            val b3trSwapVot3IndexedEvent =
+                EventMockFactory.createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    EventMockFactory.b3trSwapVot3Event,
+                )
+            val b3trSwapB3trIndexedEvent =
+                EventMockFactory.createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    EventMockFactory.b3trSwapB3trEvent,
+                )
+
+            val events =
+                listOf(
+                    b3trSwapB3trIndexedEvent to EventMockFactory.b3trSwapB3trEvent,
+                    b3trSwapVot3IndexedEvent to EventMockFactory.b3trSwapVot3Event,
                 )
 
             val criteria = FilterCriteria()
 
             // Act
-            val result = indexer.processBlockBusinessEvents(block, criteria)
+            val result = indexer.processBlockBusinessEvents(events, criteria)
 
             // Assert
             expectThat(result.size).isEqualTo(0)

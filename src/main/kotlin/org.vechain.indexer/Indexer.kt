@@ -338,15 +338,14 @@ abstract class Indexer(
     }
 
     /**
-     * @notice Processes only business events in a block based on the provided criteria.
+     * @notice Processes only business events in a block based on the provided decoded generic events.
      * @dev Requires the `BusinessEventManager` to decode and process business events.
-     *      Updates the filtering criteria with business event names.
-     * @param block The block containing events to process.
+     * @param decodedEvents The list of previously decoded generic events and their parameters.
      * @param criteria Filtering criteria to determine which business events to process.
      * @return A list of processed business events and their associated parameters.
      */
     protected open fun processBlockBusinessEvents(
-        block: Block,
+        decodedEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
         criteria: FilterCriteria = FilterCriteria(),
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
         if (businessEventManager == null) {
@@ -354,11 +353,12 @@ abstract class Indexer(
             return emptyList()
         }
 
-        val updatedCriteria = updateCriteriaWithBusinessEvents(criteria)
-        val decodedEvents = processBlockGenericEvents(block, updatedCriteria)
+        // Filter events based on criteria if needed
+        val filteredCriteria = updateCriteriaWithBusinessEvents(criteria)
 
+        // Process business events
         val processor = BusinessEventProcessor(businessEventManager!!)
-        return processor.getOnlyBusinessEvents(decodedEvents, updatedCriteria.businessEventNames)
+        return processor.getOnlyBusinessEvents(decodedEvents, filteredCriteria.businessEventNames)
     }
 
     /**

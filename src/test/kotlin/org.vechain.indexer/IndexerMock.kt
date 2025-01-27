@@ -50,9 +50,9 @@ class IndexerMock(
     ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processAllEvents(block, criteria, removeDuplicates)
 
     public override fun processBlockBusinessEvents(
-        block: Block,
+        decodedEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
         criteria: FilterCriteria,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processBlockBusinessEvents(block, criteria)
+    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processBlockBusinessEvents(decodedEvents, criteria)
 }
 
 interface IndexerResponseMocker {
