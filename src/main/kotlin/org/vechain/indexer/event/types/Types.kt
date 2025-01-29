@@ -99,8 +99,12 @@ enum class Types {
             startPosition: Int,
             components: List<InputOutput>?,
         ): DecodedValue<T> {
-            val dataToDecode = fullData ?: encoded
-            decodeAbiString(dataToDecode, startPosition)?.let {
+            // Check if fullData is null or empty, indicating an indexed string (Keccak-256 hash in topics)
+            if (fullData.isNullOrEmpty()) {
+                return DecodedValue(encoded, clazz, clazz.cast(encoded), name)
+            }
+
+            decodeAbiString(fullData, startPosition)?.let {
                 return DecodedValue(it, clazz, clazz.cast(it), name)
             } ?: throw IllegalArgumentException("Error decoding string at offset: $startPosition")
         }
