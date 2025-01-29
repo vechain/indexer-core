@@ -7,6 +7,7 @@ data class IndexedEvent(
     val blockTimestamp: Long,
     val txId: String,
     val origin: String?,
+    val gasPayer: String?,
     val raw: RawEvent? = null,
     val params: GenericEventParameters,
     val address: String?,
@@ -26,6 +27,7 @@ data class IndexedEvent(
             "eventType" -> eventType
             "clauseIndex" -> clauseIndex
             "signature" -> signature
+            "gasPayer" -> gasPayer
             else -> null
         }
 }

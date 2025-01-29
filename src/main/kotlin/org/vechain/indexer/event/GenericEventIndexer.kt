@@ -126,6 +126,7 @@ class GenericEventIndexer(
                     blockTimestamp = block.timestamp,
                     txId = tx.id,
                     origin = tx.origin,
+                    gasPayer = tx.gasPayer,
                     raw = RawEvent(event.data, event.topics),
                     params = parameters,
                     address = event.address,
@@ -134,7 +135,7 @@ class GenericEventIndexer(
                     signature = event.topics[0],
                 ) to parameters
             } catch (ex: IllegalArgumentException) {
-                logger.warn("Failed to decode event with ABI: ${abi.name}. Skipping event.", ex)
+                logger.warn("Failed to decode event with ABI: ${abi.name}, txId: ${tx.id}. Skipping event.")
                 null
             }
         }
@@ -168,6 +169,7 @@ class GenericEventIndexer(
                         blockTimestamp = block.timestamp,
                         txId = tx.id,
                         origin = tx.origin,
+                        gasPayer = tx.gasPayer,
                         params = parameters,
                         address = transfer.recipient,
                         eventType = "VET_TRANSFER",
