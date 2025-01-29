@@ -4,6 +4,7 @@ import io.mockk.*
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
 import kotlinx.coroutines.*
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -13,6 +14,8 @@ import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.exception.BlockNotFoundException
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_B3TR_ACTION
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STRINGS
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
@@ -551,7 +554,7 @@ internal class IndexerTest {
             val criteria = FilterCriteria()
 
             // Act
-            val result = indexer.processAllEvents(block, criteria, true)
+            val result = indexer.processAllEvents(block, criteria)
 
             // Assert
             expectThat(result.size).isNotEqualTo(0)
@@ -594,7 +597,6 @@ internal class IndexerTest {
                         eventNames = listOf("RandomEvent"),
                         businessEventNames = listOf("Event"),
                     ),
-                    true,
                 )
 
             // Assert
@@ -655,7 +657,7 @@ internal class IndexerTest {
             val criteria = FilterCriteria()
 
             // Act
-            val result = indexer.processAllEvents(block, criteria, true)
+            val result = indexer.processAllEvents(block, criteria)
 
             // Assert
             expectThat(result.size).isEqualTo(0)
@@ -696,6 +698,340 @@ internal class IndexerTest {
             // Assert
             expectThat(result.size).isEqualTo(1)
             expectThat(result[0].first.eventType).isEqualTo("Transfer")
+        }
+
+        @Test
+        fun `should get latest business events and generic events`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            // Create the indexer with mocked dependencies
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis("test-abis")
+            // Load business events
+            businessEventManager.loadBusinessEvents("business-events")
+
+            // Input block to process
+            val block: Block = BLOCK_B3TR_ACTION
+
+            // Process the block
+            val result = indexer.processAllEvents(block)
+
+            val expectedEventTypes =
+                listOf(
+                    "Transfer",
+                    "B3TR_ActionReward",
+                    "B3TR_ActionReward",
+                )
+
+            // Extract event types from the result
+            val eventTypes = result.map { it.second.getEventType() }
+
+            // Assert that all expected events are present and in the correct order
+            assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
+
+        @Test
+        fun `should return all business events and all generic events if remove duplicates is false `() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            // Create the indexer with mocked dependencies
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis("test-abis")
+            // Load business events
+            businessEventManager.loadBusinessEvents("business-events")
+
+            // Input block to process
+            val block: Block = BLOCK_B3TR_ACTION
+
+            // Process the block
+            val result = indexer.processAllEvents(block, FilterCriteria(removeDuplicates = false))
+
+            val expectedEventTypes =
+                listOf(
+                    "RewardDistributed",
+                    "Transfer",
+                    "RewardDistributed",
+                    "Transfer",
+                    "Transfer",
+                    "B3TR_ActionReward",
+                    "B3TR_ActionReward",
+                )
+
+            // Extract event types from the result
+            val eventTypes = result.map { it.second.getEventType() }
+
+            // Assert that all expected events are present and in the correct order
+            assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
+
+        @Test
+        fun `should return all VET transfers as events if vet transfers is set to true`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            // Create the indexer with mocked dependencies
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis("test-abis")
+            // Load business events
+            businessEventManager.loadBusinessEvents("business-events")
+
+            // Input block to process
+            val block: Block = BLOCK_B3TR_ACTION
+
+            // Process the block
+            val result =
+                indexer.processAllEvents(
+                    block,
+                    FilterCriteria(
+                        vetTransfers = true,
+                    ),
+                )
+
+            val expectedEventTypes =
+                listOf(
+                    "Transfer",
+                    "VET_TRANSFER",
+                    "VET_TRANSFER",
+                    "B3TR_ActionReward",
+                    "B3TR_ActionReward",
+                )
+
+            // Extract event types from the result
+            val eventTypes = result.map { it.second.getEventType() }
+
+            // Assert that all expected events are present and in the correct order
+            assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
+
+        @Test
+        fun `should filter events based on names if event names to process was passed into filter criteria`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            // Create the indexer with mocked dependencies
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis("test-abis")
+            // Load business events
+            businessEventManager.loadBusinessEvents("business-events")
+
+            // Input block to process
+            val block: Block = BLOCK_B3TR_ACTION
+
+            // Process the block
+            val result =
+                indexer.processAllEvents(
+                    block,
+                    FilterCriteria(
+                        eventNames = listOf("Transfer"),
+                    ),
+                )
+
+            val expectedEventTypes =
+                listOf(
+                    "Transfer",
+                    "Transfer",
+                    "Transfer",
+                )
+
+            // Extract event types from the result
+            val eventTypes = result.map { it.second.getEventType() }
+
+            // Assert that all expected events are present and in the correct order
+            assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
+
+        @Test
+        fun `should filter events based on abi names if passed into filter criteria`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            // Create the indexer with mocked dependencies
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis("test-abis")
+            // Load business events
+            businessEventManager.loadBusinessEvents("business-events")
+
+            // Input block to process
+            val block: Block = BLOCK_STRINGS
+
+            // Process the block
+            val result =
+                indexer.processAllEvents(
+                    block,
+                    FilterCriteria(
+                        abiNames = listOf("stringsAbis"),
+                    ),
+                )
+
+            val expectedEventTypes =
+                listOf(
+                    "AddressChanged",
+                    "AddrChanged",
+                    "AddressChanged",
+                    "NameChanged",
+                    "TextChanged",
+                )
+
+            // Extract event types from the result
+            val eventTypes = result.map { it.second.getEventType() }
+
+            // Assert that all expected events are present and in the correct order
+            assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
+
+        @Test
+        fun `should filter events based on contract address if passed into filter criteria`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            // Create the indexer with mocked dependencies
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis("test-abis")
+            // Load business events
+            businessEventManager.loadBusinessEvents("business-events")
+
+            // Input block to process
+            val block: Block = BLOCK_B3TR_ACTION
+
+            // Process the block
+            val result =
+                indexer.processAllEvents(
+                    block,
+                    FilterCriteria(
+                        contractAddresses = listOf("0x6bee7ddab6c99d5b2af0554eaea484ce18f52631"),
+                    ),
+                )
+
+            val expectedEventTypes =
+                listOf(
+                    "RewardDistributed",
+                    "RewardDistributed",
+                )
+
+            // Extract event types from the result
+            val eventTypes = result.map { it.second.getEventType() }
+
+            // Assert that all expected events are present and in the correct order
+            assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
+
+        @Test
+        fun `should apply multiple filters if multiple are passed in`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            // Create the indexer with mocked dependencies
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis("test-abis")
+            // Load business events
+            businessEventManager.loadBusinessEvents("business-events")
+
+            // Input block to process
+            val block: Block = BLOCK_STRINGS
+
+            // Process the block
+            val result =
+                indexer.processAllEvents(
+                    block,
+                    FilterCriteria(
+                        contractAddresses = listOf("0xabac49445584c8b6c1472b030b1076ac3901d7cf"),
+                        eventNames = listOf("TextChanged", "NameChanged"),
+                    ),
+                )
+
+            val expectedEventTypes =
+                listOf(
+                    "NameChanged",
+                    "TextChanged",
+                )
+
+            // Extract event types from the result
+            val eventTypes = result.map { it.second.getEventType() }
+
+            // Assert that all expected events are present and in the correct order
+            assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
+
+        @Test
+        fun `should get latest block and process events correctly`() {
+            val businessEventManager = mockk<BusinessEventManager>()
+            val abiManager = AbiManager()
+
+            // Create the indexer with mocked dependencies
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis("test-abis")
+
+            // Input block to process
+            val block: Block = BLOCK_STRINGS
+
+            // Expected event types
+            val expectedEventTypes =
+                listOf(
+                    "RewardDistributed",
+                    "Transfer",
+                    "RewardDistributed",
+                    "Transfer",
+                    "RewardDistributed",
+                    "Transfer",
+                    "RewardDistributed",
+                    "Transfer",
+                    "Transfer",
+                    "RewardDistributed",
+                    "Transfer",
+                    "Approval",
+                    "Transfer",
+                    "Transfer",
+                    "AddressChanged",
+                    "AddrChanged",
+                    "AddressChanged",
+                    "NameChanged",
+                    "RewardDistributed",
+                    "Transfer",
+                    "Upgraded",
+                    "Initialized",
+                    "Transfer",
+                    "Transfer",
+                    "Approval",
+                    "Transfer",
+                    "Transfer",
+                    "RewardDistributed",
+                    "Transfer",
+                    "Transfer",
+                    "Transfer",
+                    "Transfer",
+                    "TextChanged",
+                    "RewardDistributed",
+                    "Transfer",
+                    "RewardDistributed",
+                    "Transfer",
+                )
+
+            // Process the block
+            val result = indexer.processAllEvents(block)
+
+            // Extract event types from the result
+            val eventTypes = result.map { it.first.eventType }
+
+            // Assert that all expected events are present and in the correct order
+            assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
         }
     }
 

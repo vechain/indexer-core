@@ -584,6 +584,7 @@ object EventMockFactory {
         blockTimestamp = 1736071230,
         txId = "0xtxId",
         origin = "0xorigin",
+        gasPayer = "0xgasPayer",
         address = address,
         raw =
             RawEvent(

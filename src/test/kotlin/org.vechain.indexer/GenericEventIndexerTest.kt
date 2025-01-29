@@ -397,7 +397,7 @@ internal class GenericEventIndexerTest {
             val invalidData = "0x1234"
             val exception =
                 expectThrows<IllegalArgumentException> {
-                    Types.STRING.decode(invalidData, String::class.java, "test", null, 0, null)
+                    Types.STRING.decode(invalidData, String::class.java, "test", invalidData, 0, null)
                 }
 
             expectThat(exception.message.subject).isEqualTo("Error decoding string at offset: 0")
