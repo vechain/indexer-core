@@ -298,17 +298,15 @@ abstract class Indexer(
      *      Decodes and processes both generic and business events.
      * @param block The block containing events to process.
      * @param criteria Filtering criteria to determine which events to process.
-     * @param removeDuplicates Optional flag to indicate if duplicate events (i.e. generic events used to create business events) should be removed.
      * @return A list of decoded events and their associated parameters.
      */
     protected open fun processAllEvents(
         block: Block,
         criteria: FilterCriteria = FilterCriteria(),
-        removeDuplicates: Boolean? = true,
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
         val updatedCriteria = updateCriteriaWithBusinessEvents(criteria)
         val decodedEvents = processBlockGenericEvents(block, updatedCriteria)
-        return processBusinessEvents(decodedEvents, updatedCriteria.businessEventNames)
+        return processBusinessEvents(decodedEvents, updatedCriteria.businessEventNames, updatedCriteria.removeDuplicates)
     }
 
     /**
@@ -387,10 +385,11 @@ abstract class Indexer(
     private fun processBusinessEvents(
         decodedEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
         businessEventNames: List<String>,
+        removeDuplicates: Boolean? = true,
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
         if (businessEventManager != null) {
             val processor = BusinessEventProcessor(businessEventManager!!)
-            return processor.processEvents(decodedEvents, businessEventNames)
+            return processor.processEvents(decodedEvents, businessEventNames, removeDuplicates ?: true)
         }
         logger.debug("Skipping business event processing as manager is missing.")
         return decodedEvents

@@ -30,9 +30,9 @@ object BusinessEventUtils {
         events: Map<String, Pair<IndexedEvent, GenericEventParameters>>,
     ): Boolean =
         rules.all { rule ->
-            val firstValue = getEventValue(events[rule.firstEventName], rule.firstEventProperty)
+            val firstValue = getEventValue(events[rule.firstEventName], rule.firstEventProperty)?.toString()
 
-            val secondValue = getEventValue(events[rule.secondEventName], rule.secondEventProperty)
+            val secondValue = getEventValue(events[rule.secondEventName], rule.secondEventProperty)?.toString()
 
             firstValue != null && secondValue != null && rule.operator.evaluate(firstValue, secondValue)
         }
@@ -45,7 +45,7 @@ object BusinessEventUtils {
         events: Map<String, Pair<IndexedEvent, GenericEventParameters>>,
     ): Map<String, Any> =
         paramsDefinition.associate { param ->
-            val value = events[param.eventName]?.second?.getReturnValues()?.get(param.name) ?: ""
+            val value = getEventValue(events[param.eventName], param.name) ?: ""
             param.businessEventName to value
         }
 
@@ -73,7 +73,7 @@ object BusinessEventUtils {
         if (isStatic) {
             operand.lowercase().trim()
         } else {
-            getEventValue(event, operand)?.lowercase()?.trim()
+            getEventValue(event, operand)?.toString()?.lowercase()?.trim()
         }
 
     /**
@@ -83,11 +83,10 @@ object BusinessEventUtils {
     private fun getEventValue(
         event: Pair<IndexedEvent, GenericEventParameters>?,
         operand: String,
-    ): String? =
+    ): Any? =
         event
             ?.second
             ?.getReturnValues()
             ?.get(operand)
-            ?.toString()
-            ?: event?.first?.get(operand)?.toString()
+            ?: event?.first?.get(operand)
 }

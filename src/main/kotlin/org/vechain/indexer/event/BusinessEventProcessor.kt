@@ -33,10 +33,7 @@ class BusinessEventProcessor(
 
                 businessEvents.addAll(matchedEvents)
 
-                if (removeDuplicates) {
-                    val matchedEventIds = matchedEvents.map { it.first.id }.toSet()
-                    remainingEvents.addAll(transactionEvents.filter { it.first.id !in matchedEventIds })
-                } else {
+                if (!removeDuplicates || matchedEvents.isEmpty()) {
                     remainingEvents.addAll(transactionEvents)
                 }
             } catch (e: Exception) {

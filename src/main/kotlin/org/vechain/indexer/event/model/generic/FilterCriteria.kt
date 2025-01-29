@@ -9,6 +9,7 @@ data class FilterCriteria(
     val businessEventNames: List<String> = emptyList(),
     val contractAddresses: List<String> = emptyList(),
     val vetTransfers: Boolean = false,
+    val removeDuplicates: Boolean = true,
 ) {
     fun addBusinessEventNames(businessGenericEventNames: List<String>): FilterCriteria =
         this.copy(
