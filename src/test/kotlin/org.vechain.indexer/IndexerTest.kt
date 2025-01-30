@@ -16,6 +16,7 @@ import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_B3TR_ACTION
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STRINGS
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_TOKEN_EXCHANGE
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
@@ -999,6 +1000,8 @@ internal class IndexerTest {
                     "Approval",
                     "Transfer",
                     "Transfer",
+                    "Sync",
+                    "Swap",
                     "AddressChanged",
                     "AddrChanged",
                     "AddressChanged",
@@ -1012,10 +1015,14 @@ internal class IndexerTest {
                     "Approval",
                     "Transfer",
                     "Transfer",
+                    "Sync",
+                    "Swap",
                     "RewardDistributed",
                     "Transfer",
                     "Transfer",
                     "Transfer",
+                    "Sync",
+                    "Swap",
                     "Transfer",
                     "TextChanged",
                     "RewardDistributed",
@@ -1033,13 +1040,52 @@ internal class IndexerTest {
             // Assert that all expected events are present and in the correct order
             assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
         }
+
+        @Test
+        fun `should process business events correctly and map to correct one`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            // Create the indexer with mocked dependencies
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis("test-abis")
+            // Load business events
+            businessEventManager.loadBusinessEvents("business-events")
+
+            // Input block to process
+            val block: Block = BLOCK_TOKEN_EXCHANGE
+
+            // Process the block
+            val events =
+                indexer.processBlockGenericEvents(
+                    block,
+                    FilterCriteria(
+                        vetTransfers = true,
+                    ),
+                )
+
+            val result = indexer.processBlockBusinessEvents(events)
+
+            val expectedEventTypes =
+                listOf(
+                    "Token_VETSwap1",
+                    "Token_FTSwap",
+                )
+
+            // Extract event types from the result
+            val eventTypes = result.map { it.second.getEventType() }
+
+            // Assert that all expected events are present and in the correct order
+            assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
     }
 
     @Nested
     inner class ProcessBlockBusinessEvents {
         @Test
         fun `processBlockBusinessEvents processes all events when no filters are provided`() {
-            val block = mockk<Block>(relaxed = true)
             val b3trSwapVot3IndexedEvent =
                 EventMockFactory.createIndexedEvent(
                     "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
