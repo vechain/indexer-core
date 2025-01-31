@@ -1,6 +1,7 @@
 {
   "name": "Token_VETSwap1",
   "sameClause": true,
+  "checkAllCombinations": true,
   "events": [
     {
       "name": "VET_TRANSFER",

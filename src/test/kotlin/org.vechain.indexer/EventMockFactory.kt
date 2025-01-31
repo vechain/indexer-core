@@ -545,6 +545,28 @@ object EventMockFactory {
                 ),
         )
 
+    val nonB3trSwapVot3Event =
+        GenericEventParameters(
+            eventType = "Transfer",
+            returnValues =
+                mapOf(
+                    "from" to "0x0000000000000000000000000000000000000000",
+                    "to" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                    "value" to BigInteger("400000000000"),
+                ),
+        )
+
+    val nonB3trSwapB3trEvent =
+        GenericEventParameters(
+            eventType = "Transfer",
+            returnValues =
+                mapOf(
+                    "from" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                    "to" to "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    "value" to BigInteger("1000000"),
+                ),
+        )
+
     val purchaseEvent =
         GenericEventParameters(
             eventType = "PurchaseNonCustodial",
