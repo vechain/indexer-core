@@ -7,20 +7,80 @@ import org.vechain.indexer.event.model.generic.IndexedEvent
 object BusinessEventUtils {
     /**
      * Maps events to their aliases as defined in [eventDefinitions].
+     * Ensures that each alias gets a unique event.
      */
     fun mapEventsToAliases(
         events: List<Pair<IndexedEvent, GenericEventParameters>>,
         eventDefinitions: List<Event>,
-    ): Map<String, Pair<IndexedEvent, GenericEventParameters>> =
-        eventDefinitions
-            .mapNotNull { eventDefinition ->
-                val matchedEvent =
-                    events.firstOrNull {
-                        it.second.getEventType() == eventDefinition.name &&
-                            validateConditions(it, eventDefinition.conditions)
-                    }
-                matchedEvent?.let { eventDefinition.alias to it }
-            }.toMap()
+    ): Map<String, Pair<IndexedEvent, GenericEventParameters>> {
+        val assignedEvents = mutableSetOf<IndexedEvent>() // Track used events
+        val mappedEvents = mutableMapOf<String, Pair<IndexedEvent, GenericEventParameters>>() // Store results
+        for (eventDefinition in eventDefinitions) {
+            events
+                .firstOrNull {
+                    it.second.getEventType() == eventDefinition.name &&
+                        validateConditions(it, eventDefinition.conditions) &&
+                        it.first !in assignedEvents
+                }?.let {
+                    mappedEvents[eventDefinition.alias] = it
+                    assignedEvents.add(it.first) // Mark this event as used
+                }
+        }
+
+        if (mappedEvents.size != eventDefinitions.size) {
+            return emptyMap()
+        }
+
+        return mappedEvents
+    }
+
+    /**
+     * Generates valid event mappings with optimized backtracking to reduce redundant checks.
+     * Note: This function uses exhaustive search and may be slow for large inputs. Not used by default.
+     */
+    fun generateAllValidCombinations(
+        events: List<Pair<IndexedEvent, GenericEventParameters>>,
+        eventDefinitions: List<Event>,
+        maxAttempts: Int = 10,
+    ): List<Map<String, Pair<IndexedEvent, GenericEventParameters>>> {
+        val validCombinations = mutableListOf<Map<String, Pair<IndexedEvent, GenericEventParameters>>>()
+        var attempts = 0
+
+        fun backtrack(
+            eventIndex: Int,
+            aliasIndex: Int,
+            used: BooleanArray,
+            aliasMap: MutableMap<String, Pair<IndexedEvent, GenericEventParameters>>,
+        ) {
+            if (attempts >= maxAttempts) return
+            attempts++
+
+            if (aliasIndex == eventDefinitions.size) {
+                validCombinations.add(aliasMap.toMap()) // Store valid match
+                return
+            }
+
+            val eventDefinition = eventDefinitions[aliasIndex]
+
+            for (i in eventIndex until events.size) {
+                if (used[i]) continue // Skip already used events
+                val event = events[i]
+
+                if (event.second.getEventType() == eventDefinition.name) {
+                    used[i] = true // Mark event as used
+                    aliasMap[eventDefinition.alias] = event
+
+                    backtrack(0, aliasIndex + 1, used, aliasMap)
+
+                    aliasMap.remove(eventDefinition.alias) // Undo selection
+                    used[i] = false // Unmark event
+                }
+            }
+        }
+
+        backtrack(0, 0, BooleanArray(events.size), mutableMapOf())
+        return validCombinations
+    }
 
     /**
      * Validates the rules of a business event against matched events.

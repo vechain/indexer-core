@@ -63,6 +63,7 @@ class BusinessEventProcessor(
         txEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
         businessEventNames: List<String>,
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        // Fetch business events based on the provided names
         val businessEvents =
             if (businessEventNames.isEmpty()) {
                 businessEventManager.getAllBusinessEvents()
@@ -73,22 +74,56 @@ class BusinessEventProcessor(
         val matchedBusinessEvents = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
 
         for ((_, definition) in businessEvents) {
+            // Group events by clause index if required
             val groupedEvents =
                 if (definition.sameClause == true) {
                     txEvents.groupBy { it.first.clauseIndex.toInt() }
                 } else {
-                    mapOf(0 to txEvents) // Treat the entire transaction as a single group
+                    mapOf(0 to txEvents) // Treat all events in the transaction as a single group
                 }
 
+            var definitionMatched = false
+
             for ((_, group) in groupedEvents) {
-                val eventsForAlias = BusinessEventUtils.mapEventsToAliases(group, definition.events)
+                // Decide whether to use exhaustive search or basic mapping
+                val eventsForAlias =
+                    if (definition.checkAllCombinations == true) {
+                        checkAllCombinations(group, definition)
+                    } else {
+                        BusinessEventUtils.mapEventsToAliases(group, definition.events)
+                    }
+
+                // Validate and process matched events
                 if (eventsForAlias.isNotEmpty() && BusinessEventUtils.validateRules(definition.rules, eventsForAlias)) {
                     matchedBusinessEvents.add(createBusinessEvent(eventsForAlias, definition))
+                    definitionMatched = true
                 }
+            }
+
+            if (definitionMatched) {
+                break // Break if a definition is matched
             }
         }
 
         return matchedBusinessEvents
+    }
+
+    /**
+     * Checks all combinations of events to find valid matches based on the business definition.
+     */
+    private fun checkAllCombinations(
+        group: List<Pair<IndexedEvent, GenericEventParameters>>,
+        definition: BusinessEventDefinition,
+    ): Map<String, Pair<IndexedEvent, GenericEventParameters>> {
+        val eventCombinations = BusinessEventUtils.generateAllValidCombinations(group, definition.events, definition.maxAttempts ?: 10)
+
+        for (eventsForAlias in eventCombinations) {
+            if (eventsForAlias.isNotEmpty() && BusinessEventUtils.validateRules(definition.rules, eventsForAlias)) {
+                return eventsForAlias // Return the first valid combination
+            }
+        }
+
+        return emptyMap() // Return an empty map if no valid combination is found
     }
 
     /**
