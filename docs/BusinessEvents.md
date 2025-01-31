@@ -181,9 +181,9 @@ Use true when all events are expected to be tightly linked within a single execu
 
 ---
 
-### `processAllEvents` and When to Use It
+### `checkAllCombinations` and When to Use It
 
-By default, business event processing is selective. However, `processAllEvents` can be used to check every generic event in the transaction or clause and evaluate all possible valid combinations against the defined rules.
+By default, business event processing is selective. However, `checkAllCombinations` can be used to check every generic event in the transaction or clause and evaluate all possible valid combinations against the defined rules.
 
 #### When Should You Use It?
 
