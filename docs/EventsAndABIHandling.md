@@ -16,10 +16,15 @@ If you are indexing VeChain contracts, you can find a collection of ABIs in the 
 Generic events are extracted directly from smart contracts using ABIs. The `GenericEventIndexer` simplifies this process by decoding raw event logs into structured data. If your class extends Indexer, you can call `processBlockGenericEvents` to extract and process events as part of your block processing logic.
 
 #### Example: Extracting Events from a Block
-````
-val abiManager = AbiManager()
-abiManager.loadAbis("abis/") // Ensure ABI manager is configured
+```kotlin
+// Create a mapping of ABI file streams in your own code
+val abiFileStreams = loadAbiFiles("src/main/resources/abis")
 
+// Configure ABI Manager
+val abiManager = AbiManager()
+abiManager.loadAbis(abiFileStreams)
+
+// Implement GenericEventIndexer and extract events
 val eventIndexer = GenericEventIndexer(abiManager)
 val events = eventIndexer.getEvents(block)
 ````
@@ -34,7 +39,7 @@ Each extracted event contains:
 If your indexer class extends Indexer, you can directly use `processBlockGenericEvents` to extract and process events while handling a block. This method simplifies event extraction and ensures all relevant contract logs are processed efficiently.
 
 #### Example: Processing Events in an Indexer
-````
+```kotlin
 class MyCustomIndexer(thorClient: ThorClient, abiManager: AbiManager) : Indexer(thorClient) {
     private val eventIndexer = GenericEventIndexer(abiManager)
 
@@ -59,7 +64,7 @@ This ensures that every block processed by the indexer will automatically extrac
 #### Filtering Events
 
 To filter events, use:
-````
+```kotlin
 val filteredEvents = eventIndexer.getEventsByFilters(
     block,
     abiNames = listOf("MyContract"),
@@ -67,7 +72,7 @@ val filteredEvents = eventIndexer.getEventsByFilters(
     contractAddresses = listOf("0x1234..."),
     vetTransfers = true
 )
-````
+```
 Filtering options:
 
 - **abiNames**: Limits event extraction to specific contract ABIs.
@@ -83,21 +88,27 @@ Filtering options:
 ----
 ## Setting Up ABI Manager
 
-The `AbiManager` is responsible for loading and storing ABI definitions. To use ABI-based event processing, it must be initialized before `GenericEventIndexer` to ensure ABI definitions are available when events are processed.
+The `AbiManager` is responsible for **loading and storing ABI definitions**. To use ABI-based event processing, it must be **initialized before** `GenericEventIndexer` to ensure ABI definitions are available when events are processed.
 
-#### Configuring ABI Manager Before Event Indexing
-````
+### **Configuring ABI Manager Before Event Indexing**
+ABI files must be **loaded as a mapping of file streams (`Map<String, InputStream>`)** before event processing.
+
+#### **Loading ABI Files**
+```kotlin
+val abiFileStreams = loadAbiFiles("abis") // Replace with your own implementation
+
 val abiManager = AbiManager()
-abiManager.loadAbis("abis/")
+abiManager.loadAbis(abiFileStreams) // Load ABIs before processing events
 ````
+
 #### Retrieving ABI Events
-````
+`````kotlin
 val events = abiManager.getEventsByNames(listOf("MyContract"), listOf("Transfer"))
-````
+`````
 This ensures that only known and defined events are decoded correctly.
 
 #### ABI File (JSON Format)
-````
+```json
 [
   {
     "type": "event",
@@ -114,7 +125,7 @@ This ensures that only known and defined events are decoded correctly.
 ## Event Decoding
 
 The `EventUtils` class decodes event data using Solidity types. This can be used independently, but if you are working within an Indexer, the recommended approach is to use `processBlockGenericEvents`.
-````
+```kotlin
 val decodedEvent = EventUtils.decodeEvent(event, abiElement)
 ````
 It automatically:
@@ -126,7 +137,7 @@ It automatically:
 3. Supports various Solidity data types (e.g., address, uint256, bytes).
 
 #### Example: Computing an Event Signature
-````
+```kotlin
 val signature = EventUtils.getEventSignature("Transfer(address,address,uint256)")
 ````
 This returns the Keccak256 hash of the event signature.
