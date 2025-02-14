@@ -36,9 +36,9 @@ enum class Status {
 /** Initial processing backoff duration */
 const val INITIAL_BACKOFF_PERIOD = 10_000L
 
-abstract class Indexer(
+abstract class BlockIndexer(
     protected open val thorClient: ThorClient,
-    private val startBlock: Long = 0L,
+    protected val startBlock: Long = 0L,
     private val syncLoggerInterval: Long = 1_000L,
     protected open val abiManager: AbiManager? = null, // Optional AbiManager
     protected open val businessEventManager: BusinessEventManager? = null, // Optional BusinessEventManager
@@ -55,7 +55,7 @@ abstract class Indexer(
     val name: String
         get() = this.javaClass.simpleName
 
-    protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
+    private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     var status = Status.SYNCING
         private set
@@ -105,7 +105,7 @@ abstract class Indexer(
     }
 
     /** Starts the indexer processing */
-    suspend fun start(iterations: Long? = null) {
+    open suspend fun start(iterations: Long? = null) {
         remainingIterations = iterations
 
         // Initialise the indexer
@@ -326,12 +326,9 @@ abstract class Indexer(
         }
 
         val eventIndexer = GenericEventIndexer(abiManager!!)
-        return eventIndexer.getEventsByFilters(
+        return eventIndexer.getBlockEventsByFilters(
             block = block,
-            abiNames = criteria.abiNames,
-            eventNames = criteria.eventNames,
-            contractAddresses = criteria.contractAddresses,
-            vetTransfers = criteria.vetTransfers,
+            filterCriteria = criteria,
         )
     }
 
@@ -394,4 +391,7 @@ abstract class Indexer(
         logger.debug("Skipping business event processing as manager is missing.")
         return decodedEvents
     }
+}
+
+class LogIndexer {
 }

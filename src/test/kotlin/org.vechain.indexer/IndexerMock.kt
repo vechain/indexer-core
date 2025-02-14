@@ -16,7 +16,7 @@ class IndexerMock(
     abiManagerMock: AbiManager?,
     businessEventManagerMock: BusinessEventManager?,
     private val useMock: Boolean = false,
-) : Indexer(DefaultThorClient("notarealurl"), 0L, abiManager = abiManagerMock, businessEventManager = businessEventManagerMock) {
+) : BlockIndexer(DefaultThorClient("notarealurl"), 0L, abiManager = abiManagerMock, businessEventManager = businessEventManagerMock) {
     override val thorClient: ThorClient = thorClientMock
 
     override val abiManager: AbiManager? = abiManagerMock
