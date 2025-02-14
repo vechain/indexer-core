@@ -3,14 +3,12 @@ package org.vechain.indexer.event
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.abi.AbiElement
+import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.model.generic.RawEvent
 import org.vechain.indexer.event.utils.EventUtils
-import org.vechain.indexer.thor.model.Block
-import org.vechain.indexer.thor.model.Transaction
-import org.vechain.indexer.thor.model.TxEvent
-import org.vechain.indexer.thor.model.TxOutputs
+import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.DataUtils
 
 class GenericEventIndexer(
@@ -21,26 +19,23 @@ class GenericEventIndexer(
     /**
      * Extracts and decodes all events in a block based on loaded ABIs.
      */
-    fun getEvents(block: Block): List<Pair<IndexedEvent, GenericEventParameters>> = getEventsByFilters(block)
+    fun getBlockEvents(block: Block): List<Pair<IndexedEvent, GenericEventParameters>> = getBlockEventsByFilters(block)
 
     /**
      * Extracts and decodes events in a block based on specified filters.
      */
-    fun getEventsByFilters(
+    fun getBlockEventsByFilters(
         block: Block,
-        abiNames: List<String> = emptyList(),
-        eventNames: List<String> = emptyList(),
-        contractAddresses: List<String> = emptyList(),
-        vetTransfers: Boolean = false,
+        filterCriteria: FilterCriteria? = FilterCriteria(),
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
-        val configuredEvents = getConfiguredEvents(abiNames, eventNames)
-        return processEvents(block, configuredEvents, contractAddresses, vetTransfers)
+        val configuredEvents = getConfiguredEvents(filterCriteria!!.abiNames, filterCriteria.eventNames)
+        return processBlockEvents(block, configuredEvents, filterCriteria.contractAddresses, filterCriteria.vetTransfers)
     }
 
     /**
      * Retrieves the configured ABIs based on filter criteria.
      */
-    private fun getConfiguredEvents(
+    fun getConfiguredEvents(
         abiNames: List<String>,
         eventNames: List<String>,
     ): List<AbiElement> =
@@ -57,7 +52,7 @@ class GenericEventIndexer(
     /**
      * Processes and decodes events from a block based on provided ABIs.
      */
-    private fun processEvents(
+    private fun processBlockEvents(
         block: Block,
         configuredEvents: List<AbiElement>,
         contractAddresses: List<String>,
@@ -137,6 +132,47 @@ class GenericEventIndexer(
             } catch (ex: IllegalArgumentException) {
                 logger.warn("Failed to decode event with ABI: ${abi.name}, txId: ${tx.id}. Skipping event.")
                 null
+            }
+        }
+    }
+
+    /**
+     * Decodes a batch of log events into IndexedEvents.
+     *
+     * @param logs List of raw EventLogs.
+     * @return A list of decoded Indexed Events with their parameters.
+     */
+    fun decodeLogEvents(
+        logs: List<EventLog>,
+        configuredEvents: List<AbiElement>,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        if (logs.isEmpty()) return emptyList()
+
+        return logs.mapNotNull { log ->
+            val matchingAbi = configuredEvents.firstOrNull { abi -> abi.signature == DataUtils.removePrefix(log.topics[0]) }
+
+            matchingAbi?.let { abi ->
+                try {
+                    val parameters = EventUtils.decodeEvent(TxEvent(log.address, log.topics, log.data), abi)
+                    IndexedEvent(
+                        id = "${log.meta.txID}-${log.meta.blockNumber}",
+                        blockId = log.meta.blockID,
+                        blockNumber = log.meta.blockNumber,
+                        blockTimestamp = log.meta.blockTimestamp,
+                        txId = log.meta.txID,
+                        origin = log.meta.txOrigin,
+                        gasPayer = null, // Gas payer is unavailable in logs
+                        raw = RawEvent(log.data, log.topics),
+                        params = parameters,
+                        address = log.address,
+                        eventType = parameters.getEventType(),
+                        clauseIndex = 0,
+                        signature = log.topics[0],
+                    ) to parameters
+                } catch (ex: Exception) {
+                    logger.warn("Failed to decode log event with ABI: ${abi.name}, txId: ${log.meta.txID}")
+                    null
+                }
             }
         }
     }
