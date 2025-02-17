@@ -1,46 +1,37 @@
 package org.vechain.indexer.event
 
 import com.fasterxml.jackson.core.type.TypeReference
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.business.BusinessEventDefinition
 import org.vechain.indexer.utils.JsonUtils
-import java.io.File
+import java.io.InputStream
 
 class BusinessEventManager {
+    private val logger: Logger = LoggerFactory.getLogger(this::class.java)
     private val businessEvents = mutableMapOf<String, BusinessEventDefinition>()
 
     /**
-     * Loads business events from the specified resource path into memory.
-     *
-     * @param resourcePath The path to the business event JSON files (e.g., "businessEvents").
+     * @notice Loads business event definitions from a map of input streams.
+     * @dev Each key in the map represents an event name, and its value is the corresponding JSON InputStream.
+     * @param eventFiles A map where the key is the event name, and the value is its InputStream.
      */
-    fun loadBusinessEvents(resourcePath: String) {
-        val classLoader = Thread.currentThread().contextClassLoader
-        val resourceDir =
-            classLoader.getResource(resourcePath)
-                ?: throw IllegalArgumentException("Invalid business events directory: $resourcePath")
-
-        val eventFiles =
-            File(resourceDir.toURI()).listFiles { file -> file.extension == "json" }
-
-        if (eventFiles.isNullOrEmpty()) {
-            println("No business event files found in directory: $resourcePath")
-            return
-        }
-
-        eventFiles.forEach { file ->
+    fun loadBusinessEvents(eventFiles: Map<String, InputStream>) {
+        eventFiles.forEach { (eventName, inputStream) ->
             try {
-                val businessEventDefinition =
-                    JsonUtils.mapper.readValue(
-                        file.inputStream(),
-                        object : TypeReference<BusinessEventDefinition>() {},
+                inputStream.use { stream ->  // Auto-closes the InputStream
+                    val businessEventDefinition = JsonUtils.mapper.readValue(
+                        stream, object : TypeReference<BusinessEventDefinition>() {}
                     )
-                val businessEventName = file.nameWithoutExtension
-                businessEvents[businessEventName] = businessEventDefinition
+                    businessEvents[eventName] = businessEventDefinition
+                    logger.info("Loaded business event: $eventName")
+                }
             } catch (e: Exception) {
-                println("Failed to load business event from ${file.name}: ${e.message}")
+                logger.error("Failed to load business event from $eventName: ${e.message}")
             }
         }
     }
+
 
     /**
      * Retrieves all loaded business events.

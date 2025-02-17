@@ -22,10 +22,15 @@ To use this feature, you must configure an instance of `BusinessEventManager` be
 
 The `BusinessEventManager` is responsible for loading and managing business event definitions from a specified directory.
 
+### **Configuring  Business Event Manager Before Event Indexing**
+Business Event Definition files must be **loaded as a mapping of file streams (`Map<String, InputStream>`)** before event processing.
+
 #### Initializing Business Event Manager
-````
+```kotlin
+val businessEventsFileStreams = loadAbiFiles("businessEvents") // Replace with your own implementation
+
 val businessEventManager = BusinessEventManager()
-businessEventManager.loadBusinessEvents("businessEvents/")
+businessEventManager.loadBusinessEvents(businessEventsFileStreams)
 ````
 This loads all business event definitions from the specified directory into memory.
 
@@ -33,7 +38,7 @@ This loads all business event definitions from the specified directory into memo
 
 Once loaded, you can retrieve a specific business event definition:
 
-````
+```kotlin
 val businessEvent = businessEventManager.getBusinessEventDefinition("Token_FTSwap")
 ````
 ----
@@ -42,7 +47,7 @@ val businessEvent = businessEventManager.getBusinessEventDefinition("Token_FTSwa
 The `BusinessEventProcessor` works alongside `BusinessEventManager` to detect business events from blockchain transactions.
 
 #### Example: Processing Business Events in an Indexer
-````
+```kotlin
 class MyBusinessEventIndexer(thorClient: ThorClient, businessEventManager: BusinessEventManager) : Indexer(thorClient) {
 private val eventProcessor = BusinessEventProcessor(businessEventManager)
 
@@ -64,7 +69,7 @@ This ensures that every block processed by the indexer will extract and handle r
 You can also use `BusinessEventProcessor` outside of an indexer if you only need to process business events independently.
 
 #### Example: Standalone Business Event Processing
-````
+```kotlin
 val genericEvents = fetchBlockchainEvents()
 val businessEvents = businessEventProcessor.getOnlyBusinessEvents(genericEvents, listOf("Token_FTSwap"))
 
@@ -80,7 +85,7 @@ businessEvents.forEach { (indexedEvent, parameters) ->
 The processAllEvents method processes an entire blockchain block, evaluating every generic event in the transaction or clause. It then applies business event rules and returns a list of business events. If no valid business event is found, it returns the original generic events.
 
 **Usage with an Indexer**
-````
+```kotlin
 val businessEvents = eventProcessor.processAllEvents(block)
 businessEvents.forEach { (indexedEvent, parameters) ->
     println("Detected business event: ${indexedEvent.eventType} with params: ${parameters.params}")
@@ -91,7 +96,7 @@ businessEvents.forEach { (indexedEvent, parameters) ->
 This method only returns business events, filtering out generic events that do not match any business rules. It requires a list of generic events as input, making it ideal for use with `GenericEventIndexer`.
 
 **Usage in an Indexer**
-````
+```kotlin
 val genericEvents = processBlockGenericEvents(block)
 val businessEvents = eventProcessor.getOnlyBusinessEvents(genericEvents, listOf("Token_FTSwap", "B3TR_ActionReward"))
 businessEvents.forEach { (indexedEvent, parameters) ->
@@ -104,7 +109,7 @@ businessEvents.forEach { (indexedEvent, parameters) ->
 Both `processAllEvents` and `getOnlyBusinessEvents` support filtering by business event names to limit processing to specific event types.
 
 #### Example:
-````
+```kotlin
 val businessEvents = eventProcessor.getOnlyBusinessEvents(genericEvents, listOf("Token_FTSwap"))
 ````
 This ensures that only business events of type Token_FTSwap are processed.
@@ -130,7 +135,7 @@ Each condition consists of:
 - **operator**: The comparison operator (e.g., `EQ`, `NE`, `GT`, `LT`).
 
 #### Example:
-````
+```json
 {
     "firstOperand": "from",
     "isFirstStatic": false,
@@ -157,7 +162,7 @@ Rules define relationships between multiple events to ensure a valid business ev
 - `operator`: The comparison operator (`EQ`, `NE`, `GT`, `LT`).
 
 #### Example:
-````
+```json
 {
     "firstEventName": "inputTransfer",
     "firstEventProperty": "from",
