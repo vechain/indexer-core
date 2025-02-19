@@ -55,13 +55,13 @@ abstract class BlockIndexer(
     val name: String
         get() = this.javaClass.simpleName
 
-    private val logger: Logger = LoggerFactory.getLogger(this::class.java)
+    protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     var status = Status.SYNCING
-        private set
+        protected set
 
     var currentBlockNumber: Long = 0
-        private set
+        protected set
 
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
         private set
@@ -393,5 +393,4 @@ abstract class BlockIndexer(
     }
 }
 
-class LogIndexer {
-}
+class LogIndexer
