@@ -110,7 +110,6 @@ object EventUtils {
         return DataUtils.addPrefix(cleanData.substring(offset, offset + 64))
     }
 
-
     /**
      * Creates a list of EventCriteria for querying Thor logs.
      * Converts ABI event signatures into filterable criteria.
@@ -119,18 +118,21 @@ object EventUtils {
      * @param contractAddresses List of contract addresses to filter by (optional).
      * @return List of EventCriteria for querying logs.
      */
-    fun createEventCriteria(configuredEvents: List<AbiElement>, contractAddresses: List<String>): List<EventCriteria> {
+    fun createEventCriteria(
+        configuredEvents: List<AbiElement>,
+        contractAddresses: List<String>,
+    ): List<EventCriteria> {
         val eventSignatures = configuredEvents.mapNotNull { it.signature }
 
         return if (contractAddresses.isNotEmpty()) {
             contractAddresses.flatMap { address ->
                 eventSignatures.map { signature ->
-                    EventCriteria(address = address, topic0 = signature)
+                    EventCriteria(address = address, topic0 = DataUtils.addPrefix(signature))
                 }
             }
         } else {
             eventSignatures.map { signature ->
-                EventCriteria(topic0 = signature)
+                EventCriteria(topic0 = DataUtils.addPrefix(signature))
             }
         }
     }
