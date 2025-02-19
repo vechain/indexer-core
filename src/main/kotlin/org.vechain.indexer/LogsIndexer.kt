@@ -1,12 +1,9 @@
 package org.vechain.indexer
 
 import kotlinx.coroutines.delay
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.GenericEventIndexer
-import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
@@ -14,25 +11,32 @@ import org.vechain.indexer.event.utils.EventUtils
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.*
 
-const val EVENTS_LIMIT = 1000L
-const val MAX_RETRIES = 5
+const val BLOCK_BATCH_SIZE = 1000L //  Adjusted batch size
+const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
+const val MAX_RETRIES = 5 //  Error handling retries
 
 abstract class LogsIndexer(
     override val thorClient: ThorClient,
     startBlock: Long = 0L,
     syncLoggerInterval: Long = 1_000L,
+    private val blockBatchSize: Long = BLOCK_BATCH_SIZE,
     final override val abiManager: AbiManager,
     private val criteria: FilterCriteria = FilterCriteria(),
-    override val businessEventManager: BusinessEventManager? = null, // Optional BusinessEventManager
+    override val businessEventManager: BusinessEventManager? = null,
 ) : BlockIndexer(thorClient, startBlock, syncLoggerInterval, abiManager, businessEventManager) {
-    private val logger: Logger = LoggerFactory.getLogger(this::class.java)
-
-    // Generic Event Indexer for decoding events
     private val genericEventIndexer = GenericEventIndexer(abiManager)
 
     abstract fun processLogs(events: List<Pair<IndexedEvent, GenericEventParameters>>)
 
+    private fun initialise(blockNumber: Long? = null) {
+        val lastSyncedBlockNumber = blockNumber ?: getLastSyncedBlock()?.number ?: startBlock
+        currentBlockNumber = lastSyncedBlockNumber
+        status = Status.SYNCING
+        logger.info("Initialized LogsIndexer at block: $lastSyncedBlockNumber")
+    }
+
     override suspend fun start(iterations: Long?) {
+        initialise()
         val finalizedBlock = thorClient.getBestBlock().number - 1000
         var lastSynced = this.getLastSyncedBlock()?.number ?: startBlock
 
@@ -47,7 +51,7 @@ abstract class LogsIndexer(
     }
 
     /**
-     * Fetches logs iteratively and ensures complete coverage of blocks.
+     * Fetches logs iteratively and ensures complete coverage of blocks without missing events.
      */
     private suspend fun syncLogs(
         fromBlock: Long,
@@ -56,35 +60,45 @@ abstract class LogsIndexer(
         var lastProcessedBlock = fromBlock
         var retries = 0
 
-        val configuredEvents =
-            genericEventIndexer.getConfiguredEvents(
-                criteria.abiNames,
-                criteria.eventNames,
+        val configuredEvents = genericEventIndexer.getConfiguredEvents(criteria.abiNames, criteria.eventNames)
+
+        val eventCriteria =
+            EventUtils.createEventCriteria(
+                configuredEvents,
+                criteria.contractAddresses,
             )
 
         while (lastProcessedBlock < toBlock) {
             try {
-                val logs = fetchEventLogs(lastProcessedBlock, toBlock, configuredEvents, criteria.contractAddresses)
-                if (logs.isEmpty()) break // No more logs to fetch, exit loop
+                val batchEndBlock = minOf(lastProcessedBlock + blockBatchSize, toBlock)
 
-                processLogs(genericEventIndexer.decodeLogEvents(logs, configuredEvents))
+                //  Fetch logs for this block range
+                val logsBatch = fetchEventLogs(lastProcessedBlock, batchEndBlock, eventCriteria)
+                if (logsBatch.isEmpty()) {
+                    lastProcessedBlock = batchEndBlock
+                    continue
+                }
 
-                // Move forward to the last block in the logs
-                lastProcessedBlock = logs.maxOfOrNull { it.meta.blockNumber } ?: lastProcessedBlock
+                val decodedEvents = genericEventIndexer.decodeLogEvents(logsBatch, configuredEvents)
+                if (decodedEvents.isNotEmpty()) {
+                    processLogs(decodedEvents)
+                }
 
-                retries = 0 // Reset retries if successful
+                //  Update lastProcessedBlock **only after successful processing**
+                lastProcessedBlock = batchEndBlock
+                retries = 0 // Reset retries after success
             } catch (e: Exception) {
                 logger.error("Error fetching logs at block $lastProcessedBlock: ${e.message}")
+
                 if (++retries >= MAX_RETRIES) {
-                    logger.error("Max retries reached, skipping block $lastProcessedBlock")
-                    lastProcessedBlock++
+                    logger.error("Max retries reached. Restarting from last successful block $lastProcessedBlock")
+                    restart(lastProcessedBlock) //  Restart from the **same block**, not skipping ahead
                     retries = 0
                 } else {
-                    delay(1000L * retries) // Exponential backoff
+                    delay(1000L * retries) //  Exponential backoff before retrying
                 }
             }
         }
-
         return lastProcessedBlock
     }
 
@@ -94,33 +108,35 @@ abstract class LogsIndexer(
     private suspend fun fetchEventLogs(
         fromBlock: Long,
         toBlock: Long,
-        configuredEvents: List<AbiElement>,
-        addresses: List<String>,
+        eventCriteria: List<EventCriteria>,
     ): List<EventLog> {
         val logs = mutableListOf<EventLog>()
         var offset = 0L
-
         while (true) {
             val response =
                 thorClient.getEventLogs(
                     EventLogsRequest(
                         range = EventRange(from = fromBlock, to = toBlock, unit = "block"),
-                        options = EventOptions(offset = offset, limit = EVENTS_LIMIT),
-                        criteriaSet = EventUtils.createEventCriteria(configuredEvents, addresses),
+                        options = EventOptions(offset = offset, limit = LOG_FETCH_LIMIT),
+                        criteriaSet = eventCriteria,
                         order = "asc",
                     ),
                 )
 
             if (response.isEmpty()) break
-
             logs.addAll(response)
-
-            if (response.size < EVENTS_LIMIT) break
-
-            offset += EVENTS_LIMIT
+            if (response.size < LOG_FETCH_LIMIT) break
+            offset += LOG_FETCH_LIMIT
         }
-
         return logs
+    }
+
+    /**
+     * Restarts processing from the last known good block.
+     */
+    private suspend fun restart(fromBlock: Long) {
+        initialise(fromBlock)
+        syncLogs(fromBlock, thorClient.getBestBlock().number - 1000)
     }
 
     /**
@@ -128,7 +144,6 @@ abstract class LogsIndexer(
      */
     override fun processBlock(block: Block) {
         val eventLogs = genericEventIndexer.getBlockEventsByFilters(block, criteria)
-
         if (eventLogs.isNotEmpty()) processLogs(eventLogs)
     }
 }
