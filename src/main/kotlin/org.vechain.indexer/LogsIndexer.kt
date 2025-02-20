@@ -4,6 +4,7 @@ import kotlinx.coroutines.delay
 import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.GenericEventIndexer
+import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
@@ -19,13 +20,14 @@ abstract class LogsIndexer(
     startBlock: Long = 0L,
     syncLoggerInterval: Long = 1_000L,
     private val blockBatchSize: Long = BLOCK_BATCH_SIZE,
-    final override val abiManager: AbiManager,
-    private val criteria: FilterCriteria = FilterCriteria(),
+    private val logFetchLimit: Long = LOG_FETCH_LIMIT,
+    private var criteriaSet: List<EventCriteria>? = null,
+    final override val abiManager: AbiManager? = null,
     override val businessEventManager: BusinessEventManager? = null,
 ) : BlockIndexer(thorClient, startBlock, syncLoggerInterval, abiManager, businessEventManager) {
-    private val genericEventIndexer = GenericEventIndexer(abiManager)
+    abstract fun processLogs(logs: List<EventLog>)
 
-    abstract fun processLogs(events: List<Pair<IndexedEvent, GenericEventParameters>>)
+    private var cachedConfiguredEvents: List<AbiElement>? = null
 
     private fun initialise(blockNumber: Long? = null) {
         val lastSyncedBlockNumber = blockNumber ?: getLastSyncedBlock()?.number ?: startBlock
@@ -59,9 +61,6 @@ abstract class LogsIndexer(
         var lastProcessedBlock = fromBlock
         var retries = 0
 
-        // Retrieve configured events
-        val configuredEvents = genericEventIndexer.getConfiguredEvents(criteria.abiNames, criteria.eventNames)
-
         while (lastProcessedBlock < toBlock) {
             try {
                 // Get the next batch of blocks to process
@@ -74,11 +73,7 @@ abstract class LogsIndexer(
                     continue
                 }
 
-                // Decode logs into generic events
-                val decodedEvents = genericEventIndexer.decodeLogEvents(logsBatch, configuredEvents)
-                if (decodedEvents.isNotEmpty()) {
-                    processLogs(decodedEvents)
-                }
+                processLogs(logsBatch)
 
                 // Update lastProcessedBlock **only after successful processing**
                 lastProcessedBlock = batchEndBlock
@@ -112,16 +107,16 @@ abstract class LogsIndexer(
                 thorClient.getEventLogs(
                     EventLogsRequest(
                         range = EventRange(from = fromBlock, to = toBlock, unit = "block"),
-                        options = EventOptions(offset = offset, limit = LOG_FETCH_LIMIT),
-                        criteriaSet = null,
+                        options = EventOptions(offset = offset, limit = logFetchLimit),
+                        criteriaSet = criteriaSet,
                         order = "asc",
                     ),
                 )
 
             if (response.isEmpty()) break
             logs.addAll(response)
-            if (response.size < LOG_FETCH_LIMIT) break
-            offset += LOG_FETCH_LIMIT
+            if (response.size < logFetchLimit) break
+            offset += logFetchLimit
         }
         return logs
     }
@@ -138,7 +133,99 @@ abstract class LogsIndexer(
      * Process events in each block matching criteria.
      */
     override fun processBlock(block: Block) {
-        val eventLogs = genericEventIndexer.getBlockEventsByFilters(block, criteria)
-        if (eventLogs.isNotEmpty()) processLogs(eventLogs)
+        val eventLogs = mutableListOf<EventLog>()
+
+        for (tx in block.transactions) {
+            for (output in tx.outputs) {
+                output.events.forEach { event ->
+                    if (criteriaSet.isNullOrEmpty()) {
+                        eventLogs.add(event.toEventLog(block, tx))
+                        return@forEach
+                    } else {
+                        for (criteria in criteriaSet!!) {
+                            val isMatching =
+                                listOf(
+                                    criteria.address == null || event.address == criteria.address,
+                                    criteria.topic0 == null || event.topics.getOrNull(0) == criteria.topic0,
+                                    criteria.topic1 == null || event.topics.getOrNull(1) == criteria.topic1,
+                                    criteria.topic2 == null || event.topics.getOrNull(2) == criteria.topic2,
+                                    criteria.topic3 == null || event.topics.getOrNull(3) == criteria.topic3,
+                                    criteria.topic4 == null || event.topics.getOrNull(4) == criteria.topic4,
+                                ).all { it }
+
+                            if (!isMatching) continue
+
+                            eventLogs.add(event.toEventLog(block, tx))
+                            return@forEach
+                        }
+                    }
+                }
+            }
+        }
+
+        if (eventLogs.isNotEmpty()) {
+            processLogs(eventLogs)
+        }
+    }
+
+    private fun TxEvent.toEventLog(
+        block: Block,
+        tx: Transaction,
+    ): EventLog =
+        EventLog(
+            address = this.address,
+            topics = this.topics,
+            data = this.data,
+            meta =
+                EventMeta(
+                    blockID = block.id,
+                    blockNumber = block.number,
+                    blockTimestamp = block.timestamp,
+                    txID = tx.id,
+                    txOrigin = tx.origin,
+                    clauseIndex = 0,
+                ),
+        )
+
+    /**
+     * @notice Processes all events (generic and business) in a block based on the provided criteria.
+     * @dev Updates the filter criteria with business event names if applicable.
+     *      Decodes and processes both generic and business events.
+     * @param eventLogs The Thor logs to process.
+     * @param criteria Filtering criteria to determine which events to process.
+     * @return A list of decoded events and their associated parameters.
+     */
+    protected open fun processAllEvents(
+        eventLogs: List<EventLog>,
+        criteria: FilterCriteria = FilterCriteria(),
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        val decodedEvents = processBlockGenericEvents(eventLogs, criteria)
+        return processBusinessEvents(decodedEvents, criteria.businessEventNames, criteria.removeDuplicates)
+    }
+
+    /**
+     * @notice Processes generic events in a block based on the provided criteria.
+     * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and returns an empty list.
+     * @param logs The Thor logs to process.
+     * @param criteria Filtering criteria to determine which generic events to process.
+     * @return A list of decoded generic events and their associated parameters.
+     */
+    protected open fun processBlockGenericEvents(
+        logs: List<EventLog>,
+        criteria: FilterCriteria = FilterCriteria(),
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        if (abiManager == null) {
+            logger.warn("ABI Manager is not configured. Skipping generic event processing.")
+            return emptyList()
+        }
+
+        val eventIndexer = GenericEventIndexer(abiManager!!)
+
+        if (cachedConfiguredEvents == null) {
+            val updatedCriteria = businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria
+            cachedConfiguredEvents = eventIndexer.getConfiguredEvents(updatedCriteria.abiNames, updatedCriteria.eventNames)
+        }
+
+        return eventIndexer.decodeLogEvents(logs, cachedConfiguredEvents!!)
     }
 }

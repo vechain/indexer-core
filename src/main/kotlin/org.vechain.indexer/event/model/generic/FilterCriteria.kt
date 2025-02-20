@@ -11,9 +11,15 @@ data class FilterCriteria(
     val vetTransfers: Boolean = false,
     val removeDuplicates: Boolean = true,
 ) {
-    fun addBusinessEventNames(businessGenericEventNames: List<String>): FilterCriteria =
-        this.copy(
-            eventNames =
-                this.eventNames + businessGenericEventNames,
+    /**
+     * Merges business event names with the existing event filter.
+     * Ensures no duplicates by using a Set.
+     */
+    fun addBusinessEventNames(businessGenericEventNames: List<String>): FilterCriteria {
+        if (businessGenericEventNames.isEmpty()) return this
+
+        return this.copy(
+            eventNames = this.eventNames + businessGenericEventNames.toSet(),
         )
+    }
 }
