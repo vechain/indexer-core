@@ -7,7 +7,6 @@ import org.vechain.indexer.event.GenericEventIndexer
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
-import org.vechain.indexer.event.utils.EventUtils
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.*
 
@@ -63,16 +62,13 @@ abstract class LogsIndexer(
         // Retrieve configured events
         val configuredEvents = genericEventIndexer.getConfiguredEvents(criteria.abiNames, criteria.eventNames)
 
-        // Determine event criteria based on the provided filter criteria
-        val eventCriteria = EventUtils.createEventCriteria(configuredEvents, criteria)
-
         while (lastProcessedBlock < toBlock) {
             try {
                 // Get the next batch of blocks to process
                 val batchEndBlock = minOf(lastProcessedBlock + blockBatchSize, toBlock)
 
                 // Fetch logs for this block range
-                val logsBatch = fetchEventLogs(lastProcessedBlock, batchEndBlock, eventCriteria)
+                val logsBatch = fetchEventLogs(lastProcessedBlock, batchEndBlock)
                 if (logsBatch.isEmpty()) {
                     lastProcessedBlock = batchEndBlock
                     continue
@@ -108,7 +104,6 @@ abstract class LogsIndexer(
     private suspend fun fetchEventLogs(
         fromBlock: Long,
         toBlock: Long,
-        eventCriteria: List<EventCriteria>? = null,
     ): List<EventLog> {
         val logs = mutableListOf<EventLog>()
         var offset = 0L
@@ -118,7 +113,7 @@ abstract class LogsIndexer(
                     EventLogsRequest(
                         range = EventRange(from = fromBlock, to = toBlock, unit = "block"),
                         options = EventOptions(offset = offset, limit = LOG_FETCH_LIMIT),
-                        criteriaSet = eventCriteria,
+                        criteriaSet = null,
                         order = "asc",
                     ),
                 )
