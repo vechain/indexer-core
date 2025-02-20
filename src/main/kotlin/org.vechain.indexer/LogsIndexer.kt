@@ -11,7 +11,7 @@ import org.vechain.indexer.event.utils.EventUtils
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.*
 
-const val BLOCK_BATCH_SIZE = 1000L //  Adjusted batch size
+const val BLOCK_BATCH_SIZE = 100L //  Block batch size
 const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
 const val MAX_RETRIES = 5 //  Error handling retries
 
@@ -60,31 +60,31 @@ abstract class LogsIndexer(
         var lastProcessedBlock = fromBlock
         var retries = 0
 
+        // Retrieve configured events
         val configuredEvents = genericEventIndexer.getConfiguredEvents(criteria.abiNames, criteria.eventNames)
 
-        val eventCriteria =
-            EventUtils.createEventCriteria(
-                configuredEvents,
-                criteria.contractAddresses,
-            )
+        // Determine event criteria based on the provided filter criteria
+        val eventCriteria = EventUtils.createEventCriteria(configuredEvents, criteria)
 
         while (lastProcessedBlock < toBlock) {
             try {
+                // Get the next batch of blocks to process
                 val batchEndBlock = minOf(lastProcessedBlock + blockBatchSize, toBlock)
 
-                //  Fetch logs for this block range
+                // Fetch logs for this block range
                 val logsBatch = fetchEventLogs(lastProcessedBlock, batchEndBlock, eventCriteria)
                 if (logsBatch.isEmpty()) {
                     lastProcessedBlock = batchEndBlock
                     continue
                 }
 
+                // Decode logs into generic events
                 val decodedEvents = genericEventIndexer.decodeLogEvents(logsBatch, configuredEvents)
                 if (decodedEvents.isNotEmpty()) {
                     processLogs(decodedEvents)
                 }
 
-                //  Update lastProcessedBlock **only after successful processing**
+                // Update lastProcessedBlock **only after successful processing**
                 lastProcessedBlock = batchEndBlock
                 retries = 0 // Reset retries after success
             } catch (e: Exception) {
@@ -92,10 +92,10 @@ abstract class LogsIndexer(
 
                 if (++retries >= MAX_RETRIES) {
                     logger.error("Max retries reached. Restarting from last successful block $lastProcessedBlock")
-                    restart(lastProcessedBlock) //  Restart from the **same block**, not skipping ahead
+                    restart(lastProcessedBlock) // Restart from the **same block**, not skipping ahead
                     retries = 0
                 } else {
-                    delay(1000L * retries) //  Exponential backoff before retrying
+                    delay(1000L * retries) // Exponential backoff before retrying
                 }
             }
         }
@@ -108,7 +108,7 @@ abstract class LogsIndexer(
     private suspend fun fetchEventLogs(
         fromBlock: Long,
         toBlock: Long,
-        eventCriteria: List<EventCriteria>,
+        eventCriteria: List<EventCriteria>? = null,
     ): List<EventLog> {
         val logs = mutableListOf<EventLog>()
         var offset = 0L
