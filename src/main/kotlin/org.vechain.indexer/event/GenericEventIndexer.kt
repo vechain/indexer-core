@@ -47,6 +47,7 @@ class GenericEventIndexer(
                 .values
                 .flatten()
                 .filter { it.type == "event" && (eventNames.isEmpty() || it.name in eventNames) }
+                .distinctBy { it.signature to it.inputs.count { input -> input.indexed } }
         }
 
     /**
@@ -105,12 +106,7 @@ class GenericEventIndexer(
         outputIndex: Int,
         eventIndex: Int,
     ): Pair<IndexedEvent, GenericEventParameters>? {
-        val matchingAbi =
-            configuredEvents.firstOrNull { abi ->
-                abi.signature == DataUtils.removePrefix(event.topics[0]) &&
-                    abi.inputs.count { it.indexed } + 1 == event.topics.size
-            }
-
+        val matchingAbi = EventUtils.findMatchingAbi(event.topics, configuredEvents)
         return matchingAbi?.let { abi ->
             try {
                 val parameters = EventUtils.decodeEvent(event, abi)
@@ -148,31 +144,34 @@ class GenericEventIndexer(
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
         if (logs.isEmpty()) return emptyList()
 
-        return logs.mapNotNull { log ->
-            val matchingAbi = configuredEvents.firstOrNull { abi -> abi.signature == DataUtils.removePrefix(log.topics[0]) }
+        return logs.mapIndexedNotNull { i, log ->
+            val txEvent = TxEvent(log.address, log.topics, log.data)
 
-            matchingAbi?.let { abi ->
-                try {
-                    val parameters = EventUtils.decodeEvent(TxEvent(log.address, log.topics, log.data), abi)
-                    IndexedEvent(
-                        id = "${log.meta.txID}-${log.meta.blockNumber}",
-                        blockId = log.meta.blockID,
-                        blockNumber = log.meta.blockNumber,
-                        blockTimestamp = log.meta.blockTimestamp,
-                        txId = log.meta.txID,
-                        origin = log.meta.txOrigin,
-                        gasPayer = null, // Gas payer is unavailable in logs
-                        raw = RawEvent(log.data, log.topics),
-                        params = parameters,
-                        address = log.address,
-                        eventType = parameters.getEventType(),
-                        clauseIndex = 0,
-                        signature = log.topics[0],
-                    ) to parameters
-                } catch (ex: Exception) {
-                    logger.warn("Failed to decode log event with ABI: ${abi.name}, txId: ${log.meta.txID}")
-                    null
-                }
+            // Check if the event is valid and has a matching ABI
+            if (!isEventValid(txEvent, configuredEvents, emptyList())) return@mapIndexedNotNull null
+            val matchingAbi = EventUtils.findMatchingAbi(log.topics, configuredEvents) ?: return@mapIndexedNotNull null
+
+            try {
+                val parameters = EventUtils.decodeEvent(txEvent, matchingAbi)
+
+                IndexedEvent(
+                    id = generateEventId(log.meta.txID, log.meta.clauseIndex, i, txEvent),
+                    blockId = log.meta.blockID,
+                    blockNumber = log.meta.blockNumber,
+                    blockTimestamp = log.meta.blockTimestamp,
+                    txId = log.meta.txID,
+                    origin = log.meta.txOrigin,
+                    gasPayer = null, // Gas payer is unavailable in logs
+                    raw = RawEvent(log.data, log.topics),
+                    params = parameters,
+                    address = log.address,
+                    eventType = parameters.getEventType(),
+                    clauseIndex = log.meta.clauseIndex.toLong(),
+                    signature = log.topics[0],
+                ) to parameters
+            } catch (ex: Exception) {
+                logger.warn("Failed to decode log event with ABI: ${matchingAbi.name}, txId: ${log.meta.txID}")
+                null
             }
         }
     }

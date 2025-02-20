@@ -118,4 +118,24 @@ object EventUtils {
         }
         return DataUtils.addPrefix(cleanData.substring(offset, offset + 64))
     }
+
+    /**
+     * Finds the most suitable ABI element for decoding a given event log.
+     *
+     * @param topics The list of topics from the event log.
+     * @param configuredEvents The list of ABI elements to search from.
+     * @return The best matching ABI element or null if no match is found.
+     */
+    fun findMatchingAbi(
+        topics: List<String>,
+        configuredEvents: List<AbiElement>,
+    ): AbiElement? {
+        if (topics.isEmpty()) return null // Avoids unnecessary processing if topics list is empty
+
+        val eventSignature = DataUtils.removePrefix(topics[0])
+
+        return configuredEvents.firstOrNull { abi ->
+            abi.signature == eventSignature && abi.inputs.count { it.indexed } + 1 == topics.size
+        }
+    }
 }
