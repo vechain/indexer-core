@@ -5,7 +5,6 @@ import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.types.Types
-import org.vechain.indexer.thor.model.EventCriteria
 import org.vechain.indexer.thor.model.TxEvent
 import org.vechain.indexer.utils.DataUtils
 
@@ -56,13 +55,23 @@ object EventUtils {
                     decodeType(event.topics[topicIndex++], input.type)
                 } else {
                     val segment = extractDataSegment(event.data, dataOffset++)
-                    decodeType(segment, input.type, fullData = event.data, startPosition = (dataOffset - 1) * 64, input.components)
+                    decodeType(
+                        segment,
+                        input.type,
+                        fullData = event.data,
+                        startPosition = (dataOffset - 1) * 64,
+                        input.components,
+                    )
                 }
             decodedParameters[input.name] = decodedValue
         }
 
         return GenericEventParameters(
-            returnValues = decodedParameters.filterValues { it != null }.mapValues { it.value as Any }, // Filter out nulls and cast to Any
+            returnValues =
+                decodedParameters
+                    .filterValues { it != null }
+                    .mapValues { it.value as Any },
+            // Filter out nulls and cast to Any
             eventType = abiElement.name ?: "Unknown",
         )
     }
@@ -108,32 +117,5 @@ object EventUtils {
             throw IllegalArgumentException("Data segment out of bounds for index $index")
         }
         return DataUtils.addPrefix(cleanData.substring(offset, offset + 64))
-    }
-
-    /**
-     * Creates a list of EventCriteria for querying Thor logs.
-     * Converts ABI event signatures into filterable criteria.
-     *
-     * @param configuredEvents List of ABI events containing event signatures.
-     * @param contractAddresses List of contract addresses to filter by (optional).
-     * @return List of EventCriteria for querying logs.
-     */
-    fun createEventCriteria(
-        configuredEvents: List<AbiElement>,
-        contractAddresses: List<String>,
-    ): List<EventCriteria> {
-        val eventSignatures = configuredEvents.mapNotNull { it.signature }
-
-        return if (contractAddresses.isNotEmpty()) {
-            contractAddresses.flatMap { address ->
-                eventSignatures.map { signature ->
-                    EventCriteria(address = address, topic0 = DataUtils.addPrefix(signature))
-                }
-            }
-        } else {
-            eventSignatures.map { signature ->
-                EventCriteria(topic0 = DataUtils.addPrefix(signature))
-            }
-        }
     }
 }
