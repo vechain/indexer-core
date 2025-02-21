@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.business.BusinessEventDefinition
+import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.utils.JsonUtils
 import java.io.InputStream
 
@@ -19,10 +20,12 @@ class BusinessEventManager {
     fun loadBusinessEvents(eventFiles: Map<String, InputStream>) {
         eventFiles.forEach { (eventName, inputStream) ->
             try {
-                inputStream.use { stream ->  // Auto-closes the InputStream
-                    val businessEventDefinition = JsonUtils.mapper.readValue(
-                        stream, object : TypeReference<BusinessEventDefinition>() {}
-                    )
+                inputStream.use { stream ->
+                    val businessEventDefinition =
+                        JsonUtils.mapper.readValue(
+                            stream,
+                            object : TypeReference<BusinessEventDefinition>() {},
+                        )
                     businessEvents[eventName] = businessEventDefinition
                     logger.info("Loaded business event: $eventName")
                 }
@@ -31,7 +34,6 @@ class BusinessEventManager {
             }
         }
     }
-
 
     /**
      * Retrieves all loaded business events.
@@ -62,4 +64,19 @@ class BusinessEventManager {
         getBusinessEventsByNames(names).flatMap { (_, businessEventDefinition) ->
             businessEventDefinition.events.map { it.name }
         }
+
+    /**
+     * @notice Updates the filter criteria with business event names if applicable.
+     * @dev Retrieves the generic event names for the specified business event names
+     *      using the `BusinessEventManager` and adds them to the criteria.
+     * @param criteria The original filtering criteria.
+     * @return Updated filtering criteria with additional event names for business events.
+     */
+    fun updateCriteriaWithBusinessEvents(criteria: FilterCriteria): FilterCriteria {
+        if (criteria.businessEventNames.isNotEmpty()) {
+            val names = getBusinessGenericEventNames(criteria.businessEventNames)
+            return criteria.addBusinessEventNames(names)
+        }
+        return criteria
+    }
 }
