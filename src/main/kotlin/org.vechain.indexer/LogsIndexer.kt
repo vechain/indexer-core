@@ -1,6 +1,5 @@
 package org.vechain.indexer
 
-import kotlinx.coroutines.delay
 import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.GenericEventIndexer
@@ -13,7 +12,6 @@ import org.vechain.indexer.thor.model.*
 
 const val BLOCK_BATCH_SIZE = 100L //  Block batch size
 const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
-const val MAX_RETRIES = 5 //  Error handling retries
 
 abstract class LogsIndexer(
     override val thorClient: ThorClient,
@@ -39,12 +37,11 @@ abstract class LogsIndexer(
     override suspend fun start(iterations: Long?) {
         initialise()
         val finalizedBlock = thorClient.getBestBlock().number - 1000
-        var lastSynced = this.getLastSyncedBlock()?.number ?: startBlock
 
-        logger.info("Starting log sync from block $lastSynced to $finalizedBlock")
+        remainingIterations = iterations
 
-        while (lastSynced < finalizedBlock) {
-            lastSynced = syncLogs(lastSynced, finalizedBlock)
+        if (currentBlockNumber < finalizedBlock) {
+            syncLogs(finalizedBlock)
         }
 
         logger.info("Fast sync complete, switching to block indexer")
@@ -54,43 +51,31 @@ abstract class LogsIndexer(
     /**
      * Fetches logs iteratively and ensures complete coverage of blocks without missing events.
      */
-    private suspend fun syncLogs(
-        fromBlock: Long,
-        toBlock: Long,
-    ): Long {
-        var lastProcessedBlock = fromBlock
-        var retries = 0
-
-        while (lastProcessedBlock < toBlock) {
+    private suspend fun syncLogs(toBlock: Long) {
+        while (currentBlockNumber < toBlock) {
             try {
+                if (hasNoRemainingIterations()) return
+                backoffDelay()
+
                 // Get the next batch of blocks to process
-                val batchEndBlock = minOf(lastProcessedBlock + blockBatchSize, toBlock)
+                val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
 
                 // Fetch logs for this block range
-                val logsBatch = fetchEventLogs(lastProcessedBlock, batchEndBlock)
+                val logsBatch = fetchEventLogs(currentBlockNumber, batchEndBlock)
                 if (logsBatch.isEmpty()) {
-                    lastProcessedBlock = batchEndBlock
+                    currentBlockNumber = batchEndBlock
                     continue
                 }
 
                 processLogs(logsBatch)
 
                 // Update lastProcessedBlock **only after successful processing**
-                lastProcessedBlock = batchEndBlock
-                retries = 0 // Reset retries after success
+                currentBlockNumber = batchEndBlock
             } catch (e: Exception) {
-                logger.error("Error fetching logs at block $lastProcessedBlock: ${e.message}")
-
-                if (++retries >= MAX_RETRIES) {
-                    logger.error("Max retries reached. Restarting from last successful block $lastProcessedBlock")
-                    restart(lastProcessedBlock) // Restart from the **same block**, not skipping ahead
-                    retries = 0
-                } else {
-                    delay(1000L * retries) // Exponential backoff before retrying
-                }
+                logger.error("Error fetching logs at block $currentBlockNumber: ${e.message}")
+                handleError()
             }
         }
-        return lastProcessedBlock
     }
 
     /**
@@ -119,14 +104,6 @@ abstract class LogsIndexer(
             offset += logFetchLimit
         }
         return logs
-    }
-
-    /**
-     * Restarts processing from the last known good block.
-     */
-    private suspend fun restart(fromBlock: Long) {
-        initialise(fromBlock)
-        syncLogs(fromBlock, thorClient.getBestBlock().number - 1000)
     }
 
     /**
@@ -188,7 +165,7 @@ abstract class LogsIndexer(
         )
 
     /**
-     * @notice Processes all events (generic and business) in a block based on the provided criteria.
+     * @notice Processes all events (generic and business) in a group of log events based on the provided criteria.
      * @dev Updates the filter criteria with business event names if applicable.
      *      Decodes and processes both generic and business events.
      * @param eventLogs The Thor logs to process.
@@ -204,7 +181,7 @@ abstract class LogsIndexer(
     }
 
     /**
-     * @notice Processes generic events in a block based on the provided criteria.
+     * @notice Processes generic events in a of log events based on the provided criteria.
      * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and returns an empty list.
      * @param logs The Thor logs to process.
      * @param criteria Filtering criteria to determine which generic events to process.
@@ -219,7 +196,7 @@ abstract class LogsIndexer(
             return emptyList()
         }
 
-        val eventIndexer = GenericEventIndexer(abiManager!!)
+        val eventIndexer = GenericEventIndexer(abiManager)
 
         if (cachedConfiguredEvents == null) {
             val updatedCriteria = businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria

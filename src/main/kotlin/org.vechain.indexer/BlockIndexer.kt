@@ -50,7 +50,7 @@ abstract class BlockIndexer(
      * Number of indexer iterations remaining in case a given number of iterations has been
      * specified
      */
-    private var remainingIterations: Long? = null
+    internal var remainingIterations: Long? = null
 
     val name: String
         get() = this.javaClass.simpleName
@@ -108,8 +108,7 @@ abstract class BlockIndexer(
     open suspend fun start(iterations: Long? = null) {
         remainingIterations = iterations
 
-        // Initialise the indexer
-        initialise()
+        if (this !is LogsIndexer) initialise()
 
         logger.info("Starting @ Block: $currentBlockNumber")
         run()
@@ -175,7 +174,7 @@ abstract class BlockIndexer(
      *
      * @return whether indexer has remaining iterations
      */
-    private fun hasNoRemainingIterations(): Boolean {
+    internal fun hasNoRemainingIterations(): Boolean {
         if (remainingIterations != null) {
             if (remainingIterations!! <= 0) {
                 logger.info("Indexer finished at block $currentBlockNumber")
@@ -191,7 +190,7 @@ abstract class BlockIndexer(
         status = Status.FULLY_SYNCED
     }
 
-    private fun handleError() {
+    internal fun handleError() {
         backoffPeriod = INITIAL_BACKOFF_PERIOD
         status = Status.ERROR
     }
@@ -245,7 +244,7 @@ abstract class BlockIndexer(
         }
     }
 
-    private suspend fun backoffDelay() {
+    internal suspend fun backoffDelay() {
         if (status != Status.SYNCING) {
             delay(backoffPeriod)
         }
@@ -304,7 +303,7 @@ abstract class BlockIndexer(
         block: Block,
         criteria: FilterCriteria = FilterCriteria(),
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
-        val updatedCriteria = updateCriteriaWithBusinessEvents(criteria)
+        val updatedCriteria = businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria
         val decodedEvents = processBlockGenericEvents(block, updatedCriteria)
         return processBusinessEvents(decodedEvents, updatedCriteria.businessEventNames, updatedCriteria.removeDuplicates)
     }
@@ -349,26 +348,11 @@ abstract class BlockIndexer(
         }
 
         // Filter events based on criteria if needed
-        val filteredCriteria = updateCriteriaWithBusinessEvents(criteria)
+        val filteredCriteria = businessEventManager!!.updateCriteriaWithBusinessEvents(criteria)
 
         // Process business events
         val processor = BusinessEventProcessor(businessEventManager!!)
-        return processor.getOnlyBusinessEvents(decodedEvents, filteredCriteria.businessEventNames)
-    }
-
-    /**
-     * @notice Updates the filter criteria with business event names if applicable.
-     * @dev Retrieves the generic event names for the specified business event names
-     *      using the `BusinessEventManager` and adds them to the criteria.
-     * @param criteria The original filtering criteria.
-     * @return Updated filtering criteria with additional event names for business events.
-     */
-    private fun updateCriteriaWithBusinessEvents(criteria: FilterCriteria): FilterCriteria {
-        if (criteria.businessEventNames.isNotEmpty() && businessEventManager != null) {
-            val names = businessEventManager!!.getBusinessGenericEventNames(criteria.businessEventNames)
-            return criteria.addBusinessEventNames(names)
-        }
-        return criteria
+        return processor.getOnlyBusinessEvents(decodedEvents, filteredCriteria.businessEventNames, this is LogsIndexer)
     }
 
     /**
@@ -379,14 +363,15 @@ abstract class BlockIndexer(
      * @param businessEventNames A list of business event names to process.
      * @return A list of processed business events and their associated parameters.
      */
-    private fun processBusinessEvents(
+    internal fun processBusinessEvents(
         decodedEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
         businessEventNames: List<String>,
         removeDuplicates: Boolean? = true,
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
         if (businessEventManager != null) {
             val processor = BusinessEventProcessor(businessEventManager!!)
-            return processor.processEvents(decodedEvents, businessEventNames, removeDuplicates ?: true)
+            val logsIndexer = this is LogsIndexer
+            return processor.processEvents(decodedEvents, businessEventNames, removeDuplicates ?: true, logsIndexer)
         }
         logger.debug("Skipping business event processing as manager is missing.")
         return decodedEvents
