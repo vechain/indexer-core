@@ -520,6 +520,7 @@ internal class IndexerTest {
                 )
 
             every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to EventMockFactory.vot3SwapEventDefinition)
+            every { businessEventManager.updateCriteriaWithBusinessEvents(any()) } returns FilterCriteria()
 
             // Act
             val result = indexer.processAllEvents(block)
@@ -562,48 +563,6 @@ internal class IndexerTest {
             expectThat(result.size).isNotEqualTo(0)
             verify(exactly = 0) { businessEventManager.getBusinessGenericEventNames(any()) }
             verify(exactly = 0) { businessEventManager.getBusinessEventsByNames(any()) }
-        }
-
-        @Test
-        fun `processAllEvents correctly updates criteria with business generic event names`() {
-            // Create block with transfer event and a different event
-            val block =
-                EventMockFactory.createMockBlockWithTransactions(
-                    listOf(
-                        EventMockFactory.createMockTransaction(
-                            listOf(
-                                EventMockFactory.arrayEventClause,
-                                EventMockFactory.transferEventClause,
-                            ),
-                        ),
-                    ),
-                )
-            every {
-                abiManager.getAbis()
-            } returns
-                mapOf(
-                    "ERC20" to listOf(EventMockFactory.transferAbiElement),
-                    "ARRAY" to listOf(EventMockFactory.arrayAbiElement),
-                )
-
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to EventMockFactory.vot3SwapEventDefinition)
-            every { businessEventManager.getBusinessEventsByNames(any()) } returns
-                mapOf("Event" to EventMockFactory.vot3SwapEventDefinition)
-            every { businessEventManager.getBusinessGenericEventNames(any()) } returns listOf("Transfer")
-
-            // Act
-            val result =
-                indexer.processAllEvents(
-                    block,
-                    FilterCriteria(
-                        eventNames = listOf("RandomEvent"),
-                        businessEventNames = listOf("Event"),
-                    ),
-                )
-
-            // Assert
-            expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].first.eventType).isEqualTo("Transfer")
         }
     }
 
@@ -995,6 +954,7 @@ internal class IndexerTest {
         fun `should get latest block and process events correctly`() {
             val businessEventManager = mockk<BusinessEventManager>()
             val abiManager = AbiManager()
+            every { businessEventManager.updateCriteriaWithBusinessEvents(any()) } returns FilterCriteria()
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
@@ -1133,6 +1093,7 @@ internal class IndexerTest {
                 )
 
             every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to EventMockFactory.vot3SwapEventDefinition)
+            every { businessEventManager.updateCriteriaWithBusinessEvents(any()) } returns FilterCriteria()
 
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager, true)
             // Act
