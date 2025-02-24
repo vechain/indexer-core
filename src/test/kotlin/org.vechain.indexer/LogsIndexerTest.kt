@@ -14,13 +14,16 @@ import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.exception.BlockNotFoundException
-import org.vechain.indexer.fixtures.LogFixtures.LOGS_B3TR_ACTION
-import org.vechain.indexer.fixtures.LogFixtures.LOGS_STRINGS
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STRINGS
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_TOKEN_EXCHANGE
+import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_B3TR_ACTION
+import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_STRINGS
+import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_TOKEN_EXCHANGE
+import org.vechain.indexer.fixtures.TransferLogFixtures.LOGS_VET_TRANSFER
 import org.vechain.indexer.helpers.FileLoaderHelper
 import org.vechain.indexer.thor.client.ThorClient
-import org.vechain.indexer.thor.model.BlockIdentifier
-import org.vechain.indexer.thor.model.EventLog
-import org.vechain.indexer.thor.model.EventMeta
+import org.vechain.indexer.thor.enums.LogType
+import org.vechain.indexer.thor.model.*
 import strikt.api.expect
 import strikt.assertions.isEqualTo
 
@@ -39,6 +42,7 @@ internal class LogsIndexerTest {
     @MockK private lateinit var businessEventManager: BusinessEventManager
 
     private lateinit var indexer: LogIndexerMock
+    private lateinit var transferIndexer: LogIndexerMock
 
     private val getBlockNumberSlot = slot<Long>()
     private val processLogsSlot = slot<List<EventLog>>()
@@ -50,6 +54,18 @@ internal class LogsIndexerTest {
         indexer =
             LogIndexerMock(
                 responseMocker,
+                setOf(LogType.EVENT),
+                blockBatchSize,
+                logFetchLimit,
+                thorClient,
+                abiManager,
+                businessEventManager,
+            )
+
+        transferIndexer =
+            LogIndexerMock(
+                responseMocker,
+                setOf(LogType.TRANSFER),
                 blockBatchSize,
                 logFetchLimit,
                 thorClient,
@@ -78,8 +94,9 @@ internal class LogsIndexerTest {
                         id = "0x100",
                     ) andThen
                     BlockIdentifier(number = 99L, id = "0x99")
-                every { responseMocker.processLogs(any()) } just Runs
+                every { responseMocker.processLogs(any(), any()) } just Runs
                 every { responseMocker.processBlock(any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
 
                 val job = launch { indexer.start(indexerIterationsNumber) }
                 job.join()
@@ -102,8 +119,9 @@ internal class LogsIndexerTest {
                 coEvery { thorClient.getBestBlock() } returns buildBlock(10000L)
                 coEvery { thorClient.getEventLogs(any()) } coAnswers { LOGS_STRINGS }
                 every { responseMocker.getLastSyncedBlock() } returns null
-                every { responseMocker.processLogs(any()) } just Runs
+                every { responseMocker.processLogs(any(), any()) } just Runs
                 every { responseMocker.processBlock(any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
 
                 val job = launch { indexer.start(indexerIterationsNumber) }
                 job.join()
@@ -115,7 +133,7 @@ internal class LogsIndexerTest {
             }
 
         @Test
-        fun `Start indexer should process logs`() =
+        fun `Start indexer should process event logs`() =
             runBlocking {
                 val indexerIterationsNumber = 1L
 
@@ -129,7 +147,8 @@ internal class LogsIndexerTest {
                 coEvery { responseMocker.getLastSyncedBlock() } returns null
 
                 // Mock the processLogs() call
-                coEvery { responseMocker.processLogs(any()) } just Runs
+                coEvery { responseMocker.processLogs(any(), any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
 
                 coEvery { responseMocker.processBlock(any()) } just Runs
 
@@ -142,7 +161,40 @@ internal class LogsIndexerTest {
                     that(indexer.status).isEqualTo(Status.SYNCING)
 
                     // Ensure logs were processed at least once
-                    verify(exactly = 1) { responseMocker.processLogs(any()) }
+                    verify(exactly = 1) { responseMocker.processLogs(any(), any()) }
+                }
+            }
+
+        @Test
+        fun `Start indexer should process transfer logs`() =
+            runBlocking {
+                val indexerIterationsNumber = 1L
+
+                // Mock fetching event logs
+                coEvery { thorClient.getVetTransfers(any()) } coAnswers { LOGS_VET_TRANSFER }
+
+                coEvery { thorClient.getBestBlock() } returns buildBlock(100000L)
+                coEvery { thorClient.getBlock(any()) } returns buildBlock(100000L)
+
+                // Mock last synced block (so it starts from the beginning)
+                coEvery { responseMocker.getLastSyncedBlock() } returns null
+
+                // Mock the processLogs() call
+                coEvery { responseMocker.processLogs(any(), any()) } just Runs
+
+                coEvery { responseMocker.processBlock(any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
+
+                // Run the indexer
+                val job = launch { transferIndexer.start(indexerIterationsNumber) }
+                job.join() // Wait for completion
+
+                expect {
+                    // Verify the status is SYNCING after start
+                    that(transferIndexer.status).isEqualTo(Status.SYNCING)
+
+                    // Ensure logs were processed at least once
+                    verify(exactly = 1) { responseMocker.processLogs(any(), any()) }
                 }
             }
 
@@ -161,9 +213,10 @@ internal class LogsIndexerTest {
                 coEvery { responseMocker.getLastSyncedBlock() } returns null
 
                 // Mock the processLogs() call
-                coEvery { responseMocker.processLogs(any()) } just Runs
+                coEvery { responseMocker.processLogs(any(), any()) } just Runs
 
                 coEvery { responseMocker.processBlock(any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
 
                 // Run the indexer
                 val job = launch { indexer.start(indexerIterationsNumber) }
@@ -174,7 +227,7 @@ internal class LogsIndexerTest {
                     that(indexer.status).isEqualTo(Status.SYNCING)
 
                     // Ensure logs were processed at least once
-                    verify(exactly = 1) { responseMocker.processLogs(any()) }
+                    verify(exactly = 1) { responseMocker.processLogs(any(), any()) }
 
                     // Ensure processBlock was called
                     verify(exactly = 1) { responseMocker.processBlock(any()) }
@@ -202,8 +255,8 @@ internal class LogsIndexerTest {
                     blockNotFound
                 every { responseMocker.processBlock(any()) } just Runs
                 // Mock the processLogs() call
-                coEvery { responseMocker.processLogs(any()) } just Runs
-                coEvery { responseMocker.processBlock(any()) } just Runs
+                coEvery { responseMocker.processLogs(any(), any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
 
                 // Run the indexer
                 val job = launch { indexer.start(blockNotFound.number + 1) }
@@ -239,7 +292,8 @@ internal class LogsIndexerTest {
                     null andThen
                     blockNotFound
                 every { responseMocker.processBlock(any()) } just Runs
-                coEvery { responseMocker.processLogs(any()) } just Runs
+                coEvery { responseMocker.processLogs(any(), any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
 
                 // Iterations + (1 iteration) where block is not found to trigger the FULLY_SYNCED
                 // status
@@ -280,7 +334,8 @@ internal class LogsIndexerTest {
                     null andThen
                     lastSyncedBlock
                 every { responseMocker.processBlock(any()) } just Runs
-                coEvery { responseMocker.processLogs(any()) } just Runs
+                coEvery { responseMocker.processLogs(any(), any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
 
                 val job = launch { indexer.start(reorgBlock + 1) }
                 job.join()
@@ -308,6 +363,8 @@ internal class LogsIndexerTest {
                 coEvery { responseMocker.getLastSyncedBlock() } returns
                     null andThen null andThen lastSyncedBlock
 
+                every { responseMocker.rollback(any()) } just Runs
+
                 coEvery { thorClient.getEventLogs(any()) } returns
                     listOf(
                         EventLog(
@@ -326,7 +383,7 @@ internal class LogsIndexerTest {
                         ),
                     )
 
-                coEvery { responseMocker.processLogs(capture(processLogsSlot)) } answers {
+                coEvery { responseMocker.processLogs(capture(processLogsSlot), emptyList()) } answers {
                     if (processLogsSlot.captured.any { it.meta.blockNumber == unknownExceptionBlock }) {
                         throw Exception("Unknown exception")
                     }
@@ -346,7 +403,189 @@ internal class LogsIndexerTest {
     }
 
     @Nested
+    inner class ProcessBlocks {
+        @Test
+        fun `Indexer should process events at a block level when getting near best block`() =
+            runBlocking {
+                val indexer =
+                    LogIndexerMock(
+                        responseMocker,
+                        setOf(LogType.EVENT),
+                        blockBatchSize,
+                        logFetchLimit,
+                        thorClient,
+                        abiManager,
+                        businessEventManager,
+                        emptyList(),
+                        emptyList(),
+                        false,
+                    )
+
+                val indexerIterationsNumber = 1L
+                val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
+
+                // Mock fetching event logs
+                coEvery { thorClient.getEventLogs(any()) } coAnswers { LOGS_STRINGS }
+
+                coEvery { thorClient.getBestBlock() } returns buildBlock(10L)
+                coEvery { thorClient.getBlock(any()) } coAnswers { BLOCK_STRINGS }
+
+                // Mock last synced block (so it starts from the beginning)
+                coEvery { responseMocker.getLastSyncedBlock() } returns null andThen
+                    lastSyncedBlock
+
+                // Mock the processLogs() call
+                coEvery { responseMocker.processLogs(any(), any()) } just Runs
+                coEvery { responseMocker.processBlock(any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
+
+                // Run the indexer
+                val job = launch { indexer.start(indexerIterationsNumber) }
+                job.join() // Wait for completion
+
+                expect {
+                    // Verify the status is SYNCING after start
+                    that(indexer.status).isEqualTo(Status.SYNCING)
+                    // Ensure logs were processed at least once
+                    verify(exactly = 1) { responseMocker.processLogs(any(), any()) }
+                }
+            }
+
+        @Test
+        fun `Indexer should process transfers at a block level when getting near best block`() =
+            runBlocking {
+                val indexer =
+                    LogIndexerMock(
+                        responseMocker,
+                        setOf(LogType.TRANSFER),
+                        blockBatchSize,
+                        logFetchLimit,
+                        thorClient,
+                        abiManager,
+                        businessEventManager,
+                        emptyList(),
+                        emptyList(),
+                        false,
+                    )
+
+                val indexerIterationsNumber = 1L
+                val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
+
+                // Mock fetching event logs
+                coEvery { thorClient.getEventLogs(any()) } coAnswers { LOGS_STRINGS }
+
+                coEvery { thorClient.getBestBlock() } returns buildBlock(10L)
+                coEvery { thorClient.getBlock(any()) } coAnswers { BLOCK_TOKEN_EXCHANGE }
+
+                // Mock last synced block (so it starts from the beginning)
+                coEvery { responseMocker.getLastSyncedBlock() } returns null andThen
+                    lastSyncedBlock
+
+                // Mock the processLogs() call
+                coEvery { responseMocker.processLogs(any(), any()) } just Runs
+                coEvery { responseMocker.processBlock(any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
+
+                // Run the indexer
+                val job = launch { indexer.start(indexerIterationsNumber) }
+                job.join() // Wait for completion
+
+                expect {
+                    // Verify the status is SYNCING after start
+                    that(indexer.status).isEqualTo(Status.SYNCING)
+                    // Ensure logs were processed at least once
+                    verify(exactly = 1) { responseMocker.processLogs(any(), any()) }
+                }
+            }
+
+        @Test
+        fun `Indexer should prcoess with filters at a block level when getting near best block`() =
+            runBlocking {
+                val eventCriteria =
+                    listOf(
+                        EventCriteria(
+                            address = "0x45429a2255e7248e57fce99e7239aed3f84b7a53",
+                            topic0 = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                            topic2 = "0x000000000000000000000000b2e4fc26e1ce8bd223559b4e82c4c136c4051277",
+                        ),
+                    )
+                val transferCriteria =
+                    listOf(
+                        TransferCriteria(
+                            txOrigin = "0xeeb0b1ead396b75c820130dafdee2898be939cf6",
+                            sender = "0xf9b02b47694fd635a413f16dc7b38af06cc16fe5",
+                            recipient = "0x349ede93b675c0f0f8d7cdad74ecf1419943e6ac",
+                        ),
+                    )
+                val indexer =
+                    LogIndexerMock(
+                        responseMocker,
+                        setOf(LogType.TRANSFER, LogType.EVENT),
+                        blockBatchSize,
+                        logFetchLimit,
+                        thorClient,
+                        abiManager,
+                        businessEventManager,
+                        eventCriteria,
+                        transferCriteria,
+                        false,
+                    )
+
+                val indexerIterationsNumber = 1L
+                val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
+
+                coEvery { thorClient.getBestBlock() } returns buildBlock(10L)
+                coEvery { thorClient.getBlock(any()) } coAnswers { BLOCK_TOKEN_EXCHANGE }
+
+                // Mock last synced block (so it starts from the beginning)
+                coEvery { responseMocker.getLastSyncedBlock() } returns null andThen
+                    lastSyncedBlock
+
+                // Mock the processLogs() call
+                coEvery { responseMocker.processLogs(any(), any()) } just Runs
+                coEvery { responseMocker.processBlock(any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
+
+                // Run the indexer
+                val job = launch { indexer.start(indexerIterationsNumber) }
+                job.join() // Wait for completion
+
+                expect {
+                    // Verify the status is SYNCING after start
+                    that(indexer.status).isEqualTo(Status.SYNCING)
+                    // Ensure logs were processed at least once
+                    verify(exactly = 1) { responseMocker.processLogs(any(), any()) }
+                }
+            }
+    }
+
+    @Nested
     inner class ProcessEvents {
+        @Test
+        fun `should return empty list if abi manager not defined`() {
+            // Create the indexer with mocked dependencies
+            val indexer =
+                LogIndexerMock(
+                    responseMocker,
+                    setOf(LogType.EVENT),
+                    blockBatchSize,
+                    logFetchLimit,
+                    thorClient,
+                    null,
+                    null,
+                )
+
+            every { responseMocker.rollback(any()) } just Runs
+
+            // Input logs to process
+            val logs: List<EventLog> = LOGS_B3TR_ACTION
+
+            // Process the block
+            val result = indexer.processAllEvents(logs, emptyList())
+            // Assert that all expected events are present and in the correct order
+            expect { that(result).isEqualTo(emptyList()) }
+        }
+
         @Test
         fun `should get latest business events and generic events`() {
             val businessEventManager = BusinessEventManager()
@@ -356,6 +595,7 @@ internal class LogsIndexerTest {
             val indexer =
                 LogIndexerMock(
                     responseMocker,
+                    setOf(LogType.EVENT),
                     blockBatchSize,
                     logFetchLimit,
                     thorClient,
@@ -364,6 +604,8 @@ internal class LogsIndexerTest {
                 )
             val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
             val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
+
+            every { responseMocker.rollback(any()) } just Runs
 
             // Load ABIs required for decoding
             abiManager.loadAbis(fileStreamsAbis)
@@ -374,7 +616,7 @@ internal class LogsIndexerTest {
             val logs: List<EventLog> = LOGS_B3TR_ACTION
 
             // Process the block
-            val result = indexer.processAllEvents(logs)
+            val result = indexer.processAllEvents(logs, emptyList())
 
             val expectedEventTypes =
                 listOf(
@@ -394,10 +636,13 @@ internal class LogsIndexerTest {
             val businessEventManager = BusinessEventManager()
             val abiManager = AbiManager()
 
+            every { responseMocker.rollback(any()) } just Runs
+
             // Create the indexer with mocked dependencies
             val indexer =
                 LogIndexerMock(
                     responseMocker,
+                    setOf(LogType.EVENT),
                     blockBatchSize,
                     logFetchLimit,
                     thorClient,
@@ -417,7 +662,11 @@ internal class LogsIndexerTest {
             val logs: List<EventLog> = LOGS_B3TR_ACTION
 
             // Process the block
-            val result = indexer.processAllEvents(logs, FilterCriteria(removeDuplicates = false))
+            val result =
+                indexer.processAllEvents(
+                    eventLogs = logs,
+                    criteria = FilterCriteria(removeDuplicates = false),
+                )
 
             val expectedEventTypes =
                 listOf(
@@ -439,10 +688,13 @@ internal class LogsIndexerTest {
             val businessEventManager = BusinessEventManager()
             val abiManager = AbiManager()
 
+            every { responseMocker.rollback(any()) } just Runs
+
             // Create the indexer with mocked dependencies
             val indexer =
                 LogIndexerMock(
                     responseMocker,
+                    setOf(LogType.EVENT, LogType.TRANSFER),
                     blockBatchSize,
                     logFetchLimit,
                     thorClient,
@@ -459,12 +711,14 @@ internal class LogsIndexerTest {
             businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input logs to process
-            val logs: List<EventLog> = LOGS_B3TR_ACTION
+            val eventLogs: List<EventLog> = LOGS_B3TR_ACTION
+            val transferLogs: List<TransferLog> = LOGS_VET_TRANSFER
 
             // Process the block
             val result =
                 indexer.processAllEvents(
-                    logs,
+                    eventLogs = eventLogs,
+                    transferLogs = transferLogs,
                     FilterCriteria(
                         vetTransfers = true,
                     ),
@@ -473,6 +727,12 @@ internal class LogsIndexerTest {
             val expectedEventTypes =
                 listOf(
                     "Transfer",
+                    "VET_TRANSFER",
+                    "VET_TRANSFER",
+                    "VET_TRANSFER",
+                    "VET_TRANSFER",
+                    "VET_TRANSFER",
+                    "VET_TRANSFER",
                     "B3TR_ActionReward",
                 )
 
@@ -488,11 +748,14 @@ internal class LogsIndexerTest {
             val businessEventManager = BusinessEventManager()
             val abiManager = AbiManager()
 
+            every { responseMocker.rollback(any()) } just Runs
+
             // Create the indexer with mocked dependencies
             // Create the indexer with mocked dependencies
             val indexer =
                 LogIndexerMock(
                     responseMocker,
+                    setOf(LogType.EVENT, LogType.TRANSFER),
                     blockBatchSize,
                     logFetchLimit,
                     thorClient,
@@ -509,12 +772,13 @@ internal class LogsIndexerTest {
             businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input logs to process
-            val logs: List<EventLog> = LOGS_B3TR_ACTION
+            val eventLogs: List<EventLog> = LOGS_B3TR_ACTION
 
             // Process the block
             val result =
                 indexer.processAllEvents(
-                    logs,
+                    eventLogs,
+                    emptyList(),
                     FilterCriteria(
                         eventNames = listOf("Transfer"),
                     ),
@@ -538,10 +802,13 @@ internal class LogsIndexerTest {
             val businessEventManager = BusinessEventManager()
             val abiManager = AbiManager()
 
+            every { responseMocker.rollback(any()) } just Runs
+
             // Create the indexer with mocked dependencies
             val indexer =
                 LogIndexerMock(
                     responseMocker,
+                    setOf(LogType.EVENT, LogType.TRANSFER),
                     blockBatchSize,
                     logFetchLimit,
                     thorClient,
@@ -564,6 +831,7 @@ internal class LogsIndexerTest {
             val result =
                 indexer.processAllEvents(
                     logs,
+                    emptyList(),
                     FilterCriteria(
                         abiNames = listOf("stringsAbis"),
                     ),
@@ -590,10 +858,13 @@ internal class LogsIndexerTest {
             val businessEventManager = BusinessEventManager()
             val abiManager = AbiManager()
 
+            every { responseMocker.rollback(any()) } just Runs
+
             // Create the indexer with mocked dependencies
             val indexer =
                 LogIndexerMock(
                     responseMocker,
+                    setOf(LogType.EVENT, LogType.TRANSFER),
                     blockBatchSize,
                     logFetchLimit,
                     thorClient,
@@ -616,6 +887,7 @@ internal class LogsIndexerTest {
             val result =
                 indexer.processAllEvents(
                     logs,
+                    emptyList(),
                     FilterCriteria(
                         contractAddresses = listOf("0x6bee7ddab6c99d5b2af0554eaea484ce18f52631"),
                     ),
@@ -639,10 +911,13 @@ internal class LogsIndexerTest {
             val businessEventManager = BusinessEventManager()
             val abiManager = AbiManager()
 
+            every { responseMocker.rollback(any()) } just Runs
+
             // Create the indexer with mocked dependencies
             val indexer =
                 LogIndexerMock(
                     responseMocker,
+                    setOf(LogType.EVENT, LogType.TRANSFER),
                     blockBatchSize,
                     logFetchLimit,
                     thorClient,
@@ -665,6 +940,7 @@ internal class LogsIndexerTest {
             val result =
                 indexer.processAllEvents(
                     logs,
+                    emptyList(),
                     FilterCriteria(
                         contractAddresses = listOf("0xabac49445584c8b6c1472b030b1076ac3901d7cf"),
                         eventNames = listOf("TextChanged", "NameChanged"),
@@ -685,15 +961,75 @@ internal class LogsIndexerTest {
         }
 
         @Test
+        fun `should process business events correctly and map to correct one`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            every { responseMocker.rollback(any()) } just Runs
+
+            // Create the indexer with mocked dependencies
+            val indexer =
+                LogIndexerMock(
+                    responseMocker,
+                    setOf(LogType.EVENT, LogType.TRANSFER),
+                    blockBatchSize,
+                    logFetchLimit,
+                    thorClient,
+                    abiManager,
+                    businessEventManager,
+                )
+
+            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
+            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis(fileStreamsAbis)
+            // Load business events
+            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
+
+            // Input block to process
+            val eventsLogs = LOGS_TOKEN_EXCHANGE
+            val transferLogs = LOGS_VET_TRANSFER
+
+            // Process the block
+            val events =
+                indexer.processBlockGenericEvents(
+                    eventsLogs,
+                    transferLogs,
+                    FilterCriteria(
+                        vetTransfers = true,
+                    ),
+                )
+
+            val result = indexer.processBlockBusinessEvents(events)
+
+            val expectedEventTypes =
+                listOf(
+                    "Token_FTSwap",
+                    "FT_VET_Swap",
+                )
+
+            // Extract event types from the result
+            val eventTypes = result.map { it.second.getEventType() }
+
+            // Assert that all expected events are present and in the correct order
+            Assertions.assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
+
+        @Test
         fun `should get latest block and process events correctly`() {
             val businessEventManager = mockk<BusinessEventManager>()
             val abiManager = AbiManager()
+
+            every { responseMocker.rollback(any()) } just Runs
+
             every { businessEventManager.updateCriteriaWithBusinessEvents(any()) } returns FilterCriteria()
 
             // Create the indexer with mocked dependencies
             val indexer =
                 LogIndexerMock(
                     responseMocker,
+                    setOf(LogType.EVENT, LogType.TRANSFER),
                     blockBatchSize,
                     logFetchLimit,
                     thorClient,

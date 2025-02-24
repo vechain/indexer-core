@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference
 import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.utils.JsonUtils
 
-object LogFixtures {
+object EventLogFixtures {
     private val objectMapper = JsonUtils.mapper
 
     val LOGS_STRINGS = buildBlockFixture("logs/string_event_block_logs.json")
@@ -13,7 +13,7 @@ object LogFixtures {
 
     private fun buildBlockFixture(name: String): List<EventLog> {
         val resource =
-            LogFixtures::class.java.classLoader.getResource(name)
+            EventLogFixtures::class.java.classLoader.getResource(name)
                 ?: throw IllegalStateException("Resource not found: $name")
 
         return resource.openStream().use { inputStream ->

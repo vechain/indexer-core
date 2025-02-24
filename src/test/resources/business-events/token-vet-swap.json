@@ -1,10 +1,9 @@
 {
-  "name": "Token_VETSwap1",
+  "name": "FT_VET_Swap",
   "sameClause": true,
-  "checkAllCombinations": true,
   "events": [
     {
-      "name": "VET_TRANSFER",
+      "name": "Transfer",
       "alias": "inputTransfer",
       "conditions": [
         {
@@ -17,7 +16,7 @@
       ]
     },
     {
-      "name": "Transfer",
+      "name": "VET_TRANSFER",
       "alias": "outputTransfer",
       "conditions": [
         {
@@ -32,15 +31,7 @@
     {
       "name": "Swap",
       "alias": "swap",
-      "conditions": [
-        {
-          "firstOperand": "to",
-          "isFirstStatic": false,
-          "secondOperand": "origin",
-          "isSecondStatic": false,
-          "operator": "EQ"
-        }
-      ]
+      "conditions": []
     }
   ],
   "rules": [
@@ -65,16 +56,16 @@
     },
     {
       "name": "address",
-      "eventName": "outputTransfer",
-      "businessEventName": "outputToken"
+      "eventName": "inputTransfer",
+      "businessEventName": "inputToken"
     },
     {
-      "name": "amount",
+      "name": "value",
       "eventName": "inputTransfer",
       "businessEventName": "inputValue"
     },
     {
-      "name": "value",
+      "name": "amount",
       "eventName": "outputTransfer",
       "businessEventName": "outputValue"
     }

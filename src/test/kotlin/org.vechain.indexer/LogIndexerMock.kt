@@ -6,48 +6,68 @@ import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.client.ThorClient
-import org.vechain.indexer.thor.model.Block
-import org.vechain.indexer.thor.model.BlockIdentifier
-import org.vechain.indexer.thor.model.EventLog
+import org.vechain.indexer.thor.enums.LogType
+import org.vechain.indexer.thor.model.*
 import java.util.*
 
 class LogIndexerMock(
     private val mocker: LogsIndexerResponseMocker,
+    logsType: Set<LogType> = setOf(LogType.EVENT),
     blockBatchSize: Long,
     logFetchLimit: Long,
     thorClientMock: ThorClient,
     abiManagerMock: AbiManager?,
     businessEventManagerMock: BusinessEventManager?,
+    eventCriteriaSet: List<EventCriteria>? = null,
+    transferCriteriaSet: List<TransferCriteria>? = null,
+    private val mock: Boolean = true,
 ) : LogsIndexer(
         thorClient = thorClientMock,
         startBlock = 0,
         syncLoggerInterval = 1000,
+        logsType = logsType,
         blockBatchSize = blockBatchSize,
         logFetchLimit = logFetchLimit,
         abiManager = abiManagerMock,
         businessEventManager = businessEventManagerMock,
+        eventCriteriaSet = eventCriteriaSet,
+        transferCriteriaSet = transferCriteriaSet,
     ) {
-    override fun processLogs(logs: List<EventLog>) {
-        mocker.processLogs(logs)
+    override fun processLogs(
+        events: List<EventLog>,
+        transfers: List<TransferLog>,
+    ) {
+        mocker.processLogs(events, transfers)
     }
 
     override fun getLastSyncedBlock(): BlockIdentifier? = mocker.getLastSyncedBlock()
 
     override fun processBlock(block: Block) {
-        mocker.processBlock(block)
+        if (mock) {
+            mocker.processBlock(block)
+        } else {
+            super.processBlock(block)
+        }
     }
 
     override fun rollback(blockNumber: Long) {}
 
     public override fun processBlockGenericEvents(
-        logs: List<EventLog>,
+        eventLogs: List<EventLog>,
+        transferLogs: List<TransferLog>,
         criteria: FilterCriteria,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processBlockGenericEvents(logs, criteria)
+    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processBlockGenericEvents(eventLogs, transferLogs, criteria)
 
     public override fun processAllEvents(
-        logs: List<EventLog>,
+        eventLogs: List<EventLog>,
+        transferLogs: List<TransferLog>,
         criteria: FilterCriteria,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processAllEvents(logs, criteria)
+    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processAllEvents(eventLogs, transferLogs, criteria)
+
+    public override fun processBlockBusinessEvents(
+        decodedEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
+        criteria: FilterCriteria,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processBlockBusinessEvents(decodedEvents, criteria)
 }
 
 interface LogsIndexerResponseMocker {
@@ -55,7 +75,10 @@ interface LogsIndexerResponseMocker {
 
     fun rollback(blockNumber: Long)
 
-    fun processLogs(logs: List<EventLog>)
+    fun processLogs(
+        events: List<EventLog>,
+        transfers: List<TransferLog>,
+    )
 
     fun processBlock(block: Block)
 }
