@@ -1048,16 +1048,13 @@ internal class IndexerTest {
             val events =
                 indexer.processBlockGenericEvents(
                     block,
-                    FilterCriteria(
-                        vetTransfers = true,
-                    ),
+                    FilterCriteria(),
                 )
 
             val result = indexer.processBlockBusinessEvents(events)
 
             val expectedEventTypes =
                 listOf(
-                    "Token_VETSwap1",
                     "Token_FTSwap",
                 )
 
