@@ -64,7 +64,7 @@ abstract class BlockIndexer(
         protected set
 
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
-        private set
+        internal set
 
     private var backoffPeriod = 0L
 
@@ -151,7 +151,6 @@ abstract class BlockIndexer(
             }
 
             processBlock(block)
-
             postProcessBlock(block)
         } catch (ex: BlockNotFoundException) {
             logger.info("Block $currentBlockNumber not found. Indexer may be fully synchronised.")
@@ -347,12 +346,9 @@ abstract class BlockIndexer(
             return emptyList()
         }
 
-        // Filter events based on criteria if needed
-        val filteredCriteria = businessEventManager!!.updateCriteriaWithBusinessEvents(criteria)
-
         // Process business events
         val processor = BusinessEventProcessor(businessEventManager!!)
-        return processor.getOnlyBusinessEvents(decodedEvents, filteredCriteria.businessEventNames, this is LogsIndexer)
+        return processor.getOnlyBusinessEvents(decodedEvents, criteria.businessEventNames, this is LogsIndexer)
     }
 
     /**
@@ -377,5 +373,3 @@ abstract class BlockIndexer(
         return decodedEvents
     }
 }
-
-class LogIndexer
