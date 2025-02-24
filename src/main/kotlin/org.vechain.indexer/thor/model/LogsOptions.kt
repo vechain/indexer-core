@@ -1,6 +1,6 @@
 package org.vechain.indexer.thor.model
 
-data class EventOptions(
+data class LogsOptions(
     val offset: Long?,
     val limit: Long?,
 )

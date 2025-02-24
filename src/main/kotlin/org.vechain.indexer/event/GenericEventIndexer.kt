@@ -161,7 +161,6 @@ class GenericEventIndexer(
                     blockTimestamp = log.meta.blockTimestamp,
                     txId = log.meta.txID,
                     origin = log.meta.txOrigin,
-                    gasPayer = null, // Gas payer is unavailable in logs
                     raw = RawEvent(log.data, log.topics),
                     params = parameters,
                     address = log.address,
@@ -171,6 +170,45 @@ class GenericEventIndexer(
                 ) to parameters
             } catch (ex: Exception) {
                 logger.warn("Failed to decode log event with ABI: ${matchingAbi.name}, txId: ${log.meta.txID}")
+                null
+            }
+        }
+    }
+
+    /**
+     * Decodes a batch of log transfers into IndexedEvents.
+     *
+     * @param logs List of raw TransferLogs.
+     * @return A list of decoded Indexed Transfers with their senders and receivers.
+     */
+    fun decodeLogTransfers(logs: List<TransferLog>): List<Pair<IndexedEvent, GenericEventParameters>> {
+        if (logs.isEmpty()) return emptyList()
+
+        return logs.mapIndexedNotNull { i, log ->
+            try {
+                val parameters =
+                    GenericEventParameters(
+                        mapOf(
+                            "from" to log.sender,
+                            "to" to log.recipient,
+                            "amount" to DataUtils.decodeQuantity(log.amount),
+                        ),
+                        "VET_TRANSFER",
+                    )
+
+                IndexedEvent(
+                    id = generateEventId(log.meta.txID, log.meta.clauseIndex, i, parameters),
+                    blockId = log.meta.blockID,
+                    blockNumber = log.meta.blockNumber,
+                    blockTimestamp = log.meta.blockTimestamp,
+                    txId = log.meta.txID,
+                    origin = log.meta.txOrigin,
+                    params = parameters,
+                    eventType = "VET_TRANSFER",
+                    clauseIndex = log.meta.clauseIndex.toLong(),
+                ) to parameters
+            } catch (ex: Exception) {
+                logger.warn("Failed to process VET transfer: ${log.sender} -> ${log.recipient}", ex)
                 null
             }
         }
@@ -206,7 +244,6 @@ class GenericEventIndexer(
                         origin = tx.origin,
                         gasPayer = tx.gasPayer,
                         params = parameters,
-                        address = transfer.recipient,
                         eventType = "VET_TRANSFER",
                         clauseIndex = outputIndex.toLong(),
                     )

@@ -6,9 +6,7 @@ import com.github.kittinunf.result.Result
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.vechain.indexer.exception.BlockNotFoundException
-import org.vechain.indexer.thor.model.Block
-import org.vechain.indexer.thor.model.EventLog
-import org.vechain.indexer.thor.model.EventLogsRequest
+import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.JsonUtils
 
 /**
@@ -77,11 +75,32 @@ class DefaultThorClient(
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
                     is Result.Failure ->
-                        throw Exception("Get best block request failed with error: ${result.error}")
+                        throw Exception("Get logs request failed with error: ${result.error}")
 
                     else -> null
                 }
 
             return@withContext objectMapper.readValue(responseBody, object : TypeReference<List<EventLog>>() {})
+        }
+
+    override suspend fun getVetTransfers(req: TransferLogsRequest): List<TransferLog> =
+        withContext(Dispatchers.IO) {
+            val (_, _, result) =
+                Fuel
+                    .post("$baseUrl/logs/transfer")
+                    .body(JsonUtils.mapper.writeValueAsBytes(req))
+                    .appendHeader(*headers)
+                    .response()
+
+            val responseBody =
+                when (result) {
+                    is Result.Success -> result.get().toString(Charsets.UTF_8)
+                    is Result.Failure ->
+                        throw Exception("Get transfer logs request failed with error: ${result.error}")
+
+                    else -> null
+                }
+
+            return@withContext objectMapper.readValue(responseBody, object : TypeReference<List<TransferLog>>() {})
         }
 }

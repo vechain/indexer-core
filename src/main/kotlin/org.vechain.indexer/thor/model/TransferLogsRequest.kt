@@ -1,8 +1,8 @@
 package org.vechain.indexer.thor.model
 
-data class EventLogsRequest(
+data class TransferLogsRequest(
     val range: LogsRange?,
     val options: LogsOptions?,
-    val criteriaSet: List<EventCriteria>?,
+    val criteriaSet: List<TransferCriteria>?,
     val order: String?,
 )
