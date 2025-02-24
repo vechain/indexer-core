@@ -122,7 +122,6 @@ abstract class LogsIndexer(
 
                 val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
 
-                logger.info("Fetching logs from block $currentBlockNumber to $batchEndBlock")
                 // Fetch both event logs and VET transfers
                 val logsBatch = fetchLogs(currentBlockNumber, batchEndBlock)
 
