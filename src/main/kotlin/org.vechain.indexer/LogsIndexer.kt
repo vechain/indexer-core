@@ -17,6 +17,7 @@ import java.time.ZoneOffset
 
 const val BLOCK_BATCH_SIZE = 100L //  Block batch size
 const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
+const val BLOCK_SWITCH_THRESHOLD = 1000L //  Number of blocks from the best block to switch to block indexer
 
 /**
  * **LogsIndexer**
@@ -41,7 +42,8 @@ const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
 abstract class LogsIndexer(
     override val thorClient: ThorClient,
     startBlock: Long = 0L,
-    syncLoggerInterval: Long = 1_000L,
+    private val syncLoggerInterval: Long = 1_000L,
+    private val blockSwitchThreshold: Long = BLOCK_SWITCH_THRESHOLD,
     private val logsType: Set<LogType> = setOf(LogType.EVENT), // Default to EVENT
     private val blockBatchSize: Long = BLOCK_BATCH_SIZE,
     private val logFetchLimit: Long = LOG_FETCH_LIMIT,
@@ -97,7 +99,7 @@ abstract class LogsIndexer(
      */
     override suspend fun start(iterations: Long?) {
         initialise()
-        val finalizedBlock = thorClient.getBestBlock().number - 1000
+        val finalizedBlock = thorClient.getBestBlock().number - blockSwitchThreshold
 
         remainingIterations = iterations
 
@@ -124,6 +126,11 @@ abstract class LogsIndexer(
 
                 // Fetch both event logs and VET transfers
                 val logsBatch = fetchLogs(currentBlockNumber, batchEndBlock)
+
+                // Log sync status
+                if (currentBlockNumber % syncLoggerInterval == 0L) {
+                    logger.info("Fast syncing... Block $currentBlockNumber -> $toBlock")
+                }
 
                 if (logsBatch.eventLogs.isEmpty() && logsBatch.transferLogs.isEmpty()) {
                     currentBlockNumber = batchEndBlock + 1
