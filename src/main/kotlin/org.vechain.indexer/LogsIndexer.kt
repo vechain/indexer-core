@@ -76,6 +76,8 @@ abstract class LogsIndexer(
 
     private var cachedConfiguredEvents: List<AbiElement>? = null
 
+    private var lastLoggedBlock: Long = currentBlockNumber
+
     /**
      * Initializes the indexer by setting the last synced block and updating status.
      *
@@ -128,8 +130,10 @@ abstract class LogsIndexer(
                 val logsBatch = fetchLogs(currentBlockNumber, batchEndBlock)
 
                 // Log sync status
-                if (currentBlockNumber % syncLoggerInterval == 0L) {
-                    logger.info("Fast syncing... Block $currentBlockNumber -> $toBlock")
+                if (currentBlockNumber / syncLoggerInterval > lastLoggedBlock / syncLoggerInterval) {
+                    val alignedBlock = (currentBlockNumber / syncLoggerInterval) * syncLoggerInterval
+                    logger.info("Fast Indexing... Processing @ Block $alignedBlock (SYNCING)")
+                    lastLoggedBlock = currentBlockNumber
                 }
 
                 if (logsBatch.eventLogs.isEmpty() && logsBatch.transferLogs.isEmpty()) {
