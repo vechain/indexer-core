@@ -85,7 +85,7 @@ internal class LogsIndexerTest {
                     {
                         buildBlock(getBlockNumberSlot.captured)
                     }
-                coEvery { thorClient.getBestBlock() } returns buildBlock(10000L)
+                coEvery { thorClient.getFinalizedBlock() } returns buildBlock(10000L)
                 coEvery { thorClient.getEventLogs(any()) } coAnswers { LOGS_STRINGS }
 
                 every { responseMocker.getLastSyncedBlock() } returns
@@ -116,7 +116,7 @@ internal class LogsIndexerTest {
                     {
                         buildBlock(getBlockNumberSlot.captured)
                     }
-                coEvery { thorClient.getBestBlock() } returns buildBlock(10000L)
+                coEvery { thorClient.getFinalizedBlock() } returns buildBlock(10000L)
                 coEvery { thorClient.getEventLogs(any()) } coAnswers { LOGS_STRINGS }
                 every { responseMocker.getLastSyncedBlock() } returns null
                 every { responseMocker.processLogs(any(), any()) } just Runs
@@ -140,7 +140,7 @@ internal class LogsIndexerTest {
                 // Mock fetching event logs
                 coEvery { thorClient.getEventLogs(any()) } coAnswers { LOGS_STRINGS }
 
-                coEvery { thorClient.getBestBlock() } returns buildBlock(100000L)
+                coEvery { thorClient.getFinalizedBlock() } returns buildBlock(100000L)
                 coEvery { thorClient.getBlock(any()) } returns buildBlock(100000L)
 
                 // Mock last synced block (so it starts from the beginning)
@@ -173,7 +173,7 @@ internal class LogsIndexerTest {
                 // Mock fetching event logs
                 coEvery { thorClient.getVetTransfers(any()) } coAnswers { LOGS_VET_TRANSFER }
 
-                coEvery { thorClient.getBestBlock() } returns buildBlock(100000L)
+                coEvery { thorClient.getFinalizedBlock() } returns buildBlock(100000L)
                 coEvery { thorClient.getBlock(any()) } returns buildBlock(100000L)
 
                 // Mock last synced block (so it starts from the beginning)
@@ -206,7 +206,7 @@ internal class LogsIndexerTest {
                 // Mock fetching event logs
                 coEvery { thorClient.getEventLogs(any()) } coAnswers { LOGS_STRINGS }
 
-                coEvery { thorClient.getBestBlock() } returns buildBlock(1001L)
+                coEvery { thorClient.getFinalizedBlock() } returns buildBlock(2L)
                 coEvery { thorClient.getBlock(any()) } returns buildBlock(100000L)
 
                 // Mock last synced block (so it starts from the beginning)
@@ -240,7 +240,7 @@ internal class LogsIndexerTest {
                 val blockNotFound = BlockIdentifier(number = 99L, id = "0x99")
                 // Mock fetching event logs
                 coEvery { thorClient.getEventLogs(any()) } coAnswers { LOGS_STRINGS }
-
+                coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(blockNotFound.number) }
                 coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
                     {
                         if (getBlockNumberSlot.captured >= blockNotFound.number) {
@@ -248,7 +248,7 @@ internal class LogsIndexerTest {
                         }
                         buildBlock(getBlockNumberSlot.captured)
                     }
-                coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(blockNotFound.number) }
+                coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1) }
 
                 every { responseMocker.getLastSyncedBlock() } returns null andThen
                     null andThen
@@ -273,8 +273,8 @@ internal class LogsIndexerTest {
         @Test
         fun `Indexer should ensure whether it is FULLY_SYNCED and switch back to SYNCING`() =
             runBlocking {
-                val iterations = 101L
-                val blockNotFound = BlockIdentifier(number = 99L, id = "0x99")
+                val iterations = 10L
+                val blockNotFound = BlockIdentifier(number = 9L, id = "0x9")
 
                 // Block is not found the first time indexer tries to fetch it
                 var calledAlready = false
@@ -287,7 +287,8 @@ internal class LogsIndexerTest {
                         buildBlock(getBlockNumberSlot.captured)
                     }
                 // Simulate a gap between last synced and current best block from chain
-                coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(iterations) }
+                coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(0L) }
+                coEvery { thorClient.getBestBlock() } returns buildBlock(10000L)
                 every { responseMocker.getLastSyncedBlock() } returns null andThen
                     null andThen
                     blockNotFound
@@ -313,11 +314,11 @@ internal class LogsIndexerTest {
         @Test
         fun `Indexer should switch to REORG status upon chain re-organization`() =
             runBlocking {
-                val reorgBlock = 100L
-                val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
+                val reorgBlock = 3L
+                val lastSyncedBlock = BlockIdentifier(number = 2L, id = "0x2")
 
                 // Simulate re-organization by detecting invalid parent block id at reorgBlock
-                coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(99L) }
+                coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(0L) }
                 coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
                     {
                         // At reorgBlock, the parent id is invalid
@@ -358,7 +359,7 @@ internal class LogsIndexerTest {
                     buildBlock(getBlockNumberSlot.captured)
                 }
 
-                coEvery { thorClient.getBestBlock() } returns buildBlock(unknownExceptionBlock + 1001)
+                coEvery { thorClient.getFinalizedBlock() } returns buildBlock(unknownExceptionBlock)
 
                 coEvery { responseMocker.getLastSyncedBlock() } returns
                     null andThen null andThen lastSyncedBlock
@@ -427,7 +428,7 @@ internal class LogsIndexerTest {
                 // Mock fetching event logs
                 coEvery { thorClient.getEventLogs(any()) } coAnswers { LOGS_STRINGS }
 
-                coEvery { thorClient.getBestBlock() } returns buildBlock(10L)
+                coEvery { thorClient.getFinalizedBlock() } returns buildBlock(0L)
                 coEvery { thorClient.getBlock(any()) } coAnswers { BLOCK_STRINGS }
 
                 // Mock last synced block (so it starts from the beginning)
@@ -474,7 +475,7 @@ internal class LogsIndexerTest {
                 // Mock fetching event logs
                 coEvery { thorClient.getEventLogs(any()) } coAnswers { LOGS_STRINGS }
 
-                coEvery { thorClient.getBestBlock() } returns buildBlock(10L)
+                coEvery { thorClient.getFinalizedBlock() } returns buildBlock(0L)
                 coEvery { thorClient.getBlock(any()) } coAnswers { BLOCK_TOKEN_EXCHANGE }
 
                 // Mock last synced block (so it starts from the beginning)
@@ -534,7 +535,7 @@ internal class LogsIndexerTest {
                 val indexerIterationsNumber = 1L
                 val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
 
-                coEvery { thorClient.getBestBlock() } returns buildBlock(10L)
+                coEvery { thorClient.getFinalizedBlock() } returns buildBlock(0L)
                 coEvery { thorClient.getBlock(any()) } coAnswers { BLOCK_TOKEN_EXCHANGE }
 
                 // Mock last synced block (so it starts from the beginning)

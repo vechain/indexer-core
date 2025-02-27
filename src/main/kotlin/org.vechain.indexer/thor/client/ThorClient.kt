@@ -15,6 +15,8 @@ interface ThorClient {
 
     suspend fun getBestBlock(): Block
 
+    suspend fun getFinalizedBlock(): Block
+
     suspend fun getEventLogs(req: EventLogsRequest): List<EventLog>
 
     suspend fun getVetTransfers(req: TransferLogsRequest): List<TransferLog>

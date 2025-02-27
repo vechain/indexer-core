@@ -43,7 +43,6 @@ abstract class LogsIndexer(
     override val thorClient: ThorClient,
     startBlock: Long = 0L,
     private val syncLoggerInterval: Long = 1_000L,
-    private val blockSwitchThreshold: Long = BLOCK_SWITCH_THRESHOLD,
     private val logsType: Set<LogType> = setOf(LogType.EVENT), // Default to EVENT
     private val blockBatchSize: Long = BLOCK_BATCH_SIZE,
     private val logFetchLimit: Long = LOG_FETCH_LIMIT,
@@ -101,7 +100,7 @@ abstract class LogsIndexer(
      */
     override suspend fun start(iterations: Long?) {
         initialise()
-        val finalizedBlock = thorClient.getBestBlock().number - blockSwitchThreshold
+        val finalizedBlock = thorClient.getFinalizedBlock().number
 
         remainingIterations = iterations
 

@@ -62,6 +62,22 @@ class DefaultThorClient(
             return@withContext objectMapper.readValue(responseBody, Block::class.java)
         }
 
+    override suspend fun getFinalizedBlock(): Block =
+        withContext(Dispatchers.IO) {
+            val (_, _, result) =
+                Fuel.get("$baseUrl/blocks/finalized?expanded=true").appendHeader(*headers).response()
+
+            val responseBody =
+                when (result) {
+                    is Result.Success -> result.get().toString(Charsets.UTF_8)
+                    is Result.Failure ->
+                        throw Exception("Get best finalized request failed with error: ${result.error}")
+                    else -> null
+                }
+
+            return@withContext objectMapper.readValue(responseBody, Block::class.java)
+        }
+
     override suspend fun getEventLogs(req: EventLogsRequest): List<EventLog> =
         withContext(Dispatchers.IO) {
             val (_, _, result) =
