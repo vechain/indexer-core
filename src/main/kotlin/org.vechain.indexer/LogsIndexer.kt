@@ -126,7 +126,11 @@ abstract class LogsIndexer(
                 val logsBatch = fetchLogs(currentBlockNumber, batchEndBlock)
 
                 // Log sync status
-                logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
+                if (logger.isTraceEnabled) {
+                    logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
+                } else if (hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)) {
+                    logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
+                }
 
                 if (logsBatch.eventLogs.isEmpty() && logsBatch.transferLogs.isEmpty()) {
                     currentBlockNumber = batchEndBlock + 1
@@ -420,5 +424,18 @@ abstract class LogsIndexer(
         val vetTransfers = eventIndexer.decodeLogTransfers(transferLogs)
 
         return contractEvents + vetTransfers
+    }
+
+    /**
+     * @notice Determines if any multiples of `x` exist in the range `[startBlock, endBlock]`.
+     * @param startBlock The start of the block range.
+     * @param endBlock The end of the block range.
+     * @param x The number to check for multiples.
+     */
+    private fun hasMultipleInRange(startBlock: Long, endBlock: Long, x: Long): Boolean {
+        if (x == 0L) return false // Prevent division by zero
+
+        val firstMultiple = if (startBlock % x == 0L) startBlock else (startBlock / x + 1) * x
+        return firstMultiple in startBlock..endBlock
     }
 }
