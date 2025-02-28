@@ -160,6 +160,24 @@ object EventMockFactory {
             signature = "4811710b0c25cc7e05baf214b3a939cf893f1cbff4d0b219e680f069a4f204a2",
         )
 
+    val intAbiElement: AbiElement =
+        AbiElement(
+            name = "Conversion",
+            type = "event",
+            anonymous = false,
+            stateMutability = null,
+            inputs =
+                listOf(
+                    InputOutput("int8", "tradeType", "int8", indexed = true),
+                    InputOutput("address", "_trader", "address", indexed = true),
+                    InputOutput("uint256", "_sellAmount", "uint256", indexed = false),
+                    InputOutput("uint256", "_return", "uint256", indexed = false),
+                    InputOutput("uint256", "_conversionFee", "uint256", indexed = false),
+                ),
+            outputs = emptyList(),
+            signature = "fba23a36f0fad77947f553b9a89c1848ac869c8ce4c1c0d93cb14a9f4ba107f4",
+        )
+
     val arrayAbiElement: AbiElement =
         AbiElement(
             name = "AllocationVoteCast",
@@ -315,6 +333,26 @@ object EventMockFactory {
                         amount = "10000000000",
                     ),
                 ),
+        )
+
+    val intEventClause =
+        TxOutputs(
+            contractAddress = null,
+            events =
+                listOf(
+                    TxEvent(
+                        address = "0x76Ca782B59C74d088C7D2Cce2f211BC00836c602",
+                        topics =
+                            listOf(
+                                "0xfba23a36f0fad77947f553b9a89c1848ac869c8ce4c1c0d93cb14a9f4ba107f4",
+                                "0x0000000000000000000000000000000000000000000000000000000000000000",
+                                "0x000000000000000000000000fc5a8bbff0cfc616472772167024e7cd977f27f6",
+                            ),
+                        data =
+                            "0x00000000000000000000000000000000000000000000010f0cf064dd592000000000000000000000000000000000000000000000000010b4976152b645d794c900000000000000000000000000000000000000000000000223ad7287d6cc5eb7",
+                    ),
+                ),
+            transfers = emptyList(),
         )
 
     val arrayEventClause =

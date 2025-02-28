@@ -67,6 +67,29 @@ enum class Types {
         override fun getClaas(): Class<*> = Boolean::class.java
     },
 
+    INT {
+        override fun isType(typeName: String): Boolean =
+            typeName.startsWith("int") &&
+                (typeName == "int" || typeName.removePrefix("int").toIntOrNull() in 8..256)
+
+        override fun <T> decode(
+            encoded: String,
+            clazz: Class<T>,
+            name: String,
+            fullData: String?,
+            startPosition: Int,
+            components: List<InputOutput>?,
+        ): DecodedValue<T> {
+            val decodedBigInt = DataUtils.decodeQuantity(encoded)
+            val bitSize = name.removePrefix("int").toIntOrNull() ?: 256 // Default to int256
+            val signedValue = convertToSignedBigInt(decodedBigInt, bitSize)
+
+            return DecodedValue(signedValue.toString(), clazz, clazz.cast(signedValue), name)
+        }
+
+        override fun getClaas(): Class<*> = BigInteger::class.java
+    },
+
     BYTES {
         override fun isType(typeName: String): Boolean =
             typeName == "bytes" || (typeName.startsWith("bytes") && typeName.removePrefix("bytes").toIntOrNull() in 1..32)
@@ -276,6 +299,20 @@ enum class Types {
             }
 
             return decodedArray
+        }
+
+        fun convertToSignedBigInt(
+            value: BigInteger,
+            bitSize: Int,
+        ): BigInteger {
+            val maxUnsignedValue = BigInteger.ONE.shiftLeft(bitSize) // 2^bitSize
+            val maxSignedValue = maxUnsignedValue.shiftRight(1) // 2^(bitSize-1)
+
+            return if (value >= maxSignedValue) {
+                value.subtract(maxUnsignedValue) // Convert from two's complement if negative
+            } else {
+                value
+            }
         }
 
         private inline fun <reified T> decodeBasicType(

@@ -23,22 +23,31 @@ class BusinessEventProcessor(
         events: List<Pair<IndexedEvent, GenericEventParameters>>,
         businessEventNames: List<String>,
         removeDuplicates: Boolean = true,
+        groupByBlock: Boolean = true,
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
         val businessEvents = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
         val remainingEvents = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
 
-        events.groupBy { it.first.txId }.forEach { (_, transactionEvents) ->
+        val groupedEvents =
+            if (groupByBlock) {
+                events.groupBy { it.first.blockNumber } // Group by block number first
+            } else {
+                mapOf(0L to events) // Treat all events as a single group
+            }
+
+        groupedEvents.forEach { (blockNumber, blockEvents) ->
             try {
-                val matchedEvents = processTransactionForBusinessEvents(transactionEvents, businessEventNames)
+                blockEvents.groupBy { it.first.txId }.forEach { (_, transactionEvents) ->
+                    val matchedEvents = processTransactionForBusinessEvents(transactionEvents, businessEventNames)
+                    businessEvents.addAll(matchedEvents)
 
-                businessEvents.addAll(matchedEvents)
-
-                if (!removeDuplicates || matchedEvents.isEmpty()) {
-                    remainingEvents.addAll(transactionEvents)
+                    if (!removeDuplicates || matchedEvents.isEmpty()) {
+                        remainingEvents.addAll(transactionEvents)
+                    }
                 }
             } catch (e: Exception) {
-                logger.error("Failed to process transaction events: $transactionEvents", e)
-                remainingEvents.addAll(transactionEvents)
+                logger.error("Failed to process events in block $blockNumber: $blockEvents", e)
+                remainingEvents.addAll(blockEvents)
             }
         }
 
@@ -47,14 +56,32 @@ class BusinessEventProcessor(
 
     /**
      * Filters and returns only business events from a list of raw events.
+     *
+     * @param events The list of indexed events and their parameters.
+     * @param businessEventNames The names of business events to filter.
+     * @param groupByBlock If true, events will be grouped by block before processing.
+     * @return A list of only business events.
      */
     fun getOnlyBusinessEvents(
         events: List<Pair<IndexedEvent, GenericEventParameters>>,
         businessEventNames: List<String>,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> =
-        events
-            .groupBy { it.first.txId }
-            .flatMap { (_, transactionEvents) -> processTransactionForBusinessEvents(transactionEvents, businessEventNames) }
+        groupByBlock: Boolean = true,
+    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+        val groupedEvents =
+            if (groupByBlock) {
+                events.groupBy { it.first.blockNumber }
+            } else {
+                mapOf(0L to events)
+            }
+
+        return groupedEvents.flatMap { (_, blockEvents) ->
+            blockEvents
+                .groupBy { it.first.txId }
+                .flatMap { (_, transactionEvents) ->
+                    processTransactionForBusinessEvents(transactionEvents, businessEventNames)
+                }
+        }
+    }
 
     /**
      * Processes events within a single transaction to determine if they match business events.

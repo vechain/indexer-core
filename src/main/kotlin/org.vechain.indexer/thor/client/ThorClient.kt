@@ -1,6 +1,6 @@
 package org.vechain.indexer.thor.client
 
-import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.*
 
 /**
  * Client interface to access the Thorest RESTful API of the VeChain Thor Network.
@@ -14,4 +14,10 @@ interface ThorClient {
     suspend fun getBlock(blockNumber: Long): Block
 
     suspend fun getBestBlock(): Block
+
+    suspend fun getFinalizedBlock(): Block
+
+    suspend fun getEventLogs(req: EventLogsRequest): List<EventLog>
+
+    suspend fun getVetTransfers(req: TransferLogsRequest): List<TransferLog>
 }

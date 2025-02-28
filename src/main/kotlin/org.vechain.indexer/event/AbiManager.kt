@@ -30,7 +30,6 @@ class AbiManager {
         }
     }
 
-
     /**
      * Retrieves all loaded ABIs.
      */
@@ -39,8 +38,12 @@ class AbiManager {
     /**
      * Fetches ABIs for a given list of names and event types.
      */
-    fun getEventsByNames(abiNames: List<String>, eventNames: List<String>): List<AbiElement> =
-        abiNames.flatMap { abiName ->
-            abis[abiName]?.filter { it.type == "event" && (eventNames.isEmpty() || it.name in eventNames) } ?: emptyList()
-        }
+    fun getEventsByNames(
+        abiNames: List<String>,
+        eventNames: List<String>,
+    ): List<AbiElement> =
+        abiNames
+            .flatMap { abiName ->
+                abis[abiName]?.filter { it.type == "event" && (eventNames.isEmpty() || it.name in eventNames) } ?: emptyList()
+            }.distinctBy { it.signature to it.inputs.count { input -> input.indexed } }
 }

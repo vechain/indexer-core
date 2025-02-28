@@ -36,9 +36,9 @@ enum class Status {
 /** Initial processing backoff duration */
 const val INITIAL_BACKOFF_PERIOD = 10_000L
 
-abstract class Indexer(
+abstract class BlockIndexer(
     protected open val thorClient: ThorClient,
-    private val startBlock: Long = 0L,
+    protected val startBlock: Long = 0L,
     private val syncLoggerInterval: Long = 1_000L,
     protected open val abiManager: AbiManager? = null, // Optional AbiManager
     protected open val businessEventManager: BusinessEventManager? = null, // Optional BusinessEventManager
@@ -50,7 +50,7 @@ abstract class Indexer(
      * Number of indexer iterations remaining in case a given number of iterations has been
      * specified
      */
-    private var remainingIterations: Long? = null
+    internal var remainingIterations: Long? = null
 
     val name: String
         get() = this.javaClass.simpleName
@@ -58,13 +58,13 @@ abstract class Indexer(
     protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     var status = Status.SYNCING
-        private set
+        protected set
 
     var currentBlockNumber: Long = 0
-        private set
+        protected set
 
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
-        private set
+        internal set
 
     private var backoffPeriod = 0L
 
@@ -105,11 +105,10 @@ abstract class Indexer(
     }
 
     /** Starts the indexer processing */
-    suspend fun start(iterations: Long? = null) {
+    open suspend fun start(iterations: Long? = null) {
         remainingIterations = iterations
 
-        // Initialise the indexer
-        initialise()
+        if (this !is LogsIndexer) initialise()
 
         logger.info("Starting @ Block: $currentBlockNumber")
         run()
@@ -152,7 +151,6 @@ abstract class Indexer(
             }
 
             processBlock(block)
-
             postProcessBlock(block)
         } catch (ex: BlockNotFoundException) {
             logger.info("Block $currentBlockNumber not found. Indexer may be fully synchronised.")
@@ -175,7 +173,7 @@ abstract class Indexer(
      *
      * @return whether indexer has remaining iterations
      */
-    private fun hasNoRemainingIterations(): Boolean {
+    internal fun hasNoRemainingIterations(): Boolean {
         if (remainingIterations != null) {
             if (remainingIterations!! <= 0) {
                 logger.info("Indexer finished at block $currentBlockNumber")
@@ -191,7 +189,7 @@ abstract class Indexer(
         status = Status.FULLY_SYNCED
     }
 
-    private fun handleError() {
+    internal fun handleError() {
         backoffPeriod = INITIAL_BACKOFF_PERIOD
         status = Status.ERROR
     }
@@ -245,7 +243,7 @@ abstract class Indexer(
         }
     }
 
-    private suspend fun backoffDelay() {
+    internal suspend fun backoffDelay() {
         if (status != Status.SYNCING) {
             delay(backoffPeriod)
         }
@@ -304,7 +302,7 @@ abstract class Indexer(
         block: Block,
         criteria: FilterCriteria = FilterCriteria(),
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
-        val updatedCriteria = updateCriteriaWithBusinessEvents(criteria)
+        val updatedCriteria = businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria
         val decodedEvents = processBlockGenericEvents(block, updatedCriteria)
         return processBusinessEvents(decodedEvents, updatedCriteria.businessEventNames, updatedCriteria.removeDuplicates)
     }
@@ -326,12 +324,9 @@ abstract class Indexer(
         }
 
         val eventIndexer = GenericEventIndexer(abiManager!!)
-        return eventIndexer.getEventsByFilters(
+        return eventIndexer.getBlockEventsByFilters(
             block = block,
-            abiNames = criteria.abiNames,
-            eventNames = criteria.eventNames,
-            contractAddresses = criteria.contractAddresses,
-            vetTransfers = criteria.vetTransfers,
+            filterCriteria = criteria,
         )
     }
 
@@ -351,27 +346,9 @@ abstract class Indexer(
             return emptyList()
         }
 
-        // Filter events based on criteria if needed
-        val filteredCriteria = updateCriteriaWithBusinessEvents(criteria)
-
         // Process business events
         val processor = BusinessEventProcessor(businessEventManager!!)
-        return processor.getOnlyBusinessEvents(decodedEvents, filteredCriteria.businessEventNames)
-    }
-
-    /**
-     * @notice Updates the filter criteria with business event names if applicable.
-     * @dev Retrieves the generic event names for the specified business event names
-     *      using the `BusinessEventManager` and adds them to the criteria.
-     * @param criteria The original filtering criteria.
-     * @return Updated filtering criteria with additional event names for business events.
-     */
-    private fun updateCriteriaWithBusinessEvents(criteria: FilterCriteria): FilterCriteria {
-        if (criteria.businessEventNames.isNotEmpty() && businessEventManager != null) {
-            val names = businessEventManager!!.getBusinessGenericEventNames(criteria.businessEventNames)
-            return criteria.addBusinessEventNames(names)
-        }
-        return criteria
+        return processor.getOnlyBusinessEvents(decodedEvents, criteria.businessEventNames, this is LogsIndexer)
     }
 
     /**
@@ -382,14 +359,15 @@ abstract class Indexer(
      * @param businessEventNames A list of business event names to process.
      * @return A list of processed business events and their associated parameters.
      */
-    private fun processBusinessEvents(
+    internal fun processBusinessEvents(
         decodedEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
         businessEventNames: List<String>,
         removeDuplicates: Boolean? = true,
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
         if (businessEventManager != null) {
             val processor = BusinessEventProcessor(businessEventManager!!)
-            return processor.processEvents(decodedEvents, businessEventNames, removeDuplicates ?: true)
+            val logsIndexer = this is LogsIndexer
+            return processor.processEvents(decodedEvents, businessEventNames, removeDuplicates ?: true, logsIndexer)
         }
         logger.debug("Skipping business event processing as manager is missing.")
         return decodedEvents
