@@ -394,7 +394,8 @@ abstract class LogsIndexer(
     /**
      * @notice Processes generic events in a of log events based on the provided criteria.
      * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and returns an empty list.
-     * @param logs The Thor logs to process.
+     * @param eventLogs The Thor event logs to process.
+     * @param transferLogs The Thor transfer logs to process.
      * @param criteria Filtering criteria to determine which generic events to process.
      * @return A list of decoded generic events and their associated parameters.
      */
