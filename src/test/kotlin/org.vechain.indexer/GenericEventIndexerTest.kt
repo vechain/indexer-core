@@ -9,6 +9,8 @@ import org.vechain.indexer.EventMockFactory.arrayAbiElement
 import org.vechain.indexer.EventMockFactory.arrayEventClause
 import org.vechain.indexer.EventMockFactory.createMockBlockWithTransactions
 import org.vechain.indexer.EventMockFactory.createMockTransaction
+import org.vechain.indexer.EventMockFactory.intAbiElement
+import org.vechain.indexer.EventMockFactory.intEventClause
 import org.vechain.indexer.EventMockFactory.stringAbiElement
 import org.vechain.indexer.EventMockFactory.stringEventClause
 import org.vechain.indexer.EventMockFactory.transferAbiElement
@@ -374,6 +376,37 @@ internal class GenericEventIndexerTest {
                     "proof" to
                         "{\"version\": 2,\"description\": \"This is a photo of a reusable cup, read about the study on impacts here: https://keepcup-study.s3.eu-north-1.amazonaws.com/KeepCup+LCA+Report.pdf\",\"proof\": {\"image\":\"https://blurred-mugshots.s3.eu-north-1.amazonaws.com/1737440160116_image.png\"},\"impact\": {\"carbon\":37,\"energy\":263,\"timber\":23,\"plastic\":3}}",
                     "distributor" to "0xb6f43457600b1f3b7b98fc4394a9f1134ffc721d",
+                )
+
+            expectThat(returnValues).isEqualTo(expectedReturnValues)
+        }
+
+        @Test
+        fun `should process int events correctly`() {
+            // Define mock Block object
+            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(intEventClause))))
+
+            val configuredEvents = listOf(intAbiElement)
+
+            // Mock AbiManager responses
+            every { abiManager.getAbis() } returns mapOf("AbiName" to configuredEvents)
+
+            // Execute the method under test
+            val result = genericEventIndexer.getBlockEventsByFilters(block)
+
+            // Assertions
+            expectThat(result[0].second.name).isEqualTo("Conversion")
+
+            // Decoded values
+            val returnValues = result[0].second.getReturnValues()
+
+            val expectedReturnValues =
+                mapOf(
+                    "tradeType" to BigInteger("0"),
+                    "_trader" to "0xfc5a8bbff0cfc616472772167024e7cd977f27f6",
+                    "_sellAmount" to BigInteger("5000000000000000000000"),
+                    "_return" to BigInteger("78889185749897320043721"),
+                    "_conversionFee" to BigInteger("39464325037467393719"),
                 )
 
             expectThat(returnValues).isEqualTo(expectedReturnValues)
