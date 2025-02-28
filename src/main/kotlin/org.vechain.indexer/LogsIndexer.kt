@@ -17,7 +17,6 @@ import java.time.ZoneOffset
 
 const val BLOCK_BATCH_SIZE = 100L //  Block batch size
 const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
-const val BLOCK_SWITCH_THRESHOLD = 1000L //  Number of blocks from the best block to switch to block indexer
 
 /**
  * **LogsIndexer**
@@ -75,8 +74,6 @@ abstract class LogsIndexer(
 
     private var cachedConfiguredEvents: List<AbiElement>? = null
 
-    private var lastLoggedBlock: Long = currentBlockNumber
-
     /**
      * Initializes the indexer by setting the last synced block and updating status.
      *
@@ -129,11 +126,7 @@ abstract class LogsIndexer(
                 val logsBatch = fetchLogs(currentBlockNumber, batchEndBlock)
 
                 // Log sync status
-                if (currentBlockNumber / syncLoggerInterval > lastLoggedBlock / syncLoggerInterval) {
-                    val alignedBlock = (currentBlockNumber / syncLoggerInterval) * syncLoggerInterval
-                    logger.info("Fast Indexing... Processing @ Block $alignedBlock (SYNCING)")
-                    lastLoggedBlock = currentBlockNumber
-                }
+                logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
 
                 if (logsBatch.eventLogs.isEmpty() && logsBatch.transferLogs.isEmpty()) {
                     currentBlockNumber = batchEndBlock + 1
