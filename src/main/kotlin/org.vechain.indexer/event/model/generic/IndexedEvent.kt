@@ -7,6 +7,8 @@ data class IndexedEvent(
     val blockTimestamp: Long,
     val txId: String,
     val origin: String?,
+    val paid: String? = null,
+    val gasUsed: Long? = null,
     val gasPayer: String? = null,
     val raw: RawEvent? = null,
     val params: GenericEventParameters,
