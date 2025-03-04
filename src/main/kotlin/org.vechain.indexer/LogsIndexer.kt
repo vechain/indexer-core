@@ -17,7 +17,6 @@ import java.time.ZoneOffset
 
 const val BLOCK_BATCH_SIZE = 100L //  Block batch size
 const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
-const val BLOCK_SWITCH_THRESHOLD = 1000L //  Number of blocks from the best block to switch to block indexer
 
 /**
  * **LogsIndexer**
@@ -75,8 +74,6 @@ abstract class LogsIndexer(
 
     private var cachedConfiguredEvents: List<AbiElement>? = null
 
-    private var lastLoggedBlock: Long = currentBlockNumber
-
     /**
      * Initializes the indexer by setting the last synced block and updating status.
      *
@@ -129,10 +126,10 @@ abstract class LogsIndexer(
                 val logsBatch = fetchLogs(currentBlockNumber, batchEndBlock)
 
                 // Log sync status
-                if (currentBlockNumber / syncLoggerInterval > lastLoggedBlock / syncLoggerInterval) {
-                    val alignedBlock = (currentBlockNumber / syncLoggerInterval) * syncLoggerInterval
-                    logger.info("Fast Indexing... Processing @ Block $alignedBlock (SYNCING)")
-                    lastLoggedBlock = currentBlockNumber
+                if (logger.isTraceEnabled) {
+                    logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
+                } else if (hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)) {
+                    logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
                 }
 
                 if (logsBatch.eventLogs.isEmpty() && logsBatch.transferLogs.isEmpty()) {
@@ -401,7 +398,8 @@ abstract class LogsIndexer(
     /**
      * @notice Processes generic events in a of log events based on the provided criteria.
      * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and returns an empty list.
-     * @param logs The Thor logs to process.
+     * @param eventLogs The Thor event logs to process.
+     * @param transferLogs The Thor transfer logs to process.
      * @param criteria Filtering criteria to determine which generic events to process.
      * @return A list of decoded generic events and their associated parameters.
      */
@@ -426,5 +424,18 @@ abstract class LogsIndexer(
         val vetTransfers = eventIndexer.decodeLogTransfers(transferLogs)
 
         return contractEvents + vetTransfers
+    }
+
+    /**
+     * @notice Determines if any multiples of `x` exist in the range `[startBlock, endBlock]`.
+     * @param startBlock The start of the block range.
+     * @param endBlock The end of the block range.
+     * @param x The number to check for multiples.
+     */
+    private fun hasMultipleInRange(startBlock: Long, endBlock: Long, x: Long): Boolean {
+        if (x == 0L) return false // Prevent division by zero
+
+        val firstMultiple = if (startBlock % x == 0L) startBlock else (startBlock / x + 1) * x
+        return firstMultiple in startBlock..endBlock
     }
 }
