@@ -12,7 +12,7 @@ plugins {
 
 group = "org.vechain"
 
-val projectVersion = System.getenv("PROJECT_VERSION") ?: "3.0.0"
+val projectVersion = System.getenv("PROJECT_VERSION") ?: "3.0.1"
 version = projectVersion
 
 repositories {
@@ -83,6 +83,7 @@ publishing {
 }
 
 signing {
+    isRequired = gradle.taskGraph.hasTask("publish") && !gradle.taskGraph.hasTask("publishToMavenLocal")
     val signingKey = findProperty("signingKey") as String?
     val signingPassword = findProperty("signingPassword") as String?
     useInMemoryPgpKeys(signingKey, signingPassword)
