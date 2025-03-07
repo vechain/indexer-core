@@ -908,7 +908,7 @@ internal class LogsIndexerTest {
         }
 
         @Test
-        fun `should filter events based on contract address if passed into filter criteria - no events for contract address`() {
+        fun `should return empty result if no events for contract address`() {
             val businessEventManager = BusinessEventManager()
             val abiManager = AbiManager()
 
