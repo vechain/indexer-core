@@ -908,6 +908,50 @@ internal class LogsIndexerTest {
         }
 
         @Test
+        fun `should filter events based on contract address if passed into filter criteria - no events for contract address`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            every { responseMocker.rollback(any()) } just Runs
+
+            // Create the indexer with mocked dependencies
+            val indexer =
+                LogIndexerMock(
+                    responseMocker,
+                    setOf(LogType.EVENT, LogType.TRANSFER),
+                    blockBatchSize,
+                    logFetchLimit,
+                    thorClient,
+                    abiManager,
+                    businessEventManager,
+                )
+
+            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
+            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis(fileStreamsAbis)
+            // Load business events
+            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
+
+            // Input block to process
+            val logs = LOGS_B3TR_ACTION
+
+            // Process the block
+            val result =
+                indexer.processAllEvents(
+                    logs,
+                    emptyList(),
+                    FilterCriteria(
+                        contractAddresses = listOf("0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead"),
+                    ),
+                )
+
+            // Expect empty result
+            Assertions.assertTrue(result.isEmpty(), "Result should be empty")
+        }
+
+        @Test
         fun `should apply multiple filters if multiple are passed in`() {
             val businessEventManager = BusinessEventManager()
             val abiManager = AbiManager()

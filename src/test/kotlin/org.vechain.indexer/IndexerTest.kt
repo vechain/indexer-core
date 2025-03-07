@@ -4,6 +4,7 @@ import io.mockk.*
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
 import kotlinx.coroutines.*
+import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -906,6 +907,38 @@ internal class IndexerTest {
 
             // Assert that all expected events are present and in the correct order
             assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
+
+        @Test
+        fun `should filter events based on contract address if passed into filter criteria - no events for contract address`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            // Create the indexer with mocked dependencies
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
+
+            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
+            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis(fileStreamsAbis)
+            // Load business events
+            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
+
+            // Input block to process
+            val block: Block = BLOCK_B3TR_ACTION
+
+            // Process the block
+            val result =
+                indexer.processAllEvents(
+                    block,
+                    FilterCriteria(
+                        contractAddresses = listOf("0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead"),
+                    ),
+                )
+
+            // Expect no events to be returned
+            Assertions.assertTrue(result.isEmpty(), "Result should be empty")
         }
 
         @Test
