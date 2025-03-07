@@ -896,8 +896,7 @@ internal class LogsIndexerTest {
 
             val expectedEventTypes =
                 listOf(
-                    "Transfer",
-                    "B3TR_ActionReward",
+                    "RewardDistributed",
                 )
 
             // Extract event types from the result
