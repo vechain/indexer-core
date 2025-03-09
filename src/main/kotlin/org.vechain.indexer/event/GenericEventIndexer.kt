@@ -16,25 +16,25 @@ class GenericEventIndexer(
 ) {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
-    /**
-     * Extracts and decodes all events in a block based on loaded ABIs.
-     */
-    fun getBlockEvents(block: Block): List<Pair<IndexedEvent, GenericEventParameters>> = getBlockEventsByFilters(block)
+    /** Extracts and decodes all events in a block based on loaded ABIs. */
+    fun getBlockEvents(block: Block): List<IndexedEvent> = getBlockEventsByFilters(block)
 
-    /**
-     * Extracts and decodes events in a block based on specified filters.
-     */
+    /** Extracts and decodes events in a block based on specified filters. */
     fun getBlockEventsByFilters(
         block: Block,
         filterCriteria: FilterCriteria? = FilterCriteria(),
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
-        val configuredEvents = getConfiguredEvents(filterCriteria!!.abiNames, filterCriteria.eventNames)
-        return processBlockEvents(block, configuredEvents, filterCriteria.contractAddresses, filterCriteria.vetTransfers)
+    ): List<IndexedEvent> {
+        val configuredEvents =
+            getConfiguredEvents(filterCriteria!!.abiNames, filterCriteria.eventNames)
+        return processBlockEvents(
+            block,
+            configuredEvents,
+            filterCriteria.contractAddresses,
+            filterCriteria.vetTransfers
+        )
     }
 
-    /**
-     * Retrieves the configured ABIs based on filter criteria.
-     */
+    /** Retrieves the configured ABIs based on filter criteria. */
     fun getConfiguredEvents(
         abiNames: List<String>,
         eventNames: List<String>,
@@ -50,24 +50,21 @@ class GenericEventIndexer(
                 .distinctBy { it.signature to it.inputs.count { input -> input.indexed } }
         }
 
-    /**
-     * Processes and decodes events from a block based on provided ABIs.
-     */
+    /** Processes and decodes events from a block based on provided ABIs. */
     private fun processBlockEvents(
         block: Block,
         configuredEvents: List<AbiElement>,
         contractAddresses: List<String>,
         vetTransfers: Boolean,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
-        val events = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
+    ): List<IndexedEvent> {
+        val events = mutableListOf<IndexedEvent>()
 
         block.transactions.forEach { tx ->
             tx.outputs.forEachIndexed { outputIndex, output ->
                 output.events.forEachIndexed { eventIndex, event ->
                     if (EventUtils.isEventValid(event, configuredEvents, contractAddresses)) {
-                        decodeEvent(event, configuredEvents, tx, block, outputIndex, eventIndex)?.let {
-                            events.add(it)
-                        }
+                        decodeEvent(event, configuredEvents, tx, block, outputIndex, eventIndex)
+                            ?.let { events.add(it) }
                     }
                 }
                 if (vetTransfers) {
@@ -78,9 +75,7 @@ class GenericEventIndexer(
         return events
     }
 
-    /**
-     * Decodes an event and returns a pair of IndexedEvent and its parameters if successful.
-     */
+    /** Decodes an event and returns a pair of IndexedEvent and its parameters if successful. */
     private fun decodeEvent(
         event: TxEvent,
         configuredEvents: List<AbiElement>,
@@ -88,7 +83,7 @@ class GenericEventIndexer(
         block: Block,
         outputIndex: Int,
         eventIndex: Int,
-    ): Pair<IndexedEvent, GenericEventParameters>? {
+    ): IndexedEvent? {
         val matchingAbi = EventUtils.findMatchingAbi(event.topics, configuredEvents)
         return matchingAbi?.let { abi ->
             try {
@@ -109,9 +104,11 @@ class GenericEventIndexer(
                     eventType = parameters.getEventType(),
                     clauseIndex = outputIndex.toLong(),
                     signature = event.topics[0],
-                ) to parameters
+                )
             } catch (ex: IllegalArgumentException) {
-                logger.warn("Failed to decode event with ABI: ${abi.name}, txId: ${tx.id}. Skipping event.")
+                logger.warn(
+                    "Failed to decode event with ABI: ${abi.name}, txId: ${tx.id}. Skipping event."
+                )
                 null
             }
         }
@@ -127,15 +124,18 @@ class GenericEventIndexer(
         logs: List<EventLog>,
         configuredEvents: List<AbiElement>,
         criteria: FilterCriteria = FilterCriteria(),
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+    ): List<IndexedEvent> {
         if (logs.isEmpty()) return emptyList()
 
         return logs.mapIndexedNotNull { i, log ->
             val txEvent = TxEvent(log.address, log.topics, log.data)
 
             // Check if the event is valid and has a matching ABI
-            if (!EventUtils.isEventValid(txEvent, configuredEvents, criteria.contractAddresses)) return@mapIndexedNotNull null
-            val matchingAbi = EventUtils.findMatchingAbi(log.topics, configuredEvents) ?: return@mapIndexedNotNull null
+            if (!EventUtils.isEventValid(txEvent, configuredEvents, criteria.contractAddresses))
+                return@mapIndexedNotNull null
+            val matchingAbi =
+                EventUtils.findMatchingAbi(log.topics, configuredEvents)
+                    ?: return@mapIndexedNotNull null
 
             try {
                 val parameters = EventUtils.decodeEvent(txEvent, matchingAbi)
@@ -153,9 +153,11 @@ class GenericEventIndexer(
                     eventType = parameters.getEventType(),
                     clauseIndex = log.meta.clauseIndex.toLong(),
                     signature = log.topics[0],
-                ) to parameters
+                )
             } catch (ex: Exception) {
-                logger.warn("Failed to decode log event with ABI: ${matchingAbi.name}, txId: ${log.meta.txID}")
+                logger.warn(
+                    "Failed to decode log event with ABI: ${matchingAbi.name}, txId: ${log.meta.txID}"
+                )
                 null
             }
         }
@@ -167,7 +169,7 @@ class GenericEventIndexer(
      * @param logs List of raw TransferLogs.
      * @return A list of decoded Indexed Transfers with their senders and receivers.
      */
-    fun decodeLogTransfers(logs: List<TransferLog>): List<Pair<IndexedEvent, GenericEventParameters>> {
+    fun decodeLogTransfers(logs: List<TransferLog>): List<IndexedEvent> {
         if (logs.isEmpty()) return emptyList()
 
         return logs.mapIndexedNotNull { i, log ->
@@ -192,7 +194,7 @@ class GenericEventIndexer(
                     params = parameters,
                     eventType = "VET_TRANSFER",
                     clauseIndex = log.meta.clauseIndex.toLong(),
-                ) to parameters
+                )
             } catch (ex: Exception) {
                 logger.warn("Failed to process VET transfer: ${log.sender} -> ${log.recipient}", ex)
                 null
@@ -200,15 +202,13 @@ class GenericEventIndexer(
         }
     }
 
-    /**
-     * Extracts VET transfers from a transaction output and returns them as events.
-     */
+    /** Extracts VET transfers from a transaction output and returns them as events. */
     private fun extractVetTransfers(
         output: TxOutputs,
         tx: Transaction,
         block: Block,
         outputIndex: Int,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> =
+    ): List<IndexedEvent> =
         output.transfers.mapIndexedNotNull { transferIndex, transfer ->
             try {
                 val parameters =
@@ -235,16 +235,17 @@ class GenericEventIndexer(
                         eventType = "VET_TRANSFER",
                         clauseIndex = outputIndex.toLong(),
                     )
-                indexedEvent to parameters
+                indexedEvent
             } catch (ex: Exception) {
-                logger.warn("Failed to process VET transfer: ${transfer.sender} -> ${transfer.recipient}", ex)
+                logger.warn(
+                    "Failed to process VET transfer: ${transfer.sender} -> ${transfer.recipient}",
+                    ex
+                )
                 null
             }
         }
 
-    /**
-     * Generates a unique ID for an event based on its transaction, output, and topic.
-     */
+    /** Generates a unique ID for an event based on its transaction, output, and topic. */
     private fun generateEventId(
         txId: String,
         outputIndex: Int,

@@ -2,9 +2,7 @@ package org.vechain.indexer.event.model.abi
 
 import org.vechain.indexer.event.utils.EventUtils
 
-/**
- * Represents an ABI element with metadata and utility to generate its signature.
- */
+/** Represents an ABI element with metadata and utility to generate its signature. */
 data class AbiElement(
     val name: String?,
     val type: String,
@@ -15,8 +13,8 @@ data class AbiElement(
     var signature: String? = null,
 ) {
     /**
-     * Sets the signature for the ABI element based on its type and inputs.
-     * For `tuple` types, it recursively resolves component types.
+     * Sets the signature for the ABI element based on its type and inputs. For `tuple` types, it
+     * recursively resolves component types.
      *
      * @return The generated signature as a string.
      */
@@ -35,7 +33,8 @@ data class AbiElement(
         val signatureString = "$name($params)"
         signature =
             when (type) {
-                "event", "function" -> EventUtils.getEventSignature(signatureString)
+                "event",
+                "function" -> EventUtils.getEventSignature(signatureString)
                 else -> null
             }
         return signature ?: ""

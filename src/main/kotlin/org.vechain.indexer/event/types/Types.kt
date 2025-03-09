@@ -1,10 +1,10 @@
 package org.vechain.indexer.event.types
 
+import java.math.BigInteger
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.utils.DataUtils
-import java.math.BigInteger
 
 enum class Types {
     ADDRESS {
@@ -27,7 +27,6 @@ enum class Types {
 
         override fun getClaas(): Class<*> = String::class.java
     },
-
     UINT {
         override fun isType(typeName: String): Boolean =
             typeName.startsWith("uint") &&
@@ -47,7 +46,6 @@ enum class Types {
 
         override fun getClaas(): Class<*> = BigInteger::class.java
     },
-
     BOOL {
         override fun isType(typeName: String): Boolean = typeName == "bool"
 
@@ -60,13 +58,13 @@ enum class Types {
             components: List<InputOutput>?,
         ): DecodedValue<T> {
             val decodedValue = DataUtils.decodeQuantity(encoded) // Decode the value using HexUtils
-            val boolValue = decodedValue == BigInteger.ONE // Interpret the decoded value as a boolean
+            val boolValue =
+                decodedValue == BigInteger.ONE // Interpret the decoded value as a boolean
             return DecodedValue(boolValue.toString(), clazz, clazz.cast(boolValue), name)
         }
 
         override fun getClaas(): Class<*> = Boolean::class.java
     },
-
     INT {
         override fun isType(typeName: String): Boolean =
             typeName.startsWith("int") &&
@@ -89,10 +87,11 @@ enum class Types {
 
         override fun getClaas(): Class<*> = BigInteger::class.java
     },
-
     BYTES {
         override fun isType(typeName: String): Boolean =
-            typeName == "bytes" || (typeName.startsWith("bytes") && typeName.removePrefix("bytes").toIntOrNull() in 1..32)
+            typeName == "bytes" ||
+                (typeName.startsWith("bytes") &&
+                    typeName.removePrefix("bytes").toIntOrNull() in 1..32)
 
         override fun <T> decode(
             encoded: String,
@@ -110,7 +109,6 @@ enum class Types {
 
         override fun getClaas(): Class<*> = String::class.java
     },
-
     STRING {
         override fun isType(typeName: String): Boolean = typeName == "string"
 
@@ -122,7 +120,8 @@ enum class Types {
             startPosition: Int,
             components: List<InputOutput>?,
         ): DecodedValue<T> {
-            // Check if fullData is null or empty, indicating an indexed string (Keccak-256 hash in topics)
+            // Check if fullData is null or empty, indicating an indexed string (Keccak-256 hash in
+            // topics)
             if (fullData.isNullOrEmpty()) {
                 return DecodedValue(encoded, clazz, clazz.cast(encoded), name)
             }
@@ -134,7 +133,6 @@ enum class Types {
 
         override fun getClaas(): Class<*> = String::class.java
     },
-
     TUPLE {
         override fun isType(typeName: String): Boolean = typeName == "tuple"
 
@@ -158,14 +156,15 @@ enum class Types {
             for (component in components) {
                 // Extract the next 32 bytes
                 if (inputData.length < currentOffset + 64) {
-                    throw IllegalArgumentException("Data too short for tuple component at offset $currentOffset")
+                    throw IllegalArgumentException(
+                        "Data too short for tuple component at offset $currentOffset"
+                    )
                 }
                 val componentData = inputData.substring(currentOffset, currentOffset + 64)
 
                 // Decode the component based on its type
                 val decodedComponent =
-                    Types
-                        .values()
+                    Types.values()
                         .firstOrNull { it.isType(component.type) }
                         ?.decode(
                             encoded = DataUtils.addPrefix(componentData),
@@ -174,20 +173,27 @@ enum class Types {
                             fullData = fullData,
                             startPosition = currentOffset,
                         )
-                        ?: throw IllegalArgumentException("Unsupported type in tuple: ${component.type}")
+                        ?: throw IllegalArgumentException(
+                            "Unsupported type in tuple: ${component.type}"
+                        )
 
                 decodedComponents[component.name] = decodedComponent.actualValue
                 currentOffset += 64 // Move to the next 32-byte slot
             }
 
-            return DecodedValue(decodedComponents.toString(), clazz, clazz.cast(decodedComponents), name)
+            return DecodedValue(
+                decodedComponents.toString(),
+                clazz,
+                clazz.cast(decodedComponents),
+                name
+            )
         }
 
         override fun getClaas(): Class<*> = List::class.java
     },
-
     ARRAY {
-        override fun isType(typeName: String): Boolean = typeName.endsWith("[]") || typeName.matches(Regex(".+\\[\\d+\\]"))
+        override fun isType(typeName: String): Boolean =
+            typeName.endsWith("[]") || typeName.matches(Regex(".+\\[\\d+\\]"))
 
         override fun <T> decode(
             encoded: String,
@@ -207,13 +213,15 @@ enum class Types {
             val decodedElements = decodeArray(elementType, fullData ?: encoded, startPosition)
 
             // Convert the list to a JSON-like string representation
-            val stringRepresentation = decodedElements.joinToString(prefix = "[", postfix = "]") { it.toString() }
+            val stringRepresentation =
+                decodedElements.joinToString(prefix = "[", postfix = "]") { it.toString() }
 
             return DecodedValue(stringRepresentation, clazz, clazz.cast(decodedElements), name)
         }
 
         override fun getClaas(): Class<*> = List::class.java
-    }, ;
+    },
+    ;
 
     abstract fun isType(typeName: String): Boolean
 
@@ -277,7 +285,8 @@ enum class Types {
             val inputData = DataUtils.removePrefix(fullData)
 
             val arrayOffsetHex = inputData.substring(startPosition, (startPosition + 64))
-            val arrayOffset = DataUtils.decodeQuantity(DataUtils.addPrefix(arrayOffsetHex)).toInt() * 2
+            val arrayOffset =
+                DataUtils.decodeQuantity(DataUtils.addPrefix(arrayOffsetHex)).toInt() * 2
 
             val arrayLengthHex = inputData.substring(arrayOffset, arrayOffset + 64)
             val arrayLength = DataUtils.decodeQuantity(DataUtils.addPrefix(arrayLengthHex)).toInt()
@@ -287,11 +296,18 @@ enum class Types {
             for (i in 0 until arrayLength) {
                 val elementData = inputData.substring(currentOffset, currentOffset + 64)
                 try {
-                    val prefixedElementData = DataUtils.addPrefix(elementData) // Ensure the `0x` prefix is added
-                    val element = decodeBasicType<Any>(elementType, prefixedElementData) // Decode individual elements
+                    val prefixedElementData =
+                        DataUtils.addPrefix(elementData) // Ensure the `0x` prefix is added
+                    val element =
+                        decodeBasicType<Any>(
+                            elementType,
+                            prefixedElementData
+                        ) // Decode individual elements
                     decodedArray.add(element.actualValue)
                 } catch (e: Exception) {
-                    logger.error("Error decoding element $i of type $elementType at offset $currentOffset: ${e.message}")
+                    logger.error(
+                        "Error decoding element $i of type $elementType at offset $currentOffset: ${e.message}"
+                    )
                     throw e
                 }
 
@@ -319,10 +335,9 @@ enum class Types {
             typeName: String,
             encoded: String,
         ): DecodedValue<T> =
-            Types
-                .values()
+            Types.values()
                 .firstOrNull { it.isType(typeName) }
                 ?.decode(encoded, T::class.java, typeName, null, 0) // Pass correct type to decode
-                ?: throw IllegalArgumentException("Unsupported type: $typeName")
+            ?: throw IllegalArgumentException("Unsupported type: $typeName")
     }
 }

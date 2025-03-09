@@ -1,21 +1,22 @@
 package org.vechain.indexer.event
 
 import com.fasterxml.jackson.core.type.TypeReference
+import java.io.InputStream
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.business.BusinessEventDefinition
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.utils.JsonUtils
-import java.io.InputStream
 
 class BusinessEventManager {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
     private val businessEvents = mutableMapOf<String, BusinessEventDefinition>()
 
     /**
-     * @notice Loads business event definitions from a map of input streams.
-     * @dev Each key in the map represents an event name, and its value is the corresponding JSON InputStream.
      * @param eventFiles A map where the key is the event name, and the value is its InputStream.
+     * @notice Loads business event definitions from a map of input streams.
+     * @dev Each key in the map represents an event name, and its value is the corresponding JSON
+     *   InputStream.
      */
     fun loadBusinessEvents(eventFiles: Map<String, InputStream>) {
         eventFiles.forEach { (eventName, inputStream) ->
@@ -46,13 +47,11 @@ class BusinessEventManager {
      * Retrieves specific business event definitions by their names.
      *
      * @param names The list of business event names.
-     * @return A map where the key is the business event name, and the value is the corresponding definition.
+     * @return A map where the key is the business event name, and the value is the corresponding
+     *   definition.
      */
     fun getBusinessEventsByNames(names: List<String>): Map<String, BusinessEventDefinition> =
-        names
-            .mapNotNull { name ->
-                businessEvents[name]?.let { name to it }
-            }.toMap()
+        names.mapNotNull { name -> businessEvents[name]?.let { name to it } }.toMap()
 
     /**
      * Retrieves the names of the generic events within the specified business events.
@@ -66,11 +65,11 @@ class BusinessEventManager {
         }
 
     /**
-     * @notice Updates the filter criteria with business event names if applicable.
-     * @dev Retrieves the generic event names for the specified business event names
-     *      using the `BusinessEventManager` and adds them to the criteria.
      * @param criteria The original filtering criteria.
      * @return Updated filtering criteria with additional event names for business events.
+     * @notice Updates the filter criteria with business event names if applicable.
+     * @dev Retrieves the generic event names for the specified business event names using the
+     *   `BusinessEventManager` and adds them to the criteria.
      */
     fun updateCriteriaWithBusinessEvents(criteria: FilterCriteria): FilterCriteria {
         if (criteria.businessEventNames.isNotEmpty()) {

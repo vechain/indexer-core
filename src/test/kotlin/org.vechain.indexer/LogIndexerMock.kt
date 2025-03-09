@@ -3,12 +3,10 @@ package org.vechain.indexer
 import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.model.generic.FilterCriteria
-import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.enums.LogType
 import org.vechain.indexer.thor.model.*
-import java.util.*
 
 class LogIndexerMock(
     private val mocker: LogsIndexerResponseMocker,
@@ -21,7 +19,8 @@ class LogIndexerMock(
     eventCriteriaSet: List<EventCriteria>? = null,
     transferCriteriaSet: List<TransferCriteria>? = null,
     private val mock: Boolean = true,
-) : LogsIndexer(
+) :
+    LogsIndexer(
         thorClient = thorClientMock,
         startBlock = 0,
         syncLoggerInterval = 1000,
@@ -56,18 +55,18 @@ class LogIndexerMock(
         eventLogs: List<EventLog>,
         transferLogs: List<TransferLog>,
         criteria: FilterCriteria,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processBlockGenericEvents(eventLogs, transferLogs, criteria)
+    ): List<IndexedEvent> = super.processBlockGenericEvents(eventLogs, transferLogs, criteria)
 
     public override fun processAllEvents(
         eventLogs: List<EventLog>,
         transferLogs: List<TransferLog>,
         criteria: FilterCriteria,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processAllEvents(eventLogs, transferLogs, criteria)
+    ): List<IndexedEvent> = super.processAllEvents(eventLogs, transferLogs, criteria)
 
     public override fun processBlockBusinessEvents(
-        decodedEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
+        decodedEvents: List<IndexedEvent>,
         criteria: FilterCriteria,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processBlockBusinessEvents(decodedEvents, criteria)
+    ): List<IndexedEvent> = super.processBlockBusinessEvents(decodedEvents, criteria)
 }
 
 interface LogsIndexerResponseMocker {

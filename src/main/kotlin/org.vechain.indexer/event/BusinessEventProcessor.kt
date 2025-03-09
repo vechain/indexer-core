@@ -8,8 +8,8 @@ import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.utils.BusinessEventUtils
 
 /**
- * Processes events based on predefined business rules.
- * Identifies and maps raw events to meaningful business events.
+ * Processes events based on predefined business rules. Identifies and maps raw events to meaningful
+ * business events.
  */
 class BusinessEventProcessor(
     private val businessEventManager: BusinessEventManager,
@@ -20,31 +20,37 @@ class BusinessEventProcessor(
      * Processes a list of raw events, separating them into remaining events and business events.
      */
     fun processEvents(
-        events: List<Pair<IndexedEvent, GenericEventParameters>>,
+        events: List<IndexedEvent>,
         businessEventNames: List<String>,
         removeDuplicates: Boolean = true,
         groupByBlock: Boolean = true,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
-        val businessEvents = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
-        val remainingEvents = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
+    ): List<IndexedEvent> {
+        val businessEvents = mutableListOf<IndexedEvent>()
+        val remainingEvents = mutableListOf<IndexedEvent>()
 
         val groupedEvents =
             if (groupByBlock) {
-                events.groupBy { it.first.blockNumber } // Group by block number first
+                events.groupBy { it.blockNumber } // Group by block number first
             } else {
                 mapOf(0L to events) // Treat all events as a single group
             }
 
         groupedEvents.forEach { (blockNumber, blockEvents) ->
             try {
-                blockEvents.groupBy { it.first.txId }.forEach { (_, transactionEvents) ->
-                    val matchedEvents = processTransactionForBusinessEvents(transactionEvents, businessEventNames)
-                    businessEvents.addAll(matchedEvents)
+                blockEvents
+                    .groupBy { it.txId }
+                    .forEach { (_, transactionEvents) ->
+                        val matchedEvents =
+                            processTransactionForBusinessEvents(
+                                transactionEvents,
+                                businessEventNames
+                            )
+                        businessEvents.addAll(matchedEvents)
 
-                    if (!removeDuplicates || matchedEvents.isEmpty()) {
-                        remainingEvents.addAll(transactionEvents)
+                        if (!removeDuplicates || matchedEvents.isEmpty()) {
+                            remainingEvents.addAll(transactionEvents)
+                        }
                     }
-                }
             } catch (e: Exception) {
                 logger.error("Failed to process events in block $blockNumber: $blockEvents", e)
                 remainingEvents.addAll(blockEvents)
@@ -63,33 +69,31 @@ class BusinessEventProcessor(
      * @return A list of only business events.
      */
     fun getOnlyBusinessEvents(
-        events: List<Pair<IndexedEvent, GenericEventParameters>>,
+        events: List<IndexedEvent>,
         businessEventNames: List<String>,
         groupByBlock: Boolean = true,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+    ): List<IndexedEvent> {
         val groupedEvents =
             if (groupByBlock) {
-                events.groupBy { it.first.blockNumber }
+                events.groupBy { it.blockNumber }
             } else {
                 mapOf(0L to events)
             }
 
         return groupedEvents.flatMap { (_, blockEvents) ->
             blockEvents
-                .groupBy { it.first.txId }
+                .groupBy { it.txId }
                 .flatMap { (_, transactionEvents) ->
                     processTransactionForBusinessEvents(transactionEvents, businessEventNames)
                 }
         }
     }
 
-    /**
-     * Processes events within a single transaction to determine if they match business events.
-     */
+    /** Processes events within a single transaction to determine if they match business events. */
     private fun processTransactionForBusinessEvents(
-        txEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
+        txEvents: List<IndexedEvent>,
         businessEventNames: List<String>,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+    ): List<IndexedEvent> {
         // Fetch business events based on the provided names
         val businessEvents =
             if (businessEventNames.isEmpty()) {
@@ -98,13 +102,13 @@ class BusinessEventProcessor(
                 businessEventManager.getBusinessEventsByNames(businessEventNames)
             }
 
-        val matchedBusinessEvents = mutableListOf<Pair<IndexedEvent, GenericEventParameters>>()
+        val matchedBusinessEvents = mutableListOf<IndexedEvent>()
 
         for ((_, definition) in businessEvents) {
             // Group events by clause index if required
             val groupedEvents =
                 if (definition.sameClause == true) {
-                    txEvents.groupBy { it.first.clauseIndex.toInt() }
+                    txEvents.groupBy { it.clauseIndex.toInt() }
                 } else {
                     mapOf(0 to txEvents) // Treat all events in the transaction as a single group
                 }
@@ -121,7 +125,10 @@ class BusinessEventProcessor(
                     }
 
                 // Validate and process matched events
-                if (eventsForAlias.isNotEmpty() && BusinessEventUtils.validateRules(definition.rules, eventsForAlias)) {
+                if (
+                    eventsForAlias.isNotEmpty() &&
+                        BusinessEventUtils.validateRules(definition.rules, eventsForAlias)
+                ) {
                     matchedBusinessEvents.add(createBusinessEvent(eventsForAlias, definition))
                     definitionMatched = true
                 }
@@ -135,17 +142,23 @@ class BusinessEventProcessor(
         return matchedBusinessEvents
     }
 
-    /**
-     * Checks all combinations of events to find valid matches based on the business definition.
-     */
+    /** Checks all combinations of events to find valid matches based on the business definition. */
     private fun checkAllCombinations(
-        group: List<Pair<IndexedEvent, GenericEventParameters>>,
+        group: List<IndexedEvent>,
         definition: BusinessEventDefinition,
-    ): Map<String, Pair<IndexedEvent, GenericEventParameters>> {
-        val eventCombinations = BusinessEventUtils.generateAllValidCombinations(group, definition.events, definition.maxAttempts ?: 10)
+    ): Map<String, IndexedEvent> {
+        val eventCombinations =
+            BusinessEventUtils.generateAllValidCombinations(
+                group,
+                definition.events,
+                definition.maxAttempts ?: 10
+            )
 
         for (eventsForAlias in eventCombinations) {
-            if (eventsForAlias.isNotEmpty() && BusinessEventUtils.validateRules(definition.rules, eventsForAlias)) {
+            if (
+                eventsForAlias.isNotEmpty() &&
+                    BusinessEventUtils.validateRules(definition.rules, eventsForAlias)
+            ) {
                 return eventsForAlias // Return the first valid combination
             }
         }
@@ -153,15 +166,26 @@ class BusinessEventProcessor(
         return emptyMap() // Return an empty map if no valid combination is found
     }
 
-    /**
-     * Creates a business event from matched events and the [definition].
-     */
+    /** Creates a business event from matched events and the [definition]. */
     private fun createBusinessEvent(
-        eventsForAlias: Map<String, Pair<IndexedEvent, GenericEventParameters>>,
+        eventsForAlias: Map<String, IndexedEvent>,
         definition: BusinessEventDefinition,
-    ): Pair<IndexedEvent, GenericEventParameters> {
+    ): IndexedEvent {
         val params = BusinessEventUtils.extractParams(definition.paramsDefinition, eventsForAlias)
-        val firstEvent = eventsForAlias.values.first().first
-        return Pair(firstEvent, GenericEventParameters(params, definition.name))
+        val firstEvent = eventsForAlias.values.first()
+        return IndexedEvent(
+            id = firstEvent.id,
+            blockId = firstEvent.blockId,
+            blockNumber = firstEvent.blockNumber,
+            blockTimestamp = firstEvent.blockTimestamp,
+            txId = firstEvent.txId,
+            origin = firstEvent.origin,
+            paid = firstEvent.paid,
+            gasUsed = firstEvent.gasUsed,
+            gasPayer = firstEvent.gasPayer,
+            params = GenericEventParameters(params, definition.name),
+            eventType = definition.name,
+            clauseIndex = firstEvent.clauseIndex,
+        )
     }
 }

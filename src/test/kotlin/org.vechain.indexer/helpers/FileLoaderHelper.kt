@@ -10,16 +10,13 @@ object FileLoaderHelper {
             classLoader.getResource(resourcePath)
                 ?: throw IllegalArgumentException("Invalid JSON directory: $resourcePath")
 
-        val jsonFiles =
-            File(resourceDir.toURI()).listFiles { file -> file.extension == "json" }
+        val jsonFiles = File(resourceDir.toURI()).listFiles { file -> file.extension == "json" }
 
         if (jsonFiles.isNullOrEmpty()) {
             println("No JSON files found in directory: $resourcePath")
             return emptyMap()
         }
 
-        return jsonFiles.associate { file ->
-            file.nameWithoutExtension to file.inputStream()
-        }
+        return jsonFiles.associate { file -> file.nameWithoutExtension to file.inputStream() }
     }
 }

@@ -3,7 +3,6 @@ package org.vechain.indexer
 import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.model.generic.FilterCriteria
-import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.client.DefaultThorClient
 import org.vechain.indexer.thor.client.ThorClient
@@ -16,7 +15,13 @@ class IndexerMock(
     abiManagerMock: AbiManager?,
     businessEventManagerMock: BusinessEventManager?,
     private val useMock: Boolean = false,
-) : BlockIndexer(DefaultThorClient("notarealurl"), 0L, abiManager = abiManagerMock, businessEventManager = businessEventManagerMock) {
+) :
+    BlockIndexer(
+        DefaultThorClient("notarealurl"),
+        0L,
+        abiManager = abiManagerMock,
+        businessEventManager = businessEventManagerMock
+    ) {
     override val thorClient: ThorClient = thorClientMock
 
     override val abiManager: AbiManager? = abiManagerMock
@@ -36,7 +41,7 @@ class IndexerMock(
     public override fun processBlockGenericEvents(
         block: Block,
         criteria: FilterCriteria,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> =
+    ): List<IndexedEvent> =
         if (useMock) {
             mocker.processBlockGenericEvents(block, criteria)
         } else {
@@ -46,12 +51,12 @@ class IndexerMock(
     public override fun processAllEvents(
         block: Block,
         criteria: FilterCriteria,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processAllEvents(block, criteria)
+    ): List<IndexedEvent> = super.processAllEvents(block, criteria)
 
     public override fun processBlockBusinessEvents(
-        decodedEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
+        decodedEvents: List<IndexedEvent>,
         criteria: FilterCriteria,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> = super.processBlockBusinessEvents(decodedEvents, criteria)
+    ): List<IndexedEvent> = super.processBlockBusinessEvents(decodedEvents, criteria)
 }
 
 interface IndexerResponseMocker {
@@ -64,5 +69,5 @@ interface IndexerResponseMocker {
     fun processBlockGenericEvents(
         block: Block,
         criteria: FilterCriteria,
-    ): List<Pair<IndexedEvent, GenericEventParameters>>
+    ): List<IndexedEvent>
 }

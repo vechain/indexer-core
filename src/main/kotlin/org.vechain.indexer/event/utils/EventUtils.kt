@@ -13,9 +13,11 @@ object EventUtils {
     /**
      * Computes the Keccak256 hash of an event's canonical signature.
      *
-     * @param canonicalName The canonical signature of the event (e.g., `Transfer(address,address,uint256)`).
-     *                      This should include the event name and parameter types in the correct order.
-     * @return A 64-character hexadecimal string representing the event's Keccak256 hash without the `0x` prefix.
+     * @param canonicalName The canonical signature of the event (e.g.,
+     *   `Transfer(address,address,uint256)`). This should include the event name and parameter
+     *   types in the correct order.
+     * @return A 64-character hexadecimal string representing the event's Keccak256 hash without the
+     *   `0x` prefix.
      */
     fun getEventSignature(canonicalName: String): String {
         require(canonicalName.isNotBlank()) { "Canonical name must not be blank." }
@@ -69,9 +71,7 @@ object EventUtils {
 
         return GenericEventParameters(
             returnValues =
-                decodedParameters
-                    .filterValues { it != null }
-                    .mapValues { it.value as Any },
+                decodedParameters.filterValues { it != null }.mapValues { it.value as Any },
             // Filter out nulls and cast to Any
             eventType = abiElement.name ?: "Unknown",
         )
@@ -91,13 +91,13 @@ object EventUtils {
         startPosition: Int = 0, // Start position in the data field
         components: List<InputOutput>? = null, // Components for tuple types
     ): Any =
-        Types
-            .values()
+        Types.values()
             .firstOrNull {
                 it.isType(
                     solidityType,
                 )
-            }?.decode(hexValue, Any::class.java, solidityType, fullData, startPosition, components)
+            }
+            ?.decode(hexValue, Any::class.java, solidityType, fullData, startPosition, components)
             ?.actualValue
             ?: throw IllegalArgumentException("Unsupported Solidity type: $solidityType")
 
@@ -140,24 +140,26 @@ object EventUtils {
         }
     }
 
-    /**
-     * Validates if an event matches the provided ABIs and contract address filter.
-     */
+    /** Validates if an event matches the provided ABIs and contract address filter. */
     fun isEventValid(
         event: TxEvent,
         configuredEvents: List<AbiElement>,
         contractAddresses: List<String>,
     ): Boolean {
         val matchesAbi =
-            configuredEvents.any {
-                it.signature == DataUtils.removePrefix(event.topics[0])
-            }
-        val matchesContract = contractAddresses.isEmpty() || contractAddresses.any { it.equals(event.address, ignoreCase = true) }
+            configuredEvents.any { it.signature == DataUtils.removePrefix(event.topics[0]) }
+        val matchesContract =
+            contractAddresses.isEmpty() ||
+                contractAddresses.any { it.equals(event.address, ignoreCase = true) }
 
         return event.topics.isNotEmpty() && matchesAbi && matchesContract
     }
 
-    fun isEventValid(event: EventLog, configuredEvents: List<AbiElement>, contractAddresses: List<String>): Boolean {
+    fun isEventValid(
+        event: EventLog,
+        configuredEvents: List<AbiElement>,
+        contractAddresses: List<String>
+    ): Boolean {
         return isEventValid(
             TxEvent(
                 address = event.address,

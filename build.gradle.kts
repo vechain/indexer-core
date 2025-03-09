@@ -7,18 +7,28 @@ plugins {
     id("maven-publish")
     id("signing")
     id("jacoco-report-aggregation")
+    id("com.diffplug.spotless") version "6.25.0"
     jacoco
 }
 
 group = "org.vechain"
 
-val projectVersion = System.getenv("PROJECT_VERSION") ?: "3.0.1"
+val projectVersion = System.getenv("PROJECT_VERSION") ?: "3.1.0"
 version = projectVersion
 
 repositories {
     mavenCentral()
     // local .m2 repo
     mavenLocal()
+}
+
+spotless {
+    kotlin {
+        ktfmt().googleStyle().configure {
+            it.setBlockIndent(4)
+            it.setContinuationIndent(4)
+        }
+    }
 }
 
 java {
