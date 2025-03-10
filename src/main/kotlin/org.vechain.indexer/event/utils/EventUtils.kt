@@ -5,7 +5,6 @@ import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.types.Types
-import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.TxEvent
 import org.vechain.indexer.utils.DataUtils
 
@@ -153,21 +152,5 @@ object EventUtils {
                 contractAddresses.any { it.equals(event.address, ignoreCase = true) }
 
         return event.topics.isNotEmpty() && matchesAbi && matchesContract
-    }
-
-    fun isEventValid(
-        event: EventLog,
-        configuredEvents: List<AbiElement>,
-        contractAddresses: List<String>
-    ): Boolean {
-        return isEventValid(
-            TxEvent(
-                address = event.address,
-                topics = event.topics,
-                data = event.data,
-            ),
-            configuredEvents,
-            contractAddresses,
-        )
     }
 }
