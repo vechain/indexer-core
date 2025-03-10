@@ -896,8 +896,7 @@ internal class LogsIndexerTest {
 
             val expectedEventTypes =
                 listOf(
-                    "Transfer",
-                    "B3TR_ActionReward",
+                    "RewardDistributed",
                 )
 
             // Extract event types from the result
@@ -905,6 +904,50 @@ internal class LogsIndexerTest {
 
             // Assert that all expected events are present and in the correct order
             Assertions.assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
+
+        @Test
+        fun `should return empty result if no events for contract address`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            every { responseMocker.rollback(any()) } just Runs
+
+            // Create the indexer with mocked dependencies
+            val indexer =
+                LogIndexerMock(
+                    responseMocker,
+                    setOf(LogType.EVENT, LogType.TRANSFER),
+                    blockBatchSize,
+                    logFetchLimit,
+                    thorClient,
+                    abiManager,
+                    businessEventManager,
+                )
+
+            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
+            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis(fileStreamsAbis)
+            // Load business events
+            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
+
+            // Input block to process
+            val logs = LOGS_B3TR_ACTION
+
+            // Process the block
+            val result =
+                indexer.processAllEvents(
+                    logs,
+                    emptyList(),
+                    FilterCriteria(
+                        contractAddresses = listOf("0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead"),
+                    ),
+                )
+
+            // Expect empty result
+            Assertions.assertTrue(result.isEmpty(), "Result should be empty")
         }
 
         @Test

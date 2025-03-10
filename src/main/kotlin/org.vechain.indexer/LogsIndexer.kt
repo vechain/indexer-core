@@ -420,7 +420,7 @@ abstract class LogsIndexer(
             cachedConfiguredEvents = eventIndexer.getConfiguredEvents(updatedCriteria.abiNames, updatedCriteria.eventNames)
         }
 
-        val contractEvents = eventIndexer.decodeLogEvents(eventLogs, cachedConfiguredEvents!!)
+        val contractEvents = eventIndexer.decodeLogEvents(eventLogs, cachedConfiguredEvents!!, criteria)
         val vetTransfers = eventIndexer.decodeLogTransfers(transferLogs)
 
         return contractEvents + vetTransfers

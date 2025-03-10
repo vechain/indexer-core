@@ -5,6 +5,7 @@ import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.types.Types
+import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.TxEvent
 import org.vechain.indexer.utils.DataUtils
 
@@ -137,5 +138,22 @@ object EventUtils {
         return configuredEvents.firstOrNull { abi ->
             abi.signature == eventSignature && abi.inputs.count { it.indexed } + 1 == topics.size
         }
+    }
+
+    /**
+     * Validates if an event matches the provided ABIs and contract address filter.
+     */
+    fun isEventValid(
+        event: TxEvent,
+        configuredEvents: List<AbiElement>,
+        contractAddresses: List<String>,
+    ): Boolean {
+        val matchesAbi =
+            configuredEvents.any {
+                it.signature == DataUtils.removePrefix(event.topics[0])
+            }
+        val matchesContract = contractAddresses.isEmpty() || contractAddresses.any { it.equals(event.address, ignoreCase = true) }
+
+        return event.topics.isNotEmpty() && matchesAbi && matchesContract
     }
 }

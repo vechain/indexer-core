@@ -64,7 +64,7 @@ class GenericEventIndexer(
         block.transactions.forEach { tx ->
             tx.outputs.forEachIndexed { outputIndex, output ->
                 output.events.forEachIndexed { eventIndex, event ->
-                    if (isEventValid(event, configuredEvents, contractAddresses)) {
+                    if (EventUtils.isEventValid(event, configuredEvents, contractAddresses)) {
                         decodeEvent(event, configuredEvents, tx, block, outputIndex, eventIndex)?.let {
                             events.add(it)
                         }
@@ -76,23 +76,6 @@ class GenericEventIndexer(
             }
         }
         return events
-    }
-
-    /**
-     * Validates if an event matches the provided ABIs and contract address filter.
-     */
-    private fun isEventValid(
-        event: TxEvent,
-        configuredEvents: List<AbiElement>,
-        contractAddresses: List<String>,
-    ): Boolean {
-        val matchesAbi =
-            configuredEvents.any {
-                it.signature == DataUtils.removePrefix(event.topics[0])
-            }
-        val matchesContract = contractAddresses.isEmpty() || contractAddresses.any { it.equals(event.address, ignoreCase = true) }
-
-        return event.topics.isNotEmpty() && matchesAbi && matchesContract
     }
 
     /**
@@ -143,6 +126,7 @@ class GenericEventIndexer(
     fun decodeLogEvents(
         logs: List<EventLog>,
         configuredEvents: List<AbiElement>,
+        criteria: FilterCriteria = FilterCriteria(),
     ): List<Pair<IndexedEvent, GenericEventParameters>> {
         if (logs.isEmpty()) return emptyList()
 
@@ -150,7 +134,7 @@ class GenericEventIndexer(
             val txEvent = TxEvent(log.address, log.topics, log.data)
 
             // Check if the event is valid and has a matching ABI
-            if (!isEventValid(txEvent, configuredEvents, emptyList())) return@mapIndexedNotNull null
+            if (!EventUtils.isEventValid(txEvent, configuredEvents, criteria.contractAddresses)) return@mapIndexedNotNull null
             val matchingAbi = EventUtils.findMatchingAbi(log.topics, configuredEvents) ?: return@mapIndexedNotNull null
 
             try {

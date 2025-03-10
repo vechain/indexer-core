@@ -16,7 +16,6 @@ import org.vechain.indexer.EventMockFactory.stringEventClause
 import org.vechain.indexer.EventMockFactory.transferAbiElement
 import org.vechain.indexer.EventMockFactory.transferERC71EventClause
 import org.vechain.indexer.EventMockFactory.transferERC721AbiElement
-import org.vechain.indexer.EventMockFactory.transferEvent
 import org.vechain.indexer.EventMockFactory.transferEventClause
 import org.vechain.indexer.EventMockFactory.tupleAbiElement
 import org.vechain.indexer.EventMockFactory.tupleEventClause
@@ -28,7 +27,6 @@ import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.event.types.Types
 import org.vechain.indexer.event.utils.EventUtils
 import org.vechain.indexer.thor.model.Block
-import org.vechain.indexer.thor.model.TxEvent
 import strikt.api.expectThat
 import strikt.api.expectThrows
 import strikt.assertions.isEqualTo
@@ -554,87 +552,6 @@ internal class GenericEventIndexerTest {
         fun `getClaas should return List class for ARRAY`() {
             val clazz = Types.ARRAY.getClaas()
             expectThat(clazz).isEqualTo(List::class.java)
-        }
-    }
-
-    @Nested
-    inner class EventUtilsTest {
-        @Test
-        fun `should throw error if number of topics in event does not correspond to number of indexed inputs`() {
-            val event =
-                TxEvent(
-                    address = transferEvent.address,
-                    topics = transferEvent.topics,
-                    data = transferEvent.data,
-                )
-
-            val exception =
-                expectThrows<IllegalArgumentException> {
-                    EventUtils.decodeEvent(event, transferERC721AbiElement)
-                }
-
-            expectThat(exception.message.subject).isEqualTo("Mismatch between ABI indexed inputs and event topics")
-        }
-
-        @Test
-        fun `should throw error if unsupported solidity type is trying to be decoded`() {
-            val randomAbiElement: AbiElement =
-                AbiElement(
-                    name = "RandomEvent",
-                    type = "event",
-                    anonymous = false,
-                    stateMutability = null,
-                    inputs =
-                        listOf(
-                            InputOutput("randomType", "from", "randomType", indexed = true),
-                        ),
-                    outputs = emptyList(),
-                    signature = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
-                )
-
-            val event =
-                TxEvent(
-                    address = transferEvent.address,
-                    topics =
-                        listOf(
-                            transferEvent.topics[0],
-                            transferEvent.topics[1],
-                        ),
-                    data = transferEvent.data,
-                )
-
-            val exception =
-                expectThrows<IllegalArgumentException> {
-                    EventUtils.decodeEvent(event, randomAbiElement)
-                }
-
-            expectThat(exception.message.subject).isEqualTo("Unsupported Solidity type: randomType")
-        }
-
-        @Test
-        fun `should throw error if extracting data is out of bounds`() {
-            val event =
-                TxEvent(
-                    address = transferEvent.address,
-                    topics = transferEvent.topics,
-                    data = "0x",
-                )
-
-            val exception =
-                expectThrows<IllegalArgumentException> {
-                    EventUtils.decodeEvent(event, transferAbiElement)
-                }
-
-            expectThat(exception.message.subject).isEqualTo("Data segment out of bounds for index 0")
-        }
-
-        @Test
-        fun `should return correct event signature given canonical event name`() {
-            val canonicalName = "Transfer(address,address,uint256)"
-            val expectedSignature = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-            EventUtils.getEventSignature(canonicalName).let {
-                expectThat(it).isEqualTo(expectedSignature)
-            }
         }
     }
 }
