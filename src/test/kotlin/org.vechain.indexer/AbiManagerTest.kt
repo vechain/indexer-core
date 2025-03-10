@@ -67,7 +67,8 @@ class AbiManagerTest {
 
         @Test
         fun `should return empty list if no matching events`() {
-            val events = abiManager.getEventsByNames(listOf("NonExistentABI"), listOf("NonExistentEvent"))
+            val events =
+                abiManager.getEventsByNames(listOf("NonExistentABI"), listOf("NonExistentEvent"))
             expectThat(events).hasSize(0)
         }
     }

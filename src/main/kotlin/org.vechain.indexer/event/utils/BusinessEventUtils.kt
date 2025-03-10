@@ -1,29 +1,29 @@
 package org.vechain.indexer.event.utils
 
 import org.vechain.indexer.event.model.business.*
-import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 
 object BusinessEventUtils {
     /**
-     * Maps events to their aliases as defined in [eventDefinitions].
-     * Ensures that each alias gets a unique event.
+     * Maps events to their aliases as defined in [eventDefinitions]. Ensures that each alias gets a
+     * unique event.
      */
     fun mapEventsToAliases(
-        events: List<Pair<IndexedEvent, GenericEventParameters>>,
+        events: List<IndexedEvent>,
         eventDefinitions: List<Event>,
-    ): Map<String, Pair<IndexedEvent, GenericEventParameters>> {
+    ): Map<String, IndexedEvent> {
         val assignedEvents = mutableSetOf<IndexedEvent>() // Track used events
-        val mappedEvents = mutableMapOf<String, Pair<IndexedEvent, GenericEventParameters>>() // Store results
+        val mappedEvents = mutableMapOf<String, IndexedEvent>() // Store results
         for (eventDefinition in eventDefinitions) {
             events
                 .firstOrNull {
-                    it.second.getEventType() == eventDefinition.name &&
+                    it.params.getEventType() == eventDefinition.name &&
                         validateConditions(it, eventDefinition.conditions) &&
-                        it.first !in assignedEvents
-                }?.let {
+                        it !in assignedEvents
+                }
+                ?.let {
                     mappedEvents[eventDefinition.alias] = it
-                    assignedEvents.add(it.first) // Mark this event as used
+                    assignedEvents.add(it) // Mark this event as used
                 }
         }
 
@@ -35,22 +35,22 @@ object BusinessEventUtils {
     }
 
     /**
-     * Generates valid event mappings with optimized backtracking to reduce redundant checks.
-     * Note: This function uses exhaustive search and may be slow for large inputs. Not used by default.
+     * Generates valid event mappings with optimized backtracking to reduce redundant checks. Note:
+     * This function uses exhaustive search and may be slow for large inputs. Not used by default.
      */
     fun generateAllValidCombinations(
-        events: List<Pair<IndexedEvent, GenericEventParameters>>,
+        events: List<IndexedEvent>,
         eventDefinitions: List<Event>,
         maxAttempts: Int = 10,
-    ): List<Map<String, Pair<IndexedEvent, GenericEventParameters>>> {
-        val validCombinations = mutableListOf<Map<String, Pair<IndexedEvent, GenericEventParameters>>>()
+    ): List<Map<String, IndexedEvent>> {
+        val validCombinations = mutableListOf<Map<String, IndexedEvent>>()
         var attempts = 0
 
         fun backtrack(
             eventIndex: Int,
             aliasIndex: Int,
             used: BooleanArray,
-            aliasMap: MutableMap<String, Pair<IndexedEvent, GenericEventParameters>>,
+            aliasMap: MutableMap<String, IndexedEvent>,
         ) {
             if (attempts >= maxAttempts) return
             attempts++
@@ -66,7 +66,7 @@ object BusinessEventUtils {
                 if (used[i]) continue // Skip already used events
                 val event = events[i]
 
-                if (event.second.getEventType() == eventDefinition.name) {
+                if (event.params.getEventType() == eventDefinition.name) {
                     used[i] = true // Mark event as used
                     aliasMap[eventDefinition.alias] = event
 
@@ -82,53 +82,51 @@ object BusinessEventUtils {
         return validCombinations
     }
 
-    /**
-     * Validates the rules of a business event against matched events.
-     */
+    /** Validates the rules of a business event against matched events. */
     fun validateRules(
         rules: List<Rule>,
-        events: Map<String, Pair<IndexedEvent, GenericEventParameters>>,
+        events: Map<String, IndexedEvent>,
     ): Boolean =
         rules.all { rule ->
-            val firstValue = getEventValue(events[rule.firstEventName], rule.firstEventProperty)?.toString()
+            val firstValue =
+                getEventValue(events[rule.firstEventName], rule.firstEventProperty)?.toString()
 
-            val secondValue = getEventValue(events[rule.secondEventName], rule.secondEventProperty)?.toString()
+            val secondValue =
+                getEventValue(events[rule.secondEventName], rule.secondEventProperty)?.toString()
 
-            firstValue != null && secondValue != null && rule.operator.evaluate(firstValue, secondValue)
+            firstValue != null &&
+                secondValue != null &&
+                rule.operator.evaluate(firstValue, secondValue)
         }
 
-    /**
-     * Extracts parameters for a business event based on its [paramsDefinition].
-     */
+    /** Extracts parameters for a business event based on its [paramsDefinition]. */
     fun extractParams(
         paramsDefinition: List<ParamDefinition>,
-        events: Map<String, Pair<IndexedEvent, GenericEventParameters>>,
+        events: Map<String, IndexedEvent>,
     ): Map<String, Any> =
         paramsDefinition.associate { param ->
             val value = getEventValue(events[param.eventName], param.name) ?: ""
             param.businessEventName to value
         }
 
-    /**
-     * Validates conditions for a single event against a list of [conditions].
-     */
+    /** Validates conditions for a single event against a list of [conditions]. */
     private fun validateConditions(
-        event: Pair<IndexedEvent, GenericEventParameters>,
+        event: IndexedEvent,
         conditions: List<Condition>,
     ): Boolean =
         conditions.all { condition ->
-            val firstValue = resolveOperandValue(condition.firstOperand, condition.isFirstStatic, event)
-            val secondValue = resolveOperandValue(condition.secondOperand, condition.isSecondStatic, event)
+            val firstValue =
+                resolveOperandValue(condition.firstOperand, condition.isFirstStatic, event)
+            val secondValue =
+                resolveOperandValue(condition.secondOperand, condition.isSecondStatic, event)
             condition.operator.evaluate(firstValue ?: "", secondValue ?: "")
         }
 
-    /**
-     * Resolves the value of an operand, either static or dynamic, for condition evaluation.
-     */
+    /** Resolves the value of an operand, either static or dynamic, for condition evaluation. */
     private fun resolveOperandValue(
         operand: String,
         isStatic: Boolean,
-        event: Pair<IndexedEvent, GenericEventParameters>,
+        event: IndexedEvent,
     ): String? =
         if (isStatic) {
             operand.lowercase().trim()
@@ -137,16 +135,11 @@ object BusinessEventUtils {
         }
 
     /**
-     * Gets the value for the given operand from the event.
-     * Checks `GenericEventParameters` first, then falls back to `IndexedEvent`.
+     * Gets the value for the given operand from the event. Checks `GenericEventParameters` first,
+     * then falls back to `IndexedEvent`.
      */
     private fun getEventValue(
-        event: Pair<IndexedEvent, GenericEventParameters>?,
+        event: IndexedEvent?,
         operand: String,
-    ): Any? =
-        event
-            ?.second
-            ?.getReturnValues()
-            ?.get(operand)
-            ?: event?.first?.get(operand)
+    ): Any? = event?.params?.getReturnValues()?.get(operand) ?: event?.get(operand)
 }

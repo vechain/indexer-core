@@ -1,8 +1,6 @@
 package org.vechain.indexer.event.model.generic
 
-/**
- * Represents filter criteria for processing events.
- */
+/** Represents filter criteria for processing events. */
 data class FilterCriteria(
     val abiNames: List<String> = emptyList(),
     val eventNames: List<String> = emptyList(),
@@ -12,8 +10,8 @@ data class FilterCriteria(
     val removeDuplicates: Boolean = true,
 ) {
     /**
-     * Merges business event names with the existing event filter.
-     * Ensures no duplicates by using a Set.
+     * Merges business event names with the existing event filter. Ensures no duplicates by using a
+     * Set.
      */
     fun addBusinessEventNames(businessGenericEventNames: List<String>): FilterCriteria {
         if (businessGenericEventNames.isEmpty()) return this

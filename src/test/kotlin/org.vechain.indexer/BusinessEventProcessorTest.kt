@@ -2,6 +2,7 @@ package org.vechain.indexer
 
 import io.mockk.every
 import io.mockk.mockk
+import java.math.BigInteger
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.EventMockFactory.b3trSwapB3trEvent
@@ -21,7 +22,6 @@ import strikt.assertions.isEqualTo
 import strikt.assertions.isFalse
 import strikt.assertions.isNotEqualTo
 import strikt.assertions.isTrue
-import java.math.BigInteger
 
 internal class BusinessEventProcessorTest {
     private val businessEventManager: BusinessEventManager = mockk(relaxed = true)
@@ -33,40 +33,52 @@ internal class BusinessEventProcessorTest {
         fun `should process business events correctly 1`() {
             // Arrange
             val b3trSwapVot3IndexedEvent =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
 
-            val events =
-                listOf(b3trSwapB3trIndexedEvent to b3trSwapB3trEvent, b3trSwapVot3IndexedEvent to b3trSwapVot3Event)
+            val events = listOf(b3trSwapB3trIndexedEvent, b3trSwapVot3IndexedEvent)
 
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to vot3SwapEventDefinition)
+            every { businessEventManager.getAllBusinessEvents() } returns
+                mapOf("Event" to vot3SwapEventDefinition)
 
             // Act
             val result = processor.processEvents(events, emptyList())
 
             // Assert
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
-            expectThat(result[0].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "amountB3TR" to BigInteger("50000000000000000000"),
-                    "amountVOT3" to BigInteger("50000000000000000000"),
-                ),
-            )
+            expectThat(result[0].params.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getReturnValues())
+                .isEqualTo(
+                    mapOf(
+                        "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                        "amountB3TR" to BigInteger("50000000000000000000"),
+                        "amountVOT3" to BigInteger("50000000000000000000"),
+                    ),
+                )
         }
 
         @Test
         fun `should process business events correctly 2`() {
             // Arrange
             val nftTransferIndexedEvent =
-                createIndexedEvent("0xb603a874d4eaa1d625243f0a416506d62f38a789", 0, nftTransferEvent)
+                createIndexedEvent(
+                    "0xb603a874d4eaa1d625243f0a416506d62f38a789",
+                    0,
+                    nftTransferEvent
+                )
             val purchaseIndexedEvent =
                 createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, purchaseEvent)
 
-            val events =
-                listOf(nftTransferIndexedEvent to nftTransferEvent, purchaseIndexedEvent to purchaseEvent)
+            val events = listOf(nftTransferIndexedEvent, purchaseIndexedEvent)
 
             every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to sale)
 
@@ -75,146 +87,202 @@ internal class BusinessEventProcessorTest {
 
             // Assert
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getEventType()).isEqualTo("FixedPriceSale")
+            expectThat(result[0].params.getEventType()).isEqualTo("FixedPriceSale")
         }
 
         @Test
         fun `should process business events with filters correctly`() {
             // Arrange
             val b3trSwapVot3IndexedEvent =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
 
-            val events =
-                listOf(b3trSwapB3trIndexedEvent to b3trSwapB3trEvent, b3trSwapVot3IndexedEvent to b3trSwapVot3Event)
+            val events = listOf(b3trSwapB3trIndexedEvent, b3trSwapVot3IndexedEvent)
 
-            every { businessEventManager.getBusinessEventsByNames(listOf("Test")) } returns mapOf("Event" to vot3SwapEventDefinition)
+            every { businessEventManager.getBusinessEventsByNames(listOf("Test")) } returns
+                mapOf("Event" to vot3SwapEventDefinition)
 
             // Act
             val result = processor.processEvents(events, listOf("Test"))
 
             // Assert
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
-            expectThat(result[0].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "amountB3TR" to BigInteger("50000000000000000000"),
-                    "amountVOT3" to BigInteger("50000000000000000000"),
-                ),
-            )
+            expectThat(result[0].params.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getReturnValues())
+                .isEqualTo(
+                    mapOf(
+                        "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                        "amountB3TR" to BigInteger("50000000000000000000"),
+                        "amountVOT3" to BigInteger("50000000000000000000"),
+                    ),
+                )
         }
 
         @Test
         fun `should return all indexed events not part of business events aswell as business events`() {
             // Arrange
             val b3trSwapVot3IndexedEvent =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
             val transferIndexedEvent =
-                createIndexedEvent("0x4e17357053da4b473e2daa2c65c2c949545724b8", 1, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x4e17357053da4b473e2daa2c65c2c949545724b8",
+                    1,
+                    b3trSwapB3trEvent
+                )
 
             val events =
                 listOf(
-                    b3trSwapB3trIndexedEvent to b3trSwapB3trEvent,
-                    b3trSwapVot3IndexedEvent to b3trSwapVot3Event,
-                    transferIndexedEvent to b3trSwapB3trEvent,
+                    b3trSwapB3trIndexedEvent,
+                    b3trSwapVot3IndexedEvent,
+                    transferIndexedEvent,
                 )
 
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to vot3SwapEventDefinition)
+            every { businessEventManager.getAllBusinessEvents() } returns
+                mapOf("Event" to vot3SwapEventDefinition)
 
             // Act
             val result = processor.processEvents(events, emptyList(), false)
 
             // Assert
             expectThat(result.size).isEqualTo(4)
-            expectThat(result[0].second.getEventType()).isEqualTo("Transfer")
+            expectThat(result[0].params.getEventType()).isEqualTo("Transfer")
 
-            expectThat(result[1].second.getEventType()).isEqualTo("Transfer")
+            expectThat(result[1].params.getEventType()).isEqualTo("Transfer")
 
-            expectThat(result[2].second.getEventType()).isEqualTo("Transfer")
+            expectThat(result[2].params.getEventType()).isEqualTo("Transfer")
 
-            expectThat(result[3].second.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[3].params.getEventType()).isEqualTo("B3trVot3Swap")
         }
 
         @Test
         fun `should return all indexed events and business events if remove duplicates is set to false`() {
             // Arrange
             val b3trSwapVot3IndexedEvent =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
             val transferIndexedEvent =
-                createIndexedEvent("0x4e17357053da4b473e2daa2c65c2c949545724b8", 1, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x4e17357053da4b473e2daa2c65c2c949545724b8",
+                    1,
+                    b3trSwapB3trEvent
+                )
 
             val events =
                 listOf(
-                    b3trSwapB3trIndexedEvent to b3trSwapB3trEvent,
-                    b3trSwapVot3IndexedEvent to b3trSwapVot3Event,
-                    transferIndexedEvent to b3trSwapB3trEvent,
+                    b3trSwapB3trIndexedEvent,
+                    b3trSwapVot3IndexedEvent,
+                    transferIndexedEvent,
                 )
 
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to vot3SwapEventDefinition)
+            every { businessEventManager.getAllBusinessEvents() } returns
+                mapOf("Event" to vot3SwapEventDefinition)
 
             // Act
             val result = processor.processEvents(events, emptyList(), false)
 
             // Assert
             expectThat(result.size).isEqualTo(4)
-            expectThat(result[0].second.getEventType()).isEqualTo("Transfer")
-            expectThat(result[1].second.getEventType()).isEqualTo("Transfer")
-            expectThat(result[2].second.getEventType()).isEqualTo("Transfer")
-            expectThat(result[3].second.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getEventType()).isEqualTo("Transfer")
+            expectThat(result[1].params.getEventType()).isEqualTo("Transfer")
+            expectThat(result[2].params.getEventType()).isEqualTo("Transfer")
+            expectThat(result[3].params.getEventType()).isEqualTo("B3trVot3Swap")
         }
 
         @Test
         fun `should return all indexed events if no business event was found`() {
             // This is not a business event unless another event happens
             val b3trTransferEvent =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
 
-            val events =
-                listOf(b3trTransferEvent to b3trSwapB3trEvent)
+            val events = listOf(b3trTransferEvent)
 
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to vot3SwapEventDefinition)
+            every { businessEventManager.getAllBusinessEvents() } returns
+                mapOf("Event" to vot3SwapEventDefinition)
 
             // Act
             val result = processor.processEvents(events, emptyList())
 
             // Assert
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getEventType()).isNotEqualTo("B3trVot3Swap")
-            expectThat(result[0].second.getEventType()).isEqualTo("Transfer")
+            expectThat(result[0].params.getEventType()).isNotEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getEventType()).isEqualTo("Transfer")
         }
 
         @Test
         fun `should mark multiple business events if they all exist in same tx`() {
             // Arrange
             val b3trSwapVot3IndexedEvent1 =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
 
             // Arrange
             val b3trSwapVot3IndexedEvent2 =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 1, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    1,
+                    b3trSwapVot3Event
+                )
 
             // Same TX, different clause
             val b3trSwapB3trIndexedEvent1 =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
 
             val b3trSwapB3trIndexedEvent2 =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 1, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    1,
+                    b3trSwapB3trEvent
+                )
 
             val events =
                 listOf(
-                    b3trSwapB3trIndexedEvent1 to b3trSwapB3trEvent,
-                    b3trSwapVot3IndexedEvent1 to b3trSwapVot3Event,
-                    b3trSwapB3trIndexedEvent2 to b3trSwapB3trEvent,
-                    b3trSwapVot3IndexedEvent2 to b3trSwapVot3Event,
+                    b3trSwapB3trIndexedEvent1,
+                    b3trSwapVot3IndexedEvent1,
+                    b3trSwapB3trIndexedEvent2,
+                    b3trSwapVot3IndexedEvent2,
                 )
 
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to vot3SwapEventDefinition)
+            every { businessEventManager.getAllBusinessEvents() } returns
+                mapOf("Event" to vot3SwapEventDefinition)
 
             // Act
             val result = processor.processEvents(events, emptyList())
@@ -222,8 +290,8 @@ internal class BusinessEventProcessorTest {
             // Assert
             expectThat(result.size).isEqualTo(2)
             // Assert
-            expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
-            expectThat(result[1].second.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[1].params.getEventType()).isEqualTo("B3trVot3Swap")
         }
     }
 
@@ -233,49 +301,71 @@ internal class BusinessEventProcessorTest {
         fun `should process business events correctly`() {
             // Arrange
             val b3trSwapVot3IndexedEvent =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
             val transferIndexedEvent =
-                createIndexedEvent("0x4e17357053da4b473e2daa2c65c2c949545724b8", 1, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x4e17357053da4b473e2daa2c65c2c949545724b8",
+                    1,
+                    b3trSwapB3trEvent
+                )
 
             val events =
                 listOf(
-                    b3trSwapB3trIndexedEvent to b3trSwapB3trEvent,
-                    b3trSwapVot3IndexedEvent to b3trSwapVot3Event,
-                    transferIndexedEvent to b3trSwapB3trEvent,
+                    b3trSwapB3trIndexedEvent,
+                    b3trSwapVot3IndexedEvent,
+                    transferIndexedEvent,
                 )
 
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to vot3SwapEventDefinition)
+            every { businessEventManager.getAllBusinessEvents() } returns
+                mapOf("Event" to vot3SwapEventDefinition)
 
             // Act
             val result = processor.getOnlyBusinessEvents(events, emptyList())
 
             // Assert
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
-            expectThat(result[0].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "amountB3TR" to BigInteger("50000000000000000000"),
-                    "amountVOT3" to BigInteger("50000000000000000000"),
-                ),
-            )
+            expectThat(result[0].params.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getReturnValues())
+                .isEqualTo(
+                    mapOf(
+                        "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                        "amountB3TR" to BigInteger("50000000000000000000"),
+                        "amountVOT3" to BigInteger("50000000000000000000"),
+                    ),
+                )
         }
 
         @Test
         fun `should not return regular events`() {
             // Arrange
             val b3trSwapVot3IndexedEvent =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             // Same TX, different clause
             val b3trSwapB3trIndexedEvent =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 1, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    1,
+                    b3trSwapB3trEvent
+                )
 
-            val events =
-                listOf(b3trSwapB3trIndexedEvent to b3trSwapB3trEvent, b3trSwapVot3IndexedEvent to b3trSwapVot3Event)
+            val events = listOf(b3trSwapB3trIndexedEvent, b3trSwapVot3IndexedEvent)
 
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to vot3SwapEventDefinition)
+            every { businessEventManager.getAllBusinessEvents() } returns
+                mapOf("Event" to vot3SwapEventDefinition)
 
             // Act
             val result = processor.getOnlyBusinessEvents(events, emptyList())
@@ -291,20 +381,36 @@ internal class BusinessEventProcessorTest {
         fun `should break on first matched business event definition`() {
             // Arrange
             val b3trSwapVot3IndexedEvent1 =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent1 =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
             val b3trSwapVot3IndexedEvent2 =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent2 =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
 
             val events =
                 listOf(
-                    b3trSwapB3trIndexedEvent1 to b3trSwapB3trEvent,
-                    b3trSwapVot3IndexedEvent1 to b3trSwapVot3Event,
-                    b3trSwapB3trIndexedEvent2 to b3trSwapB3trEvent,
-                    b3trSwapVot3IndexedEvent2 to b3trSwapVot3Event,
+                    b3trSwapB3trIndexedEvent1,
+                    b3trSwapVot3IndexedEvent1,
+                    b3trSwapB3trIndexedEvent2,
+                    b3trSwapVot3IndexedEvent2,
                 )
 
             every { businessEventManager.getAllBusinessEvents() } returns
@@ -315,26 +421,34 @@ internal class BusinessEventProcessorTest {
 
             // Assert
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
-            expectThat(result[0].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "amountB3TR" to BigInteger("50000000000000000000"),
-                    "amountVOT3" to BigInteger("50000000000000000000"),
-                ),
-            )
+            expectThat(result[0].params.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getReturnValues())
+                .isEqualTo(
+                    mapOf(
+                        "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                        "amountB3TR" to BigInteger("50000000000000000000"),
+                        "amountVOT3" to BigInteger("50000000000000000000"),
+                    ),
+                )
         }
 
         @Test
         fun `should continue processing if no business event definitions match`() {
             // Arrange
             val b3trSwapVot3IndexedEvent =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
 
-            val events =
-                listOf(b3trSwapB3trIndexedEvent to b3trSwapB3trEvent, b3trSwapVot3IndexedEvent to b3trSwapVot3Event)
+            val events = listOf(b3trSwapB3trIndexedEvent, b3trSwapVot3IndexedEvent)
 
             every { businessEventManager.getAllBusinessEvents() } returns
                 mapOf(
@@ -347,14 +461,15 @@ internal class BusinessEventProcessorTest {
 
             // Assert
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
-            expectThat(result[0].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "amountB3TR" to BigInteger("50000000000000000000"),
-                    "amountVOT3" to BigInteger("50000000000000000000"),
-                ),
-            )
+            expectThat(result[0].params.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getReturnValues())
+                .isEqualTo(
+                    mapOf(
+                        "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                        "amountB3TR" to BigInteger("50000000000000000000"),
+                        "amountVOT3" to BigInteger("50000000000000000000"),
+                    ),
+                )
         }
     }
 
@@ -364,73 +479,103 @@ internal class BusinessEventProcessorTest {
         fun `should process business events correctly 1`() {
             // Arrange
             val b3trSwapVot3IndexedEvent =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
 
-            val events =
-                listOf(b3trSwapB3trIndexedEvent to b3trSwapB3trEvent, b3trSwapVot3IndexedEvent to b3trSwapVot3Event)
+            val events = listOf(b3trSwapB3trIndexedEvent, b3trSwapVot3IndexedEvent)
 
-            val definition = vot3SwapEventDefinition.copy(checkAllCombinations = true, sameClause = false)
+            val definition =
+                vot3SwapEventDefinition.copy(checkAllCombinations = true, sameClause = false)
 
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to definition)
+            every { businessEventManager.getAllBusinessEvents() } returns
+                mapOf("Event" to definition)
 
             // Act
             val result = processor.processEvents(events, emptyList())
 
             // Assert
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
-            expectThat(result[0].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "amountB3TR" to BigInteger("50000000000000000000"),
-                    "amountVOT3" to BigInteger("50000000000000000000"),
-                ),
-            )
+            expectThat(result[0].params.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getReturnValues())
+                .isEqualTo(
+                    mapOf(
+                        "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                        "amountB3TR" to BigInteger("50000000000000000000"),
+                        "amountVOT3" to BigInteger("50000000000000000000"),
+                    ),
+                )
         }
 
         @Test
         fun `should process business events correctly 2`() {
             // Arrange
             val nftTransferIndexedEvent =
-                createIndexedEvent("0xb603a874d4eaa1d625243f0a416506d62f38a789", 0, nftTransferEvent)
+                createIndexedEvent(
+                    "0xb603a874d4eaa1d625243f0a416506d62f38a789",
+                    0,
+                    nftTransferEvent
+                )
             val purchaseIndexedEvent =
                 createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, purchaseEvent)
 
             val definition = sale.copy(checkAllCombinations = true)
 
-            val events =
-                listOf(nftTransferIndexedEvent to nftTransferEvent, purchaseIndexedEvent to purchaseEvent)
+            val events = listOf(nftTransferIndexedEvent, purchaseIndexedEvent)
 
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("Event" to definition)
+            every { businessEventManager.getAllBusinessEvents() } returns
+                mapOf("Event" to definition)
 
             // Act
             val result = processor.processEvents(events, emptyList())
 
             // Assert
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getEventType()).isEqualTo("FixedPriceSale")
+            expectThat(result[0].params.getEventType()).isEqualTo("FixedPriceSale")
         }
 
         @Test
         fun `should stop checking combinations after finding first valid match`() {
             // Arrange
             val b3trSwapVot3IndexedEvent1 =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent1 =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
             val b3trSwapVot3IndexedEvent2 =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent2 =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
 
             val events =
                 listOf(
-                    b3trSwapB3trIndexedEvent1 to b3trSwapB3trEvent,
-                    b3trSwapVot3IndexedEvent1 to b3trSwapVot3Event,
-                    b3trSwapB3trIndexedEvent2 to b3trSwapB3trEvent,
-                    b3trSwapVot3IndexedEvent2 to b3trSwapVot3Event,
+                    b3trSwapB3trIndexedEvent1,
+                    b3trSwapVot3IndexedEvent1,
+                    b3trSwapB3trIndexedEvent2,
+                    b3trSwapVot3IndexedEvent2,
                 )
 
             val definition1 = vot3SwapEventDefinition.copy(checkAllCombinations = true)
@@ -444,27 +589,30 @@ internal class BusinessEventProcessorTest {
 
             // Assert
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
-            expectThat(result[0].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "amountB3TR" to BigInteger("50000000000000000000"),
-                    "amountVOT3" to BigInteger("50000000000000000000"),
-                ),
-            )
+            expectThat(result[0].params.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getReturnValues())
+                .isEqualTo(
+                    mapOf(
+                        "user" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                        "amountB3TR" to BigInteger("50000000000000000000"),
+                        "amountVOT3" to BigInteger("50000000000000000000"),
+                    ),
+                )
         }
 
         @Test
         fun `should return empty map if no valid combination is found`() {
             // Arrange
             val event1 = createIndexedEvent("0x1", 0, b3trSwapB3trEvent)
-            val event2 = createIndexedEvent("0x2", 0, nftTransferEvent) // Does not match expected events
+            val event2 =
+                createIndexedEvent("0x2", 0, nftTransferEvent) // Does not match expected events
 
-            val events = listOf(event1 to b3trSwapB3trEvent, event2 to nftTransferEvent)
+            val events = listOf(event1, event2)
 
             val definition = vot3SwapEventDefinition.copy(checkAllCombinations = true)
 
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("TestEvent" to definition)
+            every { businessEventManager.getAllBusinessEvents() } returns
+                mapOf("TestEvent" to definition)
 
             // Act
             val result = processor.getOnlyBusinessEvents(events, emptyList())
@@ -477,48 +625,87 @@ internal class BusinessEventProcessorTest {
         fun `should not return other events in clause matches when using checkAllCombinations`() {
             // Arrange
             val b3trSwapVot3IndexedEvent1 =
-                createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event)
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                )
             val b3trSwapB3trIndexedEvent1 =
-                createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent)
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                )
             val event3 = createIndexedEvent("0x3", 0, nftTransferEvent) // Should not be included
 
             val events =
                 listOf(
-                    b3trSwapB3trIndexedEvent1 to b3trSwapB3trEvent,
-                    b3trSwapVot3IndexedEvent1 to b3trSwapVot3Event,
-                    event3 to nftTransferEvent,
+                    b3trSwapB3trIndexedEvent1,
+                    b3trSwapVot3IndexedEvent1,
+                    event3,
                 )
 
             val definition = vot3SwapEventDefinition.copy(checkAllCombinations = true)
 
-            every { businessEventManager.getAllBusinessEvents() } returns mapOf("TestEvent" to definition)
+            every { businessEventManager.getAllBusinessEvents() } returns
+                mapOf("TestEvent" to definition)
 
             // Act
             val result = processor.processEvents(events, emptyList())
 
             // Assert
             expectThat(result.size).isEqualTo(1) // Only full matches should be considered
-            expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getEventType()).isEqualTo("B3trVot3Swap")
         }
 
         @Test
         fun `should detect multiple semi valid business events without breaking prematurely`() {
             // Arrange
-            val event1 = createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, nonB3trSwapB3trEvent) // Rules invalid
-            val event2 = createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, nonB3trSwapB3trEvent) // Invalid
-            val event3 = createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent) // Valid
-            val event4 = createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, nonB3trSwapVot3Event) // Rules invalid
-            val event5 = createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, nonB3trSwapVot3Event) // Invalid
-            val event6 = createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event) // Valid
+            val event1 =
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    nonB3trSwapB3trEvent
+                ) // Rules invalid
+            val event2 =
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    nonB3trSwapB3trEvent
+                ) // Invalid
+            val event3 =
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                ) // Valid
+            val event4 =
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    nonB3trSwapVot3Event
+                ) // Rules invalid
+            val event5 =
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    nonB3trSwapVot3Event
+                ) // Invalid
+            val event6 =
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                ) // Valid
 
             val events =
                 listOf(
-                    event1 to nonB3trSwapB3trEvent,
-                    event2 to nonB3trSwapB3trEvent,
-                    event3 to b3trSwapB3trEvent,
-                    event4 to nonB3trSwapVot3Event,
-                    event5 to nonB3trSwapVot3Event,
-                    event6 to b3trSwapVot3Event,
+                    event1,
+                    event2,
+                    event3,
+                    event4,
+                    event5,
+                    event6,
                 )
 
             val definition = vot3SwapEventDefinition.copy(checkAllCombinations = true)
@@ -533,27 +720,57 @@ internal class BusinessEventProcessorTest {
 
             // Assert
             expectThat(result.size).isEqualTo(1) // Both events should be processed
-            expectThat(result[0].second.getEventType()).isEqualTo("B3trVot3Swap")
+            expectThat(result[0].params.getEventType()).isEqualTo("B3trVot3Swap")
         }
 
         @Test
         fun `should not detect all semi valid business events if checkAllCombinations is false`() {
             // Arrange
-            val event1 = createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, nonB3trSwapB3trEvent) // Rules invalid
-            val event2 = createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, nonB3trSwapB3trEvent) // Invalid
-            val event3 = createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, b3trSwapB3trEvent) // Valid
-            val event4 = createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, nonB3trSwapVot3Event) // Rules invalid
-            val event5 = createIndexedEvent("0x5ef79995fe8a89e0812330e4378eb2660cede699", 0, nonB3trSwapVot3Event) // Invalid
-            val event6 = createIndexedEvent("0x76ca782b59c74d088c7d2cce2f211bc00836c602", 0, b3trSwapVot3Event) // Valid
+            val event1 =
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    nonB3trSwapB3trEvent
+                ) // Rules invalid
+            val event2 =
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    nonB3trSwapB3trEvent
+                ) // Invalid
+            val event3 =
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    b3trSwapB3trEvent
+                ) // Valid
+            val event4 =
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    nonB3trSwapVot3Event
+                ) // Rules invalid
+            val event5 =
+                createIndexedEvent(
+                    "0x5ef79995fe8a89e0812330e4378eb2660cede699",
+                    0,
+                    nonB3trSwapVot3Event
+                ) // Invalid
+            val event6 =
+                createIndexedEvent(
+                    "0x76ca782b59c74d088c7d2cce2f211bc00836c602",
+                    0,
+                    b3trSwapVot3Event
+                ) // Valid
 
             val events =
                 listOf(
-                    event1 to nonB3trSwapB3trEvent,
-                    event2 to nonB3trSwapB3trEvent,
-                    event3 to b3trSwapB3trEvent,
-                    event4 to nonB3trSwapVot3Event,
-                    event5 to nonB3trSwapVot3Event,
-                    event6 to b3trSwapVot3Event,
+                    event1,
+                    event2,
+                    event3,
+                    event4,
+                    event5,
+                    event6,
                 )
 
             val definition = vot3SwapEventDefinition.copy(checkAllCombinations = false)

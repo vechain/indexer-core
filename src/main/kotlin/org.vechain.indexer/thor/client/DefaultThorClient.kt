@@ -24,8 +24,7 @@ class DefaultThorClient(
     override suspend fun getBlock(blockNumber: Long): Block =
         withContext(Dispatchers.IO) {
             val (_, _, result) =
-                Fuel
-                    .get("$baseUrl/blocks/$blockNumber?expanded=true")
+                Fuel.get("$baseUrl/blocks/$blockNumber?expanded=true")
                     .appendHeader(*headers)
                     .response()
 
@@ -65,13 +64,17 @@ class DefaultThorClient(
     override suspend fun getFinalizedBlock(): Block =
         withContext(Dispatchers.IO) {
             val (_, _, result) =
-                Fuel.get("$baseUrl/blocks/finalized?expanded=true").appendHeader(*headers).response()
+                Fuel.get("$baseUrl/blocks/finalized?expanded=true")
+                    .appendHeader(*headers)
+                    .response()
 
             val responseBody =
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
                     is Result.Failure ->
-                        throw Exception("Get best finalized request failed with error: ${result.error}")
+                        throw Exception(
+                            "Get best finalized request failed with error: ${result.error}"
+                        )
                     else -> null
                 }
 
@@ -81,8 +84,7 @@ class DefaultThorClient(
     override suspend fun getEventLogs(req: EventLogsRequest): List<EventLog> =
         withContext(Dispatchers.IO) {
             val (_, _, result) =
-                Fuel
-                    .post("$baseUrl/logs/event")
+                Fuel.post("$baseUrl/logs/event")
                     .body(JsonUtils.mapper.writeValueAsBytes(req))
                     .appendHeader(*headers)
                     .response()
@@ -92,18 +94,19 @@ class DefaultThorClient(
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
                     is Result.Failure ->
                         throw Exception("Get logs request failed with error: ${result.error}")
-
                     else -> null
                 }
 
-            return@withContext objectMapper.readValue(responseBody, object : TypeReference<List<EventLog>>() {})
+            return@withContext objectMapper.readValue(
+                responseBody,
+                object : TypeReference<List<EventLog>>() {}
+            )
         }
 
     override suspend fun getVetTransfers(req: TransferLogsRequest): List<TransferLog> =
         withContext(Dispatchers.IO) {
             val (_, _, result) =
-                Fuel
-                    .post("$baseUrl/logs/transfer")
+                Fuel.post("$baseUrl/logs/transfer")
                     .body(JsonUtils.mapper.writeValueAsBytes(req))
                     .appendHeader(*headers)
                     .response()
@@ -112,11 +115,15 @@ class DefaultThorClient(
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
                     is Result.Failure ->
-                        throw Exception("Get transfer logs request failed with error: ${result.error}")
-
+                        throw Exception(
+                            "Get transfer logs request failed with error: ${result.error}"
+                        )
                     else -> null
                 }
 
-            return@withContext objectMapper.readValue(responseBody, object : TypeReference<List<TransferLog>>() {})
+            return@withContext objectMapper.readValue(
+                responseBody,
+                object : TypeReference<List<TransferLog>>() {}
+            )
         }
 }

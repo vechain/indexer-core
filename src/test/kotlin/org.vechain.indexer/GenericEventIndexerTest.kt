@@ -1,6 +1,7 @@
 import io.mockk.*
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
+import java.math.BigInteger
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -32,7 +33,6 @@ import strikt.api.expectThrows
 import strikt.assertions.isEqualTo
 import strikt.assertions.isNotEqualTo
 import strikt.assertions.message
-import java.math.BigInteger
 
 @ExtendWith(MockKExtension::class)
 internal class GenericEventIndexerTest {
@@ -50,7 +50,13 @@ internal class GenericEventIndexerTest {
         fun `getBlockEvents should call getBlockEventsByFilters with default parameters`() {
             // Mock dependencies
             val block = mockk<Block>(relaxed = true)
-            val abiElement = AbiElement(name = "EventName", type = "event", signature = "signature", inputs = listOf())
+            val abiElement =
+                AbiElement(
+                    name = "EventName",
+                    type = "event",
+                    signature = "signature",
+                    inputs = listOf()
+                )
             val configuredEvents = listOf(abiElement)
 
             every { abiManager.getAbis() } returns mapOf("AbiName" to configuredEvents)
@@ -82,7 +88,13 @@ internal class GenericEventIndexerTest {
         @Test
         fun `getBlockEventsByFilters should process events based on configured ABIs`() {
             val block = mockk<Block>(relaxed = true)
-            val abiElement = AbiElement(name = "EventName", type = "event", signature = "signature", inputs = listOf())
+            val abiElement =
+                AbiElement(
+                    name = "EventName",
+                    type = "event",
+                    signature = "signature",
+                    inputs = listOf()
+                )
             val configuredEvents = listOf(abiElement)
 
             every { abiManager.getEventsByNames(any(), any()) } returns configuredEvents
@@ -99,7 +111,10 @@ internal class GenericEventIndexerTest {
 
         @Test
         fun `getBlockEvents should return VET transfers as events if set to true`() {
-            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(arrayEventClause))))
+            val block =
+                createMockBlockWithTransactions(
+                    listOf(createMockTransaction(listOf(arrayEventClause)))
+                )
 
             every { abiManager.getEventsByNames(any(), any()) } returns emptyList()
             every { abiManager.getAbis() } returns emptyMap()
@@ -111,13 +126,16 @@ internal class GenericEventIndexerTest {
                 )
 
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getEventType()).isEqualTo("VET_TRANSFER")
+            expectThat(result[0].params.getEventType()).isEqualTo("VET_TRANSFER")
         }
 
         @Test
         fun `getBlockEvents should return events and VET transfers if part of same output`() {
             // Define mock Block object
-            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(stringEventClause, arrayEventClause))))
+            val block =
+                createMockBlockWithTransactions(
+                    listOf(createMockTransaction(listOf(stringEventClause, arrayEventClause)))
+                )
 
             val configuredEvents = listOf(stringAbiElement, arrayAbiElement)
 
@@ -134,17 +152,20 @@ internal class GenericEventIndexerTest {
                 )
 
             expectThat(result.size).isEqualTo(5)
-            expectThat(result[0].second.getEventType()).isEqualTo("RewardDistributed")
-            expectThat(result[1].second.getEventType()).isEqualTo("VET_TRANSFER")
-            expectThat(result[2].second.getEventType()).isEqualTo("VET_TRANSFER")
-            expectThat(result[3].second.getEventType()).isEqualTo("AllocationVoteCast")
-            expectThat(result[4].second.getEventType()).isEqualTo("VET_TRANSFER")
+            expectThat(result[0].params.getEventType()).isEqualTo("RewardDistributed")
+            expectThat(result[1].params.getEventType()).isEqualTo("VET_TRANSFER")
+            expectThat(result[2].params.getEventType()).isEqualTo("VET_TRANSFER")
+            expectThat(result[3].params.getEventType()).isEqualTo("AllocationVoteCast")
+            expectThat(result[4].params.getEventType()).isEqualTo("VET_TRANSFER")
         }
 
         @Test
         fun `can filter for only VET Transfers by passing in VET_TRANSFER as abi name`() {
             // Define mock Block object
-            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(stringEventClause, arrayEventClause))))
+            val block =
+                createMockBlockWithTransactions(
+                    listOf(createMockTransaction(listOf(stringEventClause, arrayEventClause)))
+                )
 
             val configuredEvents = listOf(stringAbiElement, arrayAbiElement)
 
@@ -159,15 +180,24 @@ internal class GenericEventIndexerTest {
                 )
 
             expectThat(result.size).isEqualTo(3)
-            expectThat(result[0].second.getEventType()).isEqualTo("VET_TRANSFER")
-            expectThat(result[1].second.getEventType()).isEqualTo("VET_TRANSFER")
-            expectThat(result[2].second.getEventType()).isEqualTo("VET_TRANSFER")
+            expectThat(result[0].params.getEventType()).isEqualTo("VET_TRANSFER")
+            expectThat(result[1].params.getEventType()).isEqualTo("VET_TRANSFER")
+            expectThat(result[2].params.getEventType()).isEqualTo("VET_TRANSFER")
         }
 
         @Test
         fun `should return empty list if no matching ABI event found`() {
-            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(arrayEventClause))))
-            val abiElement = AbiElement(name = "EventName", type = "event", signature = "signature", inputs = listOf())
+            val block =
+                createMockBlockWithTransactions(
+                    listOf(createMockTransaction(listOf(arrayEventClause)))
+                )
+            val abiElement =
+                AbiElement(
+                    name = "EventName",
+                    type = "event",
+                    signature = "signature",
+                    inputs = listOf()
+                )
             val configuredEvents = listOf(abiElement)
 
             every { abiManager.getEventsByNames(any(), any()) } returns configuredEvents
@@ -176,7 +206,10 @@ internal class GenericEventIndexerTest {
             val result =
                 genericEventIndexer.getBlockEventsByFilters(
                     block,
-                    FilterCriteria(abiNames = listOf("AbiName"), eventNames = listOf("NonExistentEvent")),
+                    FilterCriteria(
+                        abiNames = listOf("AbiName"),
+                        eventNames = listOf("NonExistentEvent")
+                    ),
                 )
 
             expectThat(result).isEqualTo(emptyList())
@@ -185,7 +218,10 @@ internal class GenericEventIndexerTest {
         @Test
         fun `should only decode events of a specific ABI if ABI name is passed in`() {
             // Create block with transfer event and a different event
-            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(arrayEventClause, transferEventClause))))
+            val block =
+                createMockBlockWithTransactions(
+                    listOf(createMockTransaction(listOf(arrayEventClause, transferEventClause)))
+                )
 
             every { abiManager.getEventsByNames(any(), any()) } returns listOf(transferAbiElement)
             every { abiManager.getAbis() } returns
@@ -194,26 +230,32 @@ internal class GenericEventIndexerTest {
                     "OtherAbiName" to listOf(arrayAbiElement),
                 )
 
-            val result = genericEventIndexer.getBlockEventsByFilters(block, FilterCriteria(abiNames = listOf("OtherAbiName")))
+            val result =
+                genericEventIndexer.getBlockEventsByFilters(
+                    block,
+                    FilterCriteria(abiNames = listOf("OtherAbiName"))
+                )
 
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "from" to "0x0000000000000000000000000000000000000000",
-                    "to" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "value" to BigInteger("50000000000000000000"),
-                ),
-            )
+            expectThat(result[0].params.getReturnValues())
+                .isEqualTo(
+                    mapOf(
+                        "from" to "0x0000000000000000000000000000000000000000",
+                        "to" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                        "value" to BigInteger("50000000000000000000"),
+                    ),
+                )
         }
 
         @Test
         fun `should only decode events emitted from a certain contract if a contract address is provided`() {
             // Create block with transfer event and a different event
-            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(arrayEventClause, transferEventClause))))
+            val block =
+                createMockBlockWithTransactions(
+                    listOf(createMockTransaction(listOf(arrayEventClause, transferEventClause)))
+                )
 
-            every {
-                abiManager.getAbis()
-            } returns
+            every { abiManager.getAbis() } returns
                 mapOf(
                     "AbiName" to listOf(transferAbiElement),
                 )
@@ -221,24 +263,32 @@ internal class GenericEventIndexerTest {
             val result =
                 genericEventIndexer.getBlockEventsByFilters(
                     block,
-                    filterCriteria = FilterCriteria(contractAddresses = listOf("0x76Ca782B59C74d088C7D2Cce2f211BC00836c602")),
+                    filterCriteria =
+                        FilterCriteria(
+                            contractAddresses = listOf("0x76Ca782B59C74d088C7D2Cce2f211BC00836c602")
+                        ),
                 )
 
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "from" to "0x0000000000000000000000000000000000000000",
-                    "to" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "value" to BigInteger("50000000000000000000"),
-                ),
-            )
+            expectThat(result[0].params.getReturnValues())
+                .isEqualTo(
+                    mapOf(
+                        "from" to "0x0000000000000000000000000000000000000000",
+                        "to" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                        "value" to BigInteger("50000000000000000000"),
+                    ),
+                )
         }
 
         @Test
         fun `Should use the correct event ABI for decoding when multiple ABIs have the same signature but differ in indexed inputs`() {
             // Create block with transfer event and a different event
             val block =
-                createMockBlockWithTransactions(listOf(createMockTransaction(listOf(transferERC71EventClause, transferEventClause))))
+                createMockBlockWithTransactions(
+                    listOf(
+                        createMockTransaction(listOf(transferERC71EventClause, transferEventClause))
+                    )
+                )
 
             every { abiManager.getAbis() } returns
                 mapOf(
@@ -249,27 +299,30 @@ internal class GenericEventIndexerTest {
             val result = genericEventIndexer.getBlockEventsByFilters(block)
 
             expectThat(result.size).isEqualTo(2)
-            expectThat(result[0].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "from" to "0x9c6c2435175dff3974fedce0d4c72c8db3bf5b74",
-                    "to" to "0xc84c3f64f7eefafb62dc53f829219b7393464c45",
-                    "value" to BigInteger("5886100000000000000"),
-                ),
-            )
-            expectThat(result[1].second.getReturnValues()).isEqualTo(
-                mapOf(
-                    "from" to "0x0000000000000000000000000000000000000000",
-                    "to" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                    "value" to BigInteger("50000000000000000000"),
-                ),
-            )
+            expectThat(result[0].params.getReturnValues())
+                .isEqualTo(
+                    mapOf(
+                        "from" to "0x9c6c2435175dff3974fedce0d4c72c8db3bf5b74",
+                        "to" to "0xc84c3f64f7eefafb62dc53f829219b7393464c45",
+                        "value" to BigInteger("5886100000000000000"),
+                    ),
+                )
+            expectThat(result[1].params.getReturnValues())
+                .isEqualTo(
+                    mapOf(
+                        "from" to "0x0000000000000000000000000000000000000000",
+                        "to" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                        "value" to BigInteger("50000000000000000000"),
+                    ),
+                )
         }
 
         @Test
         fun `should throw error if number of topics in event does not correspond to number of indexed inputs`() {
             // Mock EventUtils.decodeEvent to throw an exception
             mockkObject(EventUtils)
-            every { EventUtils.decodeEvent(any(), any()) } throws IllegalArgumentException("Invalid data")
+            every { EventUtils.decodeEvent(any(), any()) } throws
+                IllegalArgumentException("Invalid data")
 
             val block =
                 createMockBlockWithTransactions(
@@ -303,7 +356,10 @@ internal class GenericEventIndexerTest {
         @Test
         fun `should process tuple events correctly`() {
             // Define mock Block object
-            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(tupleEventClause))))
+            val block =
+                createMockBlockWithTransactions(
+                    listOf(createMockTransaction(listOf(tupleEventClause)))
+                )
 
             val configuredEvents = listOf(tupleAbiElement)
 
@@ -321,10 +377,10 @@ internal class GenericEventIndexerTest {
                 )
 
             // Assertions
-            expectThat(result[0].second.name).isEqualTo("UpdateMarketItem")
+            expectThat(result[0].params.name).isEqualTo("UpdateMarketItem")
 
             // Decoded values
-            val returnValues = result[0].second.getReturnValues()
+            val returnValues = result[0].params.getReturnValues()
 
             val expectedReturnValues =
                 mapOf(
@@ -350,7 +406,10 @@ internal class GenericEventIndexerTest {
         @Test
         fun `should process string events correctly`() {
             // Define mock Block object
-            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(stringEventClause))))
+            val block =
+                createMockBlockWithTransactions(
+                    listOf(createMockTransaction(listOf(stringEventClause)))
+                )
 
             val configuredEvents = listOf(stringAbiElement)
 
@@ -361,10 +420,10 @@ internal class GenericEventIndexerTest {
             val result = genericEventIndexer.getBlockEventsByFilters(block)
 
             // Assertions
-            expectThat(result[0].second.name).isEqualTo("RewardDistributed")
+            expectThat(result[0].params.name).isEqualTo("RewardDistributed")
 
             // Decoded values
-            val returnValues = result[0].second.getReturnValues()
+            val returnValues = result[0].params.getReturnValues()
 
             val expectedReturnValues =
                 mapOf(
@@ -382,7 +441,10 @@ internal class GenericEventIndexerTest {
         @Test
         fun `should process int events correctly`() {
             // Define mock Block object
-            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(intEventClause))))
+            val block =
+                createMockBlockWithTransactions(
+                    listOf(createMockTransaction(listOf(intEventClause)))
+                )
 
             val configuredEvents = listOf(intAbiElement)
 
@@ -393,10 +455,10 @@ internal class GenericEventIndexerTest {
             val result = genericEventIndexer.getBlockEventsByFilters(block)
 
             // Assertions
-            expectThat(result[0].second.name).isEqualTo("Conversion")
+            expectThat(result[0].params.name).isEqualTo("Conversion")
 
             // Decoded values
-            val returnValues = result[0].second.getReturnValues()
+            val returnValues = result[0].params.getReturnValues()
 
             val expectedReturnValues =
                 mapOf(
@@ -413,7 +475,10 @@ internal class GenericEventIndexerTest {
         @Test
         fun `should process array events correctly`() {
             // Define mock Block object
-            val block = createMockBlockWithTransactions(listOf(createMockTransaction(listOf(arrayEventClause))))
+            val block =
+                createMockBlockWithTransactions(
+                    listOf(createMockTransaction(listOf(arrayEventClause)))
+                )
 
             val configuredEvents = listOf(arrayAbiElement)
 
@@ -431,10 +496,10 @@ internal class GenericEventIndexerTest {
                 )
 
             // Assertions
-            expectThat(result[0].second.name).isEqualTo("AllocationVoteCast")
+            expectThat(result[0].params.name).isEqualTo("AllocationVoteCast")
 
             // Decoded values
-            val returnValues = result[0].second.getReturnValues()
+            val returnValues = result[0].params.getReturnValues()
 
             val expectedReturnValues =
                 mapOf(
@@ -445,7 +510,11 @@ internal class GenericEventIndexerTest {
                             "0x9643ed1637948cc571b23f836ade2bdb104de88e627fa6e8e3ffef1ee5a1739a",
                             "0x899de0d0f0b39e484c8835b2369194c4c102b230c813862db383d44a4efe14d3",
                         ),
-                    "voteWeights" to listOf(BigInteger("625149810000000000000"), BigInteger("625149810000000000000")),
+                    "voteWeights" to
+                        listOf(
+                            BigInteger("625149810000000000000"),
+                            BigInteger("625149810000000000000")
+                        ),
                 )
 
             expectThat(returnValues).isEqualTo(expectedReturnValues)
@@ -459,7 +528,8 @@ internal class GenericEventIndexerTest {
                     Types.ADDRESS.decode(invalidEncoded, String::class.java, "test", null, 0, null)
                 }
 
-            expectThat(exception.message.subject).isEqualTo("Invalid address length: $invalidEncoded")
+            expectThat(exception.message.subject)
+                .isEqualTo("Invalid address length: $invalidEncoded")
         }
 
         @Test
@@ -478,7 +548,14 @@ internal class GenericEventIndexerTest {
             val invalidData = "0x1234"
             val exception =
                 expectThrows<IllegalArgumentException> {
-                    Types.STRING.decode(invalidData, String::class.java, "test", invalidData, 0, null)
+                    Types.STRING.decode(
+                        invalidData,
+                        String::class.java,
+                        "test",
+                        invalidData,
+                        0,
+                        null
+                    )
                 }
 
             expectThat(exception.message.subject).isEqualTo("Error decoding string at offset: 0")
@@ -492,7 +569,8 @@ internal class GenericEventIndexerTest {
                     Types.TUPLE.decode(encoded, Any::class.java, "test", null, 0, null)
                 }
 
-            expectThat(exception.message.subject).isEqualTo("Components must be provided for tuple types")
+            expectThat(exception.message.subject)
+                .isEqualTo("Components must be provided for tuple types")
         }
 
         @Test
@@ -504,7 +582,8 @@ internal class GenericEventIndexerTest {
                     Types.TUPLE.decode(encoded, Any::class.java, "test", null, 0, components)
                 }
 
-            expectThat(exception.message.subject).isEqualTo("Data too short for tuple component at offset 0")
+            expectThat(exception.message.subject)
+                .isEqualTo("Data too short for tuple component at offset 0")
         }
 
         @Test

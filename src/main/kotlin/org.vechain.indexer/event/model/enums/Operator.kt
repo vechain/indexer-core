@@ -36,7 +36,8 @@ enum class Operator {
             a: String,
             b: String,
         ): Boolean = compare(a, b) <= 0
-    }, ;
+    },
+    ;
 
     abstract fun evaluate(
         a: String,

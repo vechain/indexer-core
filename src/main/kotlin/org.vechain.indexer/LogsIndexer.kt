@@ -1,19 +1,18 @@
 package org.vechain.indexer
 
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.GenericEventIndexer
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.generic.FilterCriteria
-import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.enums.LogType
 import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.matchesEventCriteria
 import org.vechain.indexer.utils.matchesTransferCriteria
-import java.time.LocalDateTime
-import java.time.ZoneOffset
 
 const val BLOCK_BATCH_SIZE = 100L //  Block batch size
 const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
@@ -21,11 +20,11 @@ const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
 /**
  * **LogsIndexer**
  *
- * Handles event logs and VET transfer logs from the VeChain Thor blockchain.
- * Supports configurable filtering and processing of both event and transfer logs.
+ * Handles event logs and VET transfer logs from the VeChain Thor blockchain. Supports configurable
+ * filtering and processing of both event and transfer logs.
  *
- * This indexer iterates through blockchain transactions, extracts logs based on criteria,
- * and processes them accordingly.
+ * This indexer iterates through blockchain transactions, extracts logs based on criteria, and
+ * processes them accordingly.
  *
  * @param thorClient The Thor blockchain client instance.
  * @param startBlock The starting block number for indexing.
@@ -53,9 +52,9 @@ abstract class LogsIndexer(
     /**
      * Processes the retrieved logs from blocks.
      *
-     * This function is **abstract** and must be implemented by subclasses of `LogsIndexer`.
-     * It is responsible for handling both **event logs** and **transfer logs** based on
-     * the indexer's configuration.
+     * This function is **abstract** and must be implemented by subclasses of `LogsIndexer`. It is
+     * responsible for handling both **event logs** and **transfer logs** based on the indexer's
+     * configuration.
      *
      * @param events A list of `EventLog` instances representing on-chain event logs.
      * @param transfers A list of `TransferLog` instances representing VET transfer logs.
@@ -128,7 +127,9 @@ abstract class LogsIndexer(
                 // Log sync status
                 if (logger.isTraceEnabled) {
                     logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
-                } else if (hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)) {
+                } else if (
+                    hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
+                ) {
                     logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
                 }
 
@@ -151,9 +152,7 @@ abstract class LogsIndexer(
         }
     }
 
-    /**
-     * Fetches both event logs and VET transfer logs based on `logsType`.
-     */
+    /** Fetches both event logs and VET transfer logs based on `logsType`. */
     private suspend fun fetchLogs(
         fromBlock: Long,
         toBlock: Long,
@@ -172,9 +171,7 @@ abstract class LogsIndexer(
         return LogFetchResult(eventLogs, transferLogs)
     }
 
-    /**
-     * Fetches event logs from the Thor client.
-     */
+    /** Fetches event logs from the Thor client. */
     private suspend fun fetchEventLogs(
         fromBlock: Long,
         toBlock: Long,
@@ -200,9 +197,7 @@ abstract class LogsIndexer(
         return logs
     }
 
-    /**
-     * Fetches VET transfer logs from the Thor client.
-     */
+    /** Fetches VET transfer logs from the Thor client. */
     private suspend fun fetchTransfers(
         fromBlock: Long,
         toBlock: Long,
@@ -263,13 +258,15 @@ abstract class LogsIndexer(
     /**
      * Extracts and filters event logs from a transaction output.
      *
-     * This function processes all event logs found in the given transaction output. If event filtering
-     * criteria (`eventCriteriaSet`) are provided, only logs matching the criteria are included.
+     * This function processes all event logs found in the given transaction output. If event
+     * filtering criteria (`eventCriteriaSet`) are provided, only logs matching the criteria are
+     * included.
      *
      * @param output The transaction output containing event logs.
      * @param block The block containing the transaction.
      * @param tx The transaction associated with the output.
-     * @return A list of event logs that match the defined criteria (or all logs if no criteria exist).
+     * @return A list of event logs that match the defined criteria (or all logs if no criteria
+     *   exist).
      */
     private fun processBlockEvents(
         output: TxOutputs,
@@ -298,12 +295,14 @@ abstract class LogsIndexer(
      * Extracts and filters transfer logs from a transaction output.
      *
      * This function processes all token/VET transfers found in the transaction output. If filtering
-     * criteria (`transferCriteriaSet`) are provided, only transfers matching the criteria are included.
+     * criteria (`transferCriteriaSet`) are provided, only transfers matching the criteria are
+     * included.
      *
      * @param output The transaction output containing transfer logs.
      * @param block The block containing the transaction.
      * @param tx The transaction associated with the output.
-     * @return A list of transfer logs that match the defined criteria (or all logs if no criteria exist).
+     * @return A list of transfer logs that match the defined criteria (or all logs if no criteria
+     *   exist).
      */
     private fun processBlockTransfers(
         output: TxOutputs,
@@ -379,35 +378,44 @@ abstract class LogsIndexer(
         )
 
     /**
-     * @notice Processes all events (generic and business) in a group of log events based on the provided criteria.
-     * @dev Updates the filter criteria with business event names if applicable.
-     *      Decodes and processes both generic and business events.
      * @param eventLogs The Thor logs to process.
      * @param criteria Filtering criteria to determine which events to process.
      * @return A list of decoded events and their associated parameters.
+     * @notice Processes all events (generic and business) in a group of log events based on the
+     *   provided criteria.
+     * @dev Updates the filter criteria with business event names if applicable. Decodes and
+     *   processes both generic and business events.
      */
     protected open fun processAllEvents(
         eventLogs: List<EventLog>,
         transferLogs: List<TransferLog> = emptyList(),
         criteria: FilterCriteria = FilterCriteria(),
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+    ): List<IndexedEvent> {
         val decodedEvents = processBlockGenericEvents(eventLogs, transferLogs, criteria)
-        return processBusinessEvents(decodedEvents, criteria.businessEventNames, criteria.removeDuplicates)
+        return processBusinessEvents(
+            decodedEvents,
+            criteria.businessEventNames,
+            criteria.removeDuplicates
+        )
     }
 
     /**
-     * @notice Processes generic events in a of log events based on the provided criteria.
-     * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and returns an empty list.
      * @param eventLogs The Thor event logs to process.
      * @param transferLogs The Thor transfer logs to process.
      * @param criteria Filtering criteria to determine which generic events to process.
      * @return A list of decoded generic events and their associated parameters.
+     * @notice Processes generic events in a of log events based on the provided criteria.
+     * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and
+     *   returns an empty list.
      */
     protected open fun processBlockGenericEvents(
         eventLogs: List<EventLog>,
         transferLogs: List<TransferLog> = emptyList(),
         criteria: FilterCriteria = FilterCriteria(),
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+    ): List<IndexedEvent> {
+
+        // TODO: Why do we need a pair here when the params are contained in the indexed event?
+
         if (abiManager == null) {
             logger.warn("ABI Manager is not configured. Skipping generic event processing.")
             return emptyList()
@@ -416,21 +424,27 @@ abstract class LogsIndexer(
         val eventIndexer = GenericEventIndexer(abiManager)
 
         if (cachedConfiguredEvents == null) {
-            val updatedCriteria = businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria
-            cachedConfiguredEvents = eventIndexer.getConfiguredEvents(updatedCriteria.abiNames, updatedCriteria.eventNames)
+            val updatedCriteria =
+                businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria
+            cachedConfiguredEvents =
+                eventIndexer.getConfiguredEvents(
+                    updatedCriteria.abiNames,
+                    updatedCriteria.eventNames
+                )
         }
 
-        val contractEvents = eventIndexer.decodeLogEvents(eventLogs, cachedConfiguredEvents!!, criteria)
+        val contractEvents =
+            eventIndexer.decodeLogEvents(eventLogs, cachedConfiguredEvents!!, criteria)
         val vetTransfers = eventIndexer.decodeLogTransfers(transferLogs)
 
         return contractEvents + vetTransfers
     }
 
     /**
-     * @notice Determines if any multiples of `x` exist in the range `[startBlock, endBlock]`.
      * @param startBlock The start of the block range.
      * @param endBlock The end of the block range.
      * @param x The number to check for multiples.
+     * @notice Determines if any multiples of `x` exist in the range `[startBlock, endBlock]`.
      */
     private fun hasMultipleInRange(startBlock: Long, endBlock: Long, x: Long): Boolean {
         if (x == 0L) return false // Prevent division by zero

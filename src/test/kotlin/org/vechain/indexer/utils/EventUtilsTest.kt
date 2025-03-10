@@ -1,5 +1,6 @@
 package org.vechain.indexer.utils
 
+import java.util.*
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.EventMockFactory.transferAbiElement
@@ -13,7 +14,6 @@ import strikt.api.expectThat
 import strikt.api.expectThrows
 import strikt.assertions.isEqualTo
 import strikt.assertions.message
-import java.util.*
 
 internal class EventUtilsTest {
 
@@ -33,9 +33,9 @@ internal class EventUtilsTest {
                     EventUtils.decodeEvent(event, transferERC721AbiElement)
                 }
 
-            expectThat(exception.message.subject).isEqualTo("Mismatch between ABI indexed inputs and event topics")
+            expectThat(exception.message.subject)
+                .isEqualTo("Mismatch between ABI indexed inputs and event topics")
         }
-
 
         @Test
         fun `should throw error if unsupported solidity type is trying to be decoded`() {
@@ -86,7 +86,8 @@ internal class EventUtilsTest {
                     EventUtils.decodeEvent(event, transferAbiElement)
                 }
 
-            expectThat(exception.message.subject).isEqualTo("Data segment out of bounds for index 0")
+            expectThat(exception.message.subject)
+                .isEqualTo("Data segment out of bounds for index 0")
         }
     }
 
@@ -95,7 +96,8 @@ internal class EventUtilsTest {
         @Test
         fun `should return correct event signature given canonical event name`() {
             val canonicalName = "Transfer(address,address,uint256)"
-            val expectedSignature = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+            val expectedSignature =
+                "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
             EventUtils.getEventSignature(canonicalName).let {
                 expectThat(it).isEqualTo(expectedSignature)
             }
@@ -113,7 +115,8 @@ internal class EventUtilsTest {
                     data = transferEvent.data,
                 )
 
-            expectThat(EventUtils.isEventValid(event, listOf(transferAbiElement), emptyList())).isEqualTo(true)
+            expectThat(EventUtils.isEventValid(event, listOf(transferAbiElement), emptyList()))
+                .isEqualTo(true)
         }
 
         @Test
@@ -125,7 +128,14 @@ internal class EventUtilsTest {
                     data = transferEvent.data,
                 )
 
-            expectThat(EventUtils.isEventValid(event, listOf(transferAbiElement), listOf(transferEvent.address))).isEqualTo(true)
+            expectThat(
+                    EventUtils.isEventValid(
+                        event,
+                        listOf(transferAbiElement),
+                        listOf(transferEvent.address)
+                    )
+                )
+                .isEqualTo(true)
         }
 
         @Test
@@ -137,9 +147,14 @@ internal class EventUtilsTest {
                     data = transferEvent.data,
                 )
 
-            expectThat(EventUtils.isEventValid(event, listOf(transferAbiElement), listOf(transferEvent.address.uppercase(
-                Locale.getDefault()
-            )))).isEqualTo(true)
+            expectThat(
+                    EventUtils.isEventValid(
+                        event,
+                        listOf(transferAbiElement),
+                        listOf(transferEvent.address.uppercase(Locale.getDefault()))
+                    )
+                )
+                .isEqualTo(true)
         }
 
         @Test
@@ -151,7 +166,14 @@ internal class EventUtilsTest {
                     data = transferEvent.data,
                 )
 
-            expectThat(EventUtils.isEventValid(event, listOf(transferAbiElement), listOf("0xdeaddeaddeaddeaddeaddeaddead"))).isEqualTo(false)
+            expectThat(
+                    EventUtils.isEventValid(
+                        event,
+                        listOf(transferAbiElement),
+                        listOf("0xdeaddeaddeaddeaddeaddeaddead")
+                    )
+                )
+                .isEqualTo(false)
         }
 
         @Test
@@ -163,7 +185,8 @@ internal class EventUtilsTest {
                     data = transferEvent.data,
                 )
 
-            expectThat(EventUtils.isEventValid(event, listOf(transferAbiElement), emptyList())).isEqualTo(false)
+            expectThat(EventUtils.isEventValid(event, listOf(transferAbiElement), emptyList()))
+                .isEqualTo(false)
         }
     }
 }

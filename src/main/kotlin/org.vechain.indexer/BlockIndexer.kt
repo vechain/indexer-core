@@ -1,5 +1,7 @@
 package org.vechain.indexer
 
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 import kotlinx.coroutines.*
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -8,15 +10,12 @@ import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.BusinessEventProcessor
 import org.vechain.indexer.event.GenericEventIndexer
 import org.vechain.indexer.event.model.generic.FilterCriteria
-import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
-import java.time.LocalDateTime
-import java.time.ZoneOffset
 
 /** The possible states the indexer can be */
 enum class Status {
@@ -41,7 +40,8 @@ abstract class BlockIndexer(
     protected val startBlock: Long = 0L,
     private val syncLoggerInterval: Long = 1_000L,
     protected open val abiManager: AbiManager? = null, // Optional AbiManager
-    protected open val businessEventManager: BusinessEventManager? = null, // Optional BusinessEventManager
+    protected open val businessEventManager: BusinessEventManager? =
+        null, // Optional BusinessEventManager
 ) {
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
@@ -70,7 +70,8 @@ abstract class BlockIndexer(
 
     /** Initialises the indexer processing */
     private fun initialise(blockNumber: Long? = null) {
-        // If no block number is provided, get the last synced block. If no block is found, start from the beginning.
+        // If no block number is provided, get the last synced block. If no block is found, start
+        // from the beginning.
         val lastSyncedBlockNumber = blockNumber ?: getLastSyncedBlock()?.number ?: startBlock
 
         // To ensure data integrity roll back changes made in the last block
@@ -138,7 +139,10 @@ abstract class BlockIndexer(
             val block = getBlockFromChain(currentBlockNumber)
 
             // Check for chain re-organization.
-            if (currentBlockNumber > startBlock && previousBlock?.id?.let { it != block.parentID } == true) {
+            if (
+                currentBlockNumber > startBlock &&
+                    previousBlock?.id?.let { it != block.parentID } == true
+            ) {
                 throw ReorgException(
                     "Chain re-organization detected @ Block $currentBlockNumber with parent block ID ${block.parentID}",
                 )
@@ -257,7 +261,8 @@ abstract class BlockIndexer(
      * @return the block corresponding to the number
      * @throws BlockNotFoundException if no block is found with that number
      */
-    private suspend fun getBlockFromChain(blockNumber: Long): Block = thorClient.getBlock(blockNumber)
+    private suspend fun getBlockFromChain(blockNumber: Long): Block =
+        thorClient.getBlock(blockNumber)
 
     /**
      * Returns the latest block from the chain
@@ -268,8 +273,8 @@ abstract class BlockIndexer(
     private suspend fun getBestBlockFromChain(): Block = thorClient.getBestBlock()
 
     /**
-     * Returns the last block that was successfully processed.
-     * If no block was processed, returns null.
+     * Returns the last block that was successfully processed. If no block was processed, returns
+     * null.
      *
      * @return last synced block
      */
@@ -291,33 +296,40 @@ abstract class BlockIndexer(
     abstract fun processBlock(block: Block)
 
     /**
-     * @notice Processes all events (generic and business) in a block based on the provided criteria.
-     * @dev Updates the filter criteria with business event names if applicable.
-     *      Decodes and processes both generic and business events.
      * @param block The block containing events to process.
      * @param criteria Filtering criteria to determine which events to process.
      * @return A list of decoded events and their associated parameters.
+     * @notice Processes all events (generic and business) in a block based on the provided
+     *   criteria.
+     * @dev Updates the filter criteria with business event names if applicable. Decodes and
+     *   processes both generic and business events.
      */
     protected open fun processAllEvents(
         block: Block,
         criteria: FilterCriteria = FilterCriteria(),
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
-        val updatedCriteria = businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria
+    ): List<IndexedEvent> {
+        val updatedCriteria =
+            businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria
         val decodedEvents = processBlockGenericEvents(block, updatedCriteria)
-        return processBusinessEvents(decodedEvents, updatedCriteria.businessEventNames, updatedCriteria.removeDuplicates)
+        return processBusinessEvents(
+            decodedEvents,
+            updatedCriteria.businessEventNames,
+            updatedCriteria.removeDuplicates
+        )
     }
 
     /**
-     * @notice Processes generic events in a block based on the provided criteria.
-     * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and returns an empty list.
      * @param block The block containing events to process.
      * @param criteria Filtering criteria to determine which generic events to process.
      * @return A list of decoded generic events and their associated parameters.
+     * @notice Processes generic events in a block based on the provided criteria.
+     * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and
+     *   returns an empty list.
      */
     protected open fun processBlockGenericEvents(
         block: Block,
         criteria: FilterCriteria = FilterCriteria(),
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+    ): List<IndexedEvent> {
         if (abiManager == null) {
             logger.warn("ABI Manager is not configured. Skipping generic event processing.")
             return emptyList()
@@ -331,43 +343,55 @@ abstract class BlockIndexer(
     }
 
     /**
-     * @notice Processes only business events in a block based on the provided decoded generic events.
-     * @dev Requires the `BusinessEventManager` to decode and process business events.
      * @param decodedEvents The list of previously decoded generic events and their parameters.
      * @param criteria Filtering criteria to determine which business events to process.
      * @return A list of processed business events and their associated parameters.
+     * @notice Processes only business events in a block based on the provided decoded generic
+     *   events.
+     * @dev Requires the `BusinessEventManager` to decode and process business events.
      */
     protected open fun processBlockBusinessEvents(
-        decodedEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
+        decodedEvents: List<IndexedEvent>,
         criteria: FilterCriteria = FilterCriteria(),
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+    ): List<IndexedEvent> {
         if (businessEventManager == null) {
-            logger.warn("Business Event Manager is not configured. Skipping business event processing.")
+            logger.warn(
+                "Business Event Manager is not configured. Skipping business event processing."
+            )
             return emptyList()
         }
 
         // Process business events
         val processor = BusinessEventProcessor(businessEventManager!!)
-        return processor.getOnlyBusinessEvents(decodedEvents, criteria.businessEventNames, this is LogsIndexer)
+        return processor.getOnlyBusinessEvents(
+            decodedEvents,
+            criteria.businessEventNames,
+            this is LogsIndexer
+        )
     }
 
     /**
-     * @notice Processes business events from a list of decoded events.
-     * @dev Utilizes the `BusinessEventProcessor` to process events if the `BusinessEventManager` is configured.
-     *      Logs a debug message if the `BusinessEventManager` is not present.
      * @param decodedEvents A list of decoded generic events and their associated parameters.
      * @param businessEventNames A list of business event names to process.
      * @return A list of processed business events and their associated parameters.
+     * @notice Processes business events from a list of decoded events.
+     * @dev Utilizes the `BusinessEventProcessor` to process events if the `BusinessEventManager` is
+     *   configured. Logs a debug message if the `BusinessEventManager` is not present.
      */
     internal fun processBusinessEvents(
-        decodedEvents: List<Pair<IndexedEvent, GenericEventParameters>>,
+        decodedEvents: List<IndexedEvent>,
         businessEventNames: List<String>,
         removeDuplicates: Boolean? = true,
-    ): List<Pair<IndexedEvent, GenericEventParameters>> {
+    ): List<IndexedEvent> {
         if (businessEventManager != null) {
             val processor = BusinessEventProcessor(businessEventManager!!)
             val logsIndexer = this is LogsIndexer
-            return processor.processEvents(decodedEvents, businessEventNames, removeDuplicates ?: true, logsIndexer)
+            return processor.processEvents(
+                decodedEvents,
+                businessEventNames,
+                removeDuplicates ?: true,
+                logsIndexer
+            )
         }
         logger.debug("Skipping business event processing as manager is missing.")
         return decodedEvents

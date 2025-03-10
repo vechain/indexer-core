@@ -29,6 +29,7 @@ object DataUtils {
 
     /**
      * Converts a hex string into a byte array.
+     *
      * @param input The hex string to convert.
      * @return The resulting byte array.
      */
@@ -54,10 +55,9 @@ object DataUtils {
 
         for (i in startIdx until len step 2) {
             data[(i + 1) / 2] =
-                (
-                    (Character.digit(cleanInput[i], 16) shl 4) +
-                        Character.digit(cleanInput[i + 1], 16)
-                ).toByte()
+                ((Character.digit(cleanInput[i], 16) shl 4) +
+                        Character.digit(cleanInput[i + 1], 16))
+                    .toByte()
         }
 
         return data

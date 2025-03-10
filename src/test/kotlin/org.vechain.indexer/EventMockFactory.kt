@@ -1,5 +1,6 @@
 package org.vechain.indexer
 
+import java.math.BigInteger
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.event.model.business.*
@@ -8,7 +9,6 @@ import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.model.generic.RawEvent
 import org.vechain.indexer.thor.model.*
-import java.math.BigInteger
 
 object EventMockFactory {
     val transferAbiElement: AbiElement =
@@ -186,10 +186,34 @@ object EventMockFactory {
             stateMutability = null,
             inputs =
                 listOf(
-                    InputOutput(internalType = "address", name = "voter", type = "address", indexed = true, components = null),
-                    InputOutput(internalType = "uint256", name = "roundId", type = "uint256", indexed = true, components = null),
-                    InputOutput(internalType = "bytes32[]", name = "appsIds", type = "bytes32[]", indexed = false, components = null),
-                    InputOutput(internalType = "uint256[]", name = "voteWeights", type = "uint256[]", indexed = false, components = null),
+                    InputOutput(
+                        internalType = "address",
+                        name = "voter",
+                        type = "address",
+                        indexed = true,
+                        components = null
+                    ),
+                    InputOutput(
+                        internalType = "uint256",
+                        name = "roundId",
+                        type = "uint256",
+                        indexed = true,
+                        components = null
+                    ),
+                    InputOutput(
+                        internalType = "bytes32[]",
+                        name = "appsIds",
+                        type = "bytes32[]",
+                        indexed = false,
+                        components = null
+                    ),
+                    InputOutput(
+                        internalType = "uint256[]",
+                        name = "voteWeights",
+                        type = "uint256[]",
+                        indexed = false,
+                        components = null
+                    ),
                 ),
             outputs = listOf(),
             signature = "e2d0d542af9cdd3e0ef4ace292fc5e9dd654164e63920ea9b58c435492af84e2",
@@ -368,8 +392,9 @@ object EventMockFactory {
                                 "0x00000000000000000000000054a0ed27c58e4dde7f6c8bbf1f156e1d73a8dc59",
                                 "0x000000000000000000000000000000000000000000000000000000000000001b",
                             ),
-                        data = @Suppress("ktlint:standard:max-line-length")
-                        "0x000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000029643ed1637948cc571b23f836ade2bdb104de88e627fa6e8e3ffef1ee5a1739a899de0d0f0b39e484c8835b2369194c4c102b230c813862db383d44a4efe14d30000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000021e3b2480264f12000000000000000000000000000000000000000000000000021e3b2480264f12000",
+                        data =
+                            @Suppress("ktlint:standard:max-line-length")
+                            "0x000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000029643ed1637948cc571b23f836ade2bdb104de88e627fa6e8e3ffef1ee5a1739a899de0d0f0b39e484c8835b2369194c4c102b230c813862db383d44a4efe14d30000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000021e3b2480264f12000000000000000000000000000000000000000000000000021e3b2480264f12000",
                     ),
                 ),
             transfers =
@@ -396,8 +421,9 @@ object EventMockFactory {
                                 "0x000000000000000000000000000000000000000000000000000000000000234a",
                                 "0x00000000000000000000000071b8e51af9280e8bef933586b7de30eb01c0cd92",
                             ),
-                        data = @Suppress("ktlint:standard:max-line-length")
-                        "0x00000000000000000000000071b8e51af9280e8bef933586b7de30eb01c0cd92000000000000000000000000000000000000000000000000000000000000005c000000000000000000000000000000000000000000000000000000000000234a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000dc3a8351f3d86a000000000000000000000000000000000000000000000000000000000000000000000",
+                        data =
+                            @Suppress("ktlint:standard:max-line-length")
+                            "0x00000000000000000000000071b8e51af9280e8bef933586b7de30eb01c0cd92000000000000000000000000000000000000000000000000000000000000005c000000000000000000000000000000000000000000000000000000000000234a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000dc3a8351f3d86a000000000000000000000000000000000000000000000000000000000000000000000",
                     ),
                 ),
             transfers = emptyList(),
@@ -637,23 +663,24 @@ object EventMockFactory {
         address: String,
         clauseIndex: Long,
         params: GenericEventParameters,
-    ) = IndexedEvent(
-        id = "0xid",
-        blockId = "0xblockId",
-        blockNumber = 20554260,
-        blockTimestamp = 1736071230,
-        txId = "0xtxId",
-        origin = "0xorigin",
-        gasPayer = "0xgasPayer",
-        address = address,
-        raw =
-            RawEvent(
-                data = "0xdata",
-                topics = listOf("0xtopic1", "0xtopic2"),
-            ),
-        clauseIndex = clauseIndex,
-        eventType = "Transfer",
-        params = params,
-        signature = "0xsignature",
-    )
+    ) =
+        IndexedEvent(
+            id = "0xid",
+            blockId = "0xblockId",
+            blockNumber = 20554260,
+            blockTimestamp = 1736071230,
+            txId = "0xtxId",
+            origin = "0xorigin",
+            gasPayer = "0xgasPayer",
+            address = address,
+            raw =
+                RawEvent(
+                    data = "0xdata",
+                    topics = listOf("0xtopic1", "0xtopic2"),
+                ),
+            clauseIndex = clauseIndex,
+            eventType = "Transfer",
+            params = params,
+            signature = "0xsignature",
+        )
 }
