@@ -156,16 +156,4 @@ object EventUtils {
 
         return event.topics.isNotEmpty() && matchesAbi && matchesContract
     }
-
-    fun isEventValid(event: EventLog, configuredEvents: List<AbiElement>, contractAddresses: List<String>): Boolean {
-        return isEventValid(
-            TxEvent(
-                address = event.address,
-                topics = event.topics,
-                data = event.data,
-            ),
-            configuredEvents,
-            contractAddresses,
-        )
-    }
 }
