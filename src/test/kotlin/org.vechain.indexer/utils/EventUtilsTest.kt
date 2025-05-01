@@ -1,5 +1,6 @@
 package org.vechain.indexer.utils
 
+import java.util.*
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.EventMockFactory.transferAbiElement
@@ -14,7 +15,6 @@ import strikt.api.expectThat
 import strikt.api.expectThrows
 import strikt.assertions.isEqualTo
 import strikt.assertions.message
-import java.util.*
 
 internal class EventUtilsTest {
     @Nested
@@ -65,12 +65,17 @@ internal class EventUtilsTest {
                 )
 
             val result = EventUtils.decodeEvent(event, randomAbiElement)
-            expectThat(result).isEqualTo(
-                GenericEventParameters(
-                    returnValues = mapOf("from" to "0x0000000000000000000000000000000000000000000000000000000000000000"),
-                    eventType = "RandomEvent",
-                ),
-            )
+            expectThat(result)
+                .isEqualTo(
+                    GenericEventParameters(
+                        returnValues =
+                            mapOf(
+                                "from" to
+                                    "0x0000000000000000000000000000000000000000000000000000000000000000"
+                            ),
+                        eventType = "RandomEvent",
+                    ),
+                )
         }
 
         @Test
@@ -84,17 +89,18 @@ internal class EventUtilsTest {
 
             val result = EventUtils.decodeEvent(event, transferAbiElement)
 
-            expectThat(result).isEqualTo(
-                GenericEventParameters(
-                    returnValues =
-                        mapOf(
-                            "from" to "0x0000000000000000000000000000000000000000",
-                            "to" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
-                            "value" to "0x",
-                        ),
-                    eventType = "Transfer",
-                ),
-            )
+            expectThat(result)
+                .isEqualTo(
+                    GenericEventParameters(
+                        returnValues =
+                            mapOf(
+                                "from" to "0x0000000000000000000000000000000000000000",
+                                "to" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                                "value" to "0x",
+                            ),
+                        eventType = "Transfer",
+                    ),
+                )
         }
     }
 
@@ -136,12 +142,13 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                EventUtils.isEventValid(
-                    event,
-                    listOf(transferAbiElement),
-                    listOf(transferEvent.address),
-                ),
-            ).isEqualTo(true)
+                    EventUtils.isEventValid(
+                        event,
+                        listOf(transferAbiElement),
+                        listOf(transferEvent.address),
+                    ),
+                )
+                .isEqualTo(true)
         }
 
         @Test
@@ -154,12 +161,13 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                EventUtils.isEventValid(
-                    event,
-                    listOf(transferAbiElement),
-                    listOf(transferEvent.address.uppercase(Locale.getDefault())),
-                ),
-            ).isEqualTo(true)
+                    EventUtils.isEventValid(
+                        event,
+                        listOf(transferAbiElement),
+                        listOf(transferEvent.address.uppercase(Locale.getDefault())),
+                    ),
+                )
+                .isEqualTo(true)
         }
 
         @Test
@@ -172,12 +180,13 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                EventUtils.isEventValid(
-                    event,
-                    listOf(transferAbiElement),
-                    listOf("0xdeaddeaddeaddeaddeaddeaddead"),
-                ),
-            ).isEqualTo(false)
+                    EventUtils.isEventValid(
+                        event,
+                        listOf(transferAbiElement),
+                        listOf("0xdeaddeaddeaddeaddeaddeaddead"),
+                    ),
+                )
+                .isEqualTo(false)
         }
 
         @Test
