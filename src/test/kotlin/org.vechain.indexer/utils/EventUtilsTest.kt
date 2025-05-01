@@ -1,6 +1,5 @@
 package org.vechain.indexer.utils
 
-import java.util.*
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.EventMockFactory.transferAbiElement
@@ -8,15 +7,16 @@ import org.vechain.indexer.EventMockFactory.transferERC721AbiElement
 import org.vechain.indexer.EventMockFactory.transferEvent
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
+import org.vechain.indexer.event.model.generic.GenericEventParameters
 import org.vechain.indexer.event.utils.EventUtils
 import org.vechain.indexer.thor.model.TxEvent
 import strikt.api.expectThat
 import strikt.api.expectThrows
 import strikt.assertions.isEqualTo
 import strikt.assertions.message
+import java.util.*
 
 internal class EventUtilsTest {
-
     @Nested
     inner class DecodeEvent {
         @Test
@@ -38,7 +38,7 @@ internal class EventUtilsTest {
         }
 
         @Test
-        fun `should throw error if unsupported solidity type is trying to be decoded`() {
+        fun `should handle decoding gracefully if unsupported solidity type is trying to be decoded`() {
             val randomAbiElement =
                 AbiElement(
                     name = "RandomEvent",
@@ -64,16 +64,17 @@ internal class EventUtilsTest {
                     data = transferEvent.data,
                 )
 
-            val exception =
-                expectThrows<IllegalArgumentException> {
-                    EventUtils.decodeEvent(event, randomAbiElement)
-                }
-
-            expectThat(exception.message.subject).isEqualTo("Unsupported Solidity type: randomType")
+            val result = EventUtils.decodeEvent(event, randomAbiElement)
+            expectThat(result).isEqualTo(
+                GenericEventParameters(
+                    returnValues = mapOf("from" to "0x0000000000000000000000000000000000000000000000000000000000000000"),
+                    eventType = "RandomEvent",
+                ),
+            )
         }
 
         @Test
-        fun `should throw error if extracting data is out of bounds`() {
+        fun `should handle gracefully if extracting data is out of bounds`() {
             val event =
                 TxEvent(
                     address = transferEvent.address,
@@ -81,13 +82,19 @@ internal class EventUtilsTest {
                     data = "0x",
                 )
 
-            val exception =
-                expectThrows<IllegalArgumentException> {
-                    EventUtils.decodeEvent(event, transferAbiElement)
-                }
+            val result = EventUtils.decodeEvent(event, transferAbiElement)
 
-            expectThat(exception.message.subject)
-                .isEqualTo("Data segment out of bounds for index 0")
+            expectThat(result).isEqualTo(
+                GenericEventParameters(
+                    returnValues =
+                        mapOf(
+                            "from" to "0x0000000000000000000000000000000000000000",
+                            "to" to "0x8d05673ac6b1dd2c65015893dfc0362f30bde8c5",
+                            "value" to "0x",
+                        ),
+                    eventType = "Transfer",
+                ),
+            )
         }
     }
 
@@ -129,13 +136,12 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                    EventUtils.isEventValid(
-                        event,
-                        listOf(transferAbiElement),
-                        listOf(transferEvent.address)
-                    )
-                )
-                .isEqualTo(true)
+                EventUtils.isEventValid(
+                    event,
+                    listOf(transferAbiElement),
+                    listOf(transferEvent.address),
+                ),
+            ).isEqualTo(true)
         }
 
         @Test
@@ -148,13 +154,12 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                    EventUtils.isEventValid(
-                        event,
-                        listOf(transferAbiElement),
-                        listOf(transferEvent.address.uppercase(Locale.getDefault()))
-                    )
-                )
-                .isEqualTo(true)
+                EventUtils.isEventValid(
+                    event,
+                    listOf(transferAbiElement),
+                    listOf(transferEvent.address.uppercase(Locale.getDefault())),
+                ),
+            ).isEqualTo(true)
         }
 
         @Test
@@ -167,13 +172,12 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                    EventUtils.isEventValid(
-                        event,
-                        listOf(transferAbiElement),
-                        listOf("0xdeaddeaddeaddeaddeaddeaddead")
-                    )
-                )
-                .isEqualTo(false)
+                EventUtils.isEventValid(
+                    event,
+                    listOf(transferAbiElement),
+                    listOf("0xdeaddeaddeaddeaddeaddeaddead"),
+                ),
+            ).isEqualTo(false)
         }
 
         @Test
