@@ -11,7 +11,6 @@ import org.vechain.indexer.thor.model.TxEvent
 import org.vechain.indexer.utils.DataUtils
 
 object EventUtils {
-    /** Singleton instance of EventUtils. */
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     /**
