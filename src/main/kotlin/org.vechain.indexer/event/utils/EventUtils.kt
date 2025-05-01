@@ -1,6 +1,8 @@
 package org.vechain.indexer.event.utils
 
 import org.bouncycastle.jcajce.provider.digest.Keccak
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.event.model.generic.GenericEventParameters
@@ -9,6 +11,9 @@ import org.vechain.indexer.thor.model.TxEvent
 import org.vechain.indexer.utils.DataUtils
 
 object EventUtils {
+    /** Singleton instance of EventUtils. */
+    private val logger: Logger = LoggerFactory.getLogger(this::class.java)
+
     /**
      * Computes the Keccak256 hash of an event's canonical signature.
      *
@@ -53,18 +58,28 @@ object EventUtils {
 
         for (input in inputs) {
             val decodedValue =
-                if (input.indexed) {
-                    decodeType(event.topics[topicIndex++], input.type)
-                } else {
-                    val segment = extractDataSegment(event.data, dataOffset++)
-                    decodeType(
-                        segment,
-                        input.type,
-                        fullData = event.data,
-                        startPosition = (dataOffset - 1) * 64,
-                        input.components,
-                    )
+                try {
+                    if (input.indexed) {
+                        decodeType(event.topics[topicIndex++], input.type)
+                    } else {
+                        val segment = extractDataSegment(event.data, dataOffset++)
+                        decodeType(
+                            segment,
+                            input.type,
+                            fullData = event.data,
+                            startPosition = (dataOffset - 1) * 64,
+                            components = input.components,
+                        )
+                    }
+                } catch (e: Exception) {
+                    logger.warn("Failed to decode '${input.name}' (${input.type}): ${e.message}")
+                    if (input.indexed) {
+                        event.topics[topicIndex - 1] // fallback to raw topic
+                    } else {
+                        "0x" // fallback to empty
+                    }
                 }
+
             decodedParameters[input.name] = decodedValue
         }
 
@@ -90,13 +105,13 @@ object EventUtils {
         startPosition: Int = 0, // Start position in the data field
         components: List<InputOutput>? = null, // Components for tuple types
     ): Any =
-        Types.values()
+        Types
+            .values()
             .firstOrNull {
                 it.isType(
                     solidityType,
                 )
-            }
-            ?.decode(hexValue, Any::class.java, solidityType, fullData, startPosition, components)
+            }?.decode(hexValue, Any::class.java, solidityType, fullData, startPosition, components)
             ?.actualValue
             ?: throw IllegalArgumentException("Unsupported Solidity type: $solidityType")
 
