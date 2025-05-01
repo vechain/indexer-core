@@ -104,13 +104,13 @@ object EventUtils {
         startPosition: Int = 0, // Start position in the data field
         components: List<InputOutput>? = null, // Components for tuple types
     ): Any =
-        Types
-            .values()
+        Types.values()
             .firstOrNull {
                 it.isType(
                     solidityType,
                 )
-            }?.decode(hexValue, Any::class.java, solidityType, fullData, startPosition, components)
+            }
+            ?.decode(hexValue, Any::class.java, solidityType, fullData, startPosition, components)
             ?.actualValue
             ?: throw IllegalArgumentException("Unsupported Solidity type: $solidityType")
 

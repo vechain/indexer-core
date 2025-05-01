@@ -3,6 +3,7 @@ package org.vechain.indexer
 import io.mockk.*
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
+import java.math.BigInteger
 import kotlinx.coroutines.*
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -27,7 +28,6 @@ import strikt.api.expect
 import strikt.api.expectThat
 import strikt.assertions.isEqualTo
 import strikt.assertions.isNotEqualTo
-import java.math.BigInteger
 
 @ExtendWith(MockKExtension::class)
 internal class IndexerTest {
@@ -54,29 +54,28 @@ internal class IndexerTest {
     @Nested
     inner class IndexerStart {
         @Test
-        fun `Start indexer should initialise with rolling back last synced block`() =
-            runBlocking {
-                val indexerIterationsNumber = 1L
+        fun `Start indexer should initialise with rolling back last synced block`() = runBlocking {
+            val indexerIterationsNumber = 1L
 
-                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        buildBlock(getBlockNumberSlot.captured)
-                    }
-                every { responseMocker.getLastSyncedBlock() } returns
-                    BlockIdentifier(number = 100L, id = "0x100") andThen
-                    BlockIdentifier(number = 99L, id = "0x99")
-                every { responseMocker.processBlock(any()) } just Runs
-
-                val job = launch { indexer.start(indexerIterationsNumber) }
-                job.join()
-
-                expect {
-                    // Verify the status is SYNCING
-                    that(indexer.status).isEqualTo(Status.SYNCING)
-                    // Verify the rollback is performed once
-                    verify(exactly = 1) { responseMocker.rollback(100L) }
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                {
+                    buildBlock(getBlockNumberSlot.captured)
                 }
+            every { responseMocker.getLastSyncedBlock() } returns
+                BlockIdentifier(number = 100L, id = "0x100") andThen
+                BlockIdentifier(number = 99L, id = "0x99")
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(indexerIterationsNumber) }
+            job.join()
+
+            expect {
+                // Verify the status is SYNCING
+                that(indexer.status).isEqualTo(Status.SYNCING)
+                // Verify the rollback is performed once
+                verify(exactly = 1) { responseMocker.rollback(100L) }
             }
+        }
 
         @Test
         fun `Start indexer should initialise with rolling back the startBlock when no last synced block found`() =
@@ -102,52 +101,50 @@ internal class IndexerTest {
             }
 
         @Test
-        fun `Start indexer should process blocks`() =
-            runBlocking {
-                val indexerIterationsNumber = 100L
+        fun `Start indexer should process blocks`() = runBlocking {
+            val indexerIterationsNumber = 100L
 
-                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        buildBlock(getBlockNumberSlot.captured)
-                    }
-                every { responseMocker.getLastSyncedBlock() } returns null
-                every { responseMocker.processBlock(any()) } just Runs
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                {
+                    buildBlock(getBlockNumberSlot.captured)
+                }
+            every { responseMocker.getLastSyncedBlock() } returns null
+            every { responseMocker.processBlock(any()) } just Runs
 
-                val job = launch { indexer.start(indexerIterationsNumber) }
-                job.join()
+            val job = launch { indexer.start(indexerIterationsNumber) }
+            job.join()
 
-                expect {
-                    // Verify the status is SYNCING
-                    that(indexer.status).isEqualTo(Status.SYNCING)
-                    // Verify the correct number of processing of blocks
-                    verify(atLeast = indexer.currentBlockNumber.toInt()) {
-                        responseMocker.processBlock(any())
-                    }
+            expect {
+                // Verify the status is SYNCING
+                that(indexer.status).isEqualTo(Status.SYNCING)
+                // Verify the correct number of processing of blocks
+                verify(atLeast = indexer.currentBlockNumber.toInt()) {
+                    responseMocker.processBlock(any())
                 }
             }
+        }
 
         @Test
-        fun `Start indexer should perform post process blocks`() =
-            runBlocking {
-                val indexerIterationsNumber = 100L
+        fun `Start indexer should perform post process blocks`() = runBlocking {
+            val indexerIterationsNumber = 100L
 
-                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        buildBlock(getBlockNumberSlot.captured)
-                    }
-                every { responseMocker.getLastSyncedBlock() } returns null
-                every { responseMocker.processBlock(any()) } just Runs
-
-                val job = launch { indexer.start(indexerIterationsNumber) }
-                job.join()
-
-                expect {
-                    // Verify the status is SYNCING
-                    that(indexer.status).isEqualTo(Status.SYNCING)
-                    // Verify post-processing increments the current block number
-                    that(indexer.currentBlockNumber).isEqualTo(indexerIterationsNumber)
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                {
+                    buildBlock(getBlockNumberSlot.captured)
                 }
+            every { responseMocker.getLastSyncedBlock() } returns null
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(indexerIterationsNumber) }
+            job.join()
+
+            expect {
+                // Verify the status is SYNCING
+                that(indexer.status).isEqualTo(Status.SYNCING)
+                // Verify post-processing increments the current block number
+                that(indexer.currentBlockNumber).isEqualTo(indexerIterationsNumber)
             }
+        }
     }
 
     @Nested
@@ -203,7 +200,7 @@ internal class IndexerTest {
                     {
                         if (
                             !rateLimitedAlready &&
-                            getBlockNumberSlot.captured == tooManyRequestsBlockNumber
+                                getBlockNumberSlot.captured == tooManyRequestsBlockNumber
                         ) {
                             rateLimitedAlready = true
                             throw Exception("Too Many Requests")
@@ -277,63 +274,61 @@ internal class IndexerTest {
     @Nested
     inner class IndexerStatus {
         @Test
-        fun `Indexer starting & processing block is at the SYNCING status`() =
-            runBlocking {
-                val iterations = 100L
+        fun `Indexer starting & processing block is at the SYNCING status`() = runBlocking {
+            val iterations = 100L
 
-                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        buildBlock(getBlockNumberSlot.captured)
-                    }
-                every { responseMocker.getLastSyncedBlock() } returns null
-                every { responseMocker.processBlock(any()) } just Runs
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                {
+                    buildBlock(getBlockNumberSlot.captured)
+                }
+            every { responseMocker.getLastSyncedBlock() } returns null
+            every { responseMocker.processBlock(any()) } just Runs
 
-                val job = launch { indexer.start(iterations) }
-                job.join()
+            val job = launch { indexer.start(iterations) }
+            job.join()
 
-                expect {
-                    // Current block should correspond to number of iterations of indexer run
-                    that(indexer.currentBlockNumber).isEqualTo(iterations)
-                    // Status should be SYNCING
-                    that(indexer.status).isEqualTo(Status.SYNCING)
-                    // First initialise should roll back to start block
-                    verify(exactly = 1) { responseMocker.rollback(0L) }
-                    // Number of processed blocks should correspond to current block number
-                    verify(exactly = indexer.currentBlockNumber.toInt()) {
-                        responseMocker.processBlock(any())
-                    }
+            expect {
+                // Current block should correspond to number of iterations of indexer run
+                that(indexer.currentBlockNumber).isEqualTo(iterations)
+                // Status should be SYNCING
+                that(indexer.status).isEqualTo(Status.SYNCING)
+                // First initialise should roll back to start block
+                verify(exactly = 1) { responseMocker.rollback(0L) }
+                // Number of processed blocks should correspond to current block number
+                verify(exactly = indexer.currentBlockNumber.toInt()) {
+                    responseMocker.processBlock(any())
                 }
             }
+        }
 
         @Test
-        fun `Indexer should switch to FULLY_SYNCED status when block not found`() =
-            runBlocking {
-                val blockNotFound = BlockIdentifier(number = 99L, id = "0x99")
+        fun `Indexer should switch to FULLY_SYNCED status when block not found`() = runBlocking {
+            val blockNotFound = BlockIdentifier(number = 99L, id = "0x99")
 
-                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        if (getBlockNumberSlot.captured >= blockNotFound.number) {
-                            throw BlockNotFoundException("Block not found")
-                        }
-                        buildBlock(getBlockNumberSlot.captured)
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                {
+                    if (getBlockNumberSlot.captured >= blockNotFound.number) {
+                        throw BlockNotFoundException("Block not found")
                     }
-                coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(blockNotFound.number) }
-                every { responseMocker.getLastSyncedBlock() } returns
-                    null andThen
-                    null andThen
-                    blockNotFound
-                every { responseMocker.processBlock(any()) } just Runs
-
-                val job = launch { indexer.start(blockNotFound.number + 1) }
-                job.join()
-
-                expect {
-                    // The current block remains at the one not found
-                    that(indexer.currentBlockNumber).isEqualTo(blockNotFound.number)
-                    // Status should switch to FULLY_SYNCED
-                    that(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+                    buildBlock(getBlockNumberSlot.captured)
                 }
+            coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(blockNotFound.number) }
+            every { responseMocker.getLastSyncedBlock() } returns
+                null andThen
+                null andThen
+                blockNotFound
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(blockNotFound.number + 1) }
+            job.join()
+
+            expect {
+                // The current block remains at the one not found
+                that(indexer.currentBlockNumber).isEqualTo(blockNotFound.number)
+                // Status should switch to FULLY_SYNCED
+                that(indexer.status).isEqualTo(Status.FULLY_SYNCED)
             }
+        }
 
         @Test
         fun `Indexer should ensure whether it is FULLY_SYNCED and switch back to SYNCING`() =
@@ -375,96 +370,93 @@ internal class IndexerTest {
             }
 
         @Test
-        fun `Indexer should switch to REORG status upon chain re-organization`() =
-            runBlocking {
-                val reorgBlock = 100L
-                val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
+        fun `Indexer should switch to REORG status upon chain re-organization`() = runBlocking {
+            val reorgBlock = 100L
+            val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
 
-                // Simulate re-organization by detecting invalid parent block id at reorgBlock
-                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        // At reorgBlock, the parent id is invalid
-                        val parentId =
-                            if (getBlockNumberSlot.captured == reorgBlock) {
-                                "0x02321321"
-                            } else {
-                                "0x${maxOf(getBlockNumberSlot.captured - 1, 0)}"
-                            }
-                        buildBlock(getBlockNumberSlot.captured, parentId)
-                    }
-
-                every { responseMocker.getLastSyncedBlock() } returns
-                    null andThen
-                    null andThen
-                    lastSyncedBlock
-                every { responseMocker.processBlock(any()) } just Runs
-
-                val job = launch { indexer.start(reorgBlock + 1) }
-                job.join()
-
-                expect {
-                    // The current block number should match the re-organization block
-                    that(indexer.currentBlockNumber).isEqualTo(reorgBlock)
-                    // The indexer status should switch to REORG
-                    that(indexer.status).isEqualTo(Status.REORG)
-                }
-            }
-
-        @Test
-        fun `Indexer should not trigger a REORG when previous block is null`() =
-            runBlocking {
-                // Simulate re-organization by detecting invalid parent block id at reorgBlock
-                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        buildBlock(getBlockNumberSlot.captured)
-                    }
-
-                every { responseMocker.getLastSyncedBlock() } returns null
-                every { responseMocker.processBlock(any()) } just Runs
-
-                val job = launch { indexer.start(1L) }
-                job.join()
-
-                expect {
-                    // The current block number should match the re-organization block
-                    that(indexer.currentBlockNumber).isEqualTo(1L)
-                    // The indexer status should remain SYNCING
-                    that(indexer.status).isEqualTo(Status.SYNCING)
-                }
-            }
-
-        @Test
-        fun `Indexer should switch to ERROR status upon unknown exception thrown`() =
-            runBlocking {
-                val unknownExceptionBlock = 100L
-                val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
-
-                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        buildBlock(getBlockNumberSlot.captured)
-                    }
-                every { responseMocker.getLastSyncedBlock() } returns
-                    null andThen
-                    null andThen
-                    lastSyncedBlock
-                // Exception is thrown when processing block unknownExceptionBlock
-                every { responseMocker.processBlock(capture(processBlockSlot)) } answers
-                    {
-                        if (processBlockSlot.captured.number == unknownExceptionBlock) {
-                            throw Exception("Unknown exception")
+            // Simulate re-organization by detecting invalid parent block id at reorgBlock
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                {
+                    // At reorgBlock, the parent id is invalid
+                    val parentId =
+                        if (getBlockNumberSlot.captured == reorgBlock) {
+                            "0x02321321"
+                        } else {
+                            "0x${maxOf(getBlockNumberSlot.captured - 1, 0)}"
                         }
-                    }
-
-                val job = launch { indexer.start(unknownExceptionBlock + 1) }
-                job.join()
-
-                expect {
-                    // The current block number should match the exception block
-                    that(indexer.currentBlockNumber).isEqualTo(unknownExceptionBlock)
-                    // The indexer status should switch to ERROR
-                    that(indexer.status).isEqualTo(Status.ERROR)
+                    buildBlock(getBlockNumberSlot.captured, parentId)
                 }
+
+            every { responseMocker.getLastSyncedBlock() } returns
+                null andThen
+                null andThen
+                lastSyncedBlock
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(reorgBlock + 1) }
+            job.join()
+
+            expect {
+                // The current block number should match the re-organization block
+                that(indexer.currentBlockNumber).isEqualTo(reorgBlock)
+                // The indexer status should switch to REORG
+                that(indexer.status).isEqualTo(Status.REORG)
             }
+        }
+
+        @Test
+        fun `Indexer should not trigger a REORG when previous block is null`() = runBlocking {
+            // Simulate re-organization by detecting invalid parent block id at reorgBlock
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                {
+                    buildBlock(getBlockNumberSlot.captured)
+                }
+
+            every { responseMocker.getLastSyncedBlock() } returns null
+            every { responseMocker.processBlock(any()) } just Runs
+
+            val job = launch { indexer.start(1L) }
+            job.join()
+
+            expect {
+                // The current block number should match the re-organization block
+                that(indexer.currentBlockNumber).isEqualTo(1L)
+                // The indexer status should remain SYNCING
+                that(indexer.status).isEqualTo(Status.SYNCING)
+            }
+        }
+
+        @Test
+        fun `Indexer should switch to ERROR status upon unknown exception thrown`() = runBlocking {
+            val unknownExceptionBlock = 100L
+            val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
+
+            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
+                {
+                    buildBlock(getBlockNumberSlot.captured)
+                }
+            every { responseMocker.getLastSyncedBlock() } returns
+                null andThen
+                null andThen
+                lastSyncedBlock
+            // Exception is thrown when processing block unknownExceptionBlock
+            every { responseMocker.processBlock(capture(processBlockSlot)) } answers
+                {
+                    if (processBlockSlot.captured.number == unknownExceptionBlock) {
+                        throw Exception("Unknown exception")
+                    }
+                }
+
+            val job = launch { indexer.start(unknownExceptionBlock + 1) }
+            job.join()
+
+            expect {
+                // The current block number should match the exception block
+                that(indexer.currentBlockNumber).isEqualTo(unknownExceptionBlock)
+                // The indexer status should switch to ERROR
+                that(indexer.status).isEqualTo(Status.ERROR)
+            }
+        }
 
         @Test
         fun `Indexer should switch to ERROR status upon rate limit exception when fetching block`() =
