@@ -7,6 +7,7 @@ data class Block(
     val parentID: String,
     val timestamp: Long,
     val gasLimit: Long,
+    val baseFeePerGas: String? = null,
     val beneficiary: String,
     val gasUsed: Long,
     val totalScore: Long,

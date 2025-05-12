@@ -222,6 +222,7 @@ object EventMockFactory {
     fun createMockTransaction(txOutputs: List<TxOutputs>): Transaction =
         Transaction(
             id = "0xtxID",
+            type = 81,
             chainTag = 74,
             blockRef = "0xblockRef",
             expiration = 30,
