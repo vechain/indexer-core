@@ -17,6 +17,7 @@ import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_B3TR_ACTION
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_DYNAMIC_FEES
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STRINGS
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_TOKEN_EXCHANGE
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_WITH_INDEXED_ARRAY
@@ -543,6 +544,41 @@ internal class IndexerTest {
 
             // Input block to process
             val block: Block = BLOCK_WITH_INDEXED_ARRAY
+
+            // Process the block
+            val events =
+                indexer.processBlockGenericEvents(
+                    block,
+                    FilterCriteria(),
+                )
+
+            val expectedEventTypes =
+                listOf(
+                    "B3TRtoUpgradeToLevelUpdated",
+                )
+
+            // Extract event types from the result
+            val eventTypes = events.map { it.params.getEventType() }
+
+            // Assert that all expected events are present and in the correct order
+            assertEquals(expectedEventTypes, eventTypes, "Event types do not match expected list")
+        }
+
+        @Test
+        fun `should process block with dynamic fees correctly`() {
+            val businessEventManager = BusinessEventManager()
+            val abiManager = AbiManager()
+
+            // Create the indexer with mocked dependencies
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
+
+            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
+
+            // Load ABIs required for decoding
+            abiManager.loadAbis(fileStreamsAbis)
+
+            // Input block to process
+            val block: Block = BLOCK_DYNAMIC_FEES
 
             // Process the block
             val events =
