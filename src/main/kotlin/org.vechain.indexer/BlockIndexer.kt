@@ -17,21 +17,6 @@ import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
 
-/** The possible states the indexer can be */
-enum class Status {
-    /** Indexer is processing blocks */
-    SYNCING,
-
-    /** Indexing is up-to-date with the latest on-chain block */
-    FULLY_SYNCED,
-
-    /** A chain re-organization has been detected during processing */
-    REORG,
-
-    /** Indexer encountered an unknown exception during processing */
-    ERROR,
-}
-
 /** Initial processing backoff duration */
 const val INITIAL_BACKOFF_PERIOD = 10_000L
 
@@ -42,12 +27,12 @@ abstract class BlockIndexer(
     protected open val abiManager: AbiManager? = null, // Optional AbiManager
     protected open val businessEventManager: BusinessEventManager? =
         null, // Optional BusinessEventManager
-) {
+) : Indexer {
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
 
     /**
-     * Number of indexer iterations remaining in case a given number of iterations has been
+     * The Number of indexer iterations remaining in case a given number of iterations has been
      * specified
      */
     internal var remainingIterations: Long? = null
@@ -57,8 +42,7 @@ abstract class BlockIndexer(
 
     protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
-    var status = Status.SYNCING
-        protected set
+    override var status = Status.SYNCING
 
     var currentBlockNumber: Long = 0
         protected set
@@ -94,7 +78,7 @@ abstract class BlockIndexer(
     /**
      * Triggers the non-blocking suspendable start() function inside its required coroutine scope.
      */
-    fun startInCoroutine(iterations: Long? = null) {
+    override fun startInCoroutine(iterations: Long?) {
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 start(iterations)
@@ -106,7 +90,7 @@ abstract class BlockIndexer(
     }
 
     /** Starts the indexer processing */
-    open suspend fun start(iterations: Long? = null) {
+    override suspend fun start(iterations: Long?) {
         remainingIterations = iterations
 
         if (this !is LogsIndexer) initialise()
@@ -116,7 +100,7 @@ abstract class BlockIndexer(
     }
 
     /** Restarts the processing based on the current indexer status */
-    private suspend fun restart() {
+    private fun restart() {
         // Initialise the indexer
         when (status) {
             Status.ERROR -> initialise(currentBlockNumber)
@@ -156,11 +140,11 @@ abstract class BlockIndexer(
 
             processBlock(block)
             postProcessBlock(block)
-        } catch (ex: BlockNotFoundException) {
+        } catch (_: BlockNotFoundException) {
             logger.info("Block $currentBlockNumber not found. Indexer may be fully synchronised.")
             handleFullySynced()
             ensureFullySynced()
-        } catch (e: ReorgException) {
+        } catch (_: ReorgException) {
             logger.error("REORG @ Block $currentBlockNumber")
             handleReorg()
         } catch (e: Exception) {
@@ -175,7 +159,7 @@ abstract class BlockIndexer(
      * Checks whether there are remaining indexer iterations in case a given number of iterations
      * has been specified
      *
-     * @return whether indexer has remaining iterations
+     * @return whether the indexer has remaining iterations
      */
     internal fun hasNoRemainingIterations(): Boolean {
         if (remainingIterations != null) {
@@ -271,29 +255,6 @@ abstract class BlockIndexer(
      * @throws BlockNotFoundException if not found
      */
     private suspend fun getBestBlockFromChain(): Block = thorClient.getBestBlock()
-
-    /**
-     * Returns the last block that was successfully processed. If no block was processed, returns
-     * null.
-     *
-     * @return last synced block
-     */
-    abstract fun getLastSyncedBlock(): BlockIdentifier?
-
-    /**
-     * Rolls back changes made in the given block number. The block number will always be the last
-     * synchronized block. It is provided as a parameter here for convenience.
-     *
-     * @param blockNumber the block number to be rolled back
-     */
-    abstract fun rollback(blockNumber: Long)
-
-    /**
-     * Holds the business logic for this indexer.
-     *
-     * @param block the block to be processed
-     */
-    abstract fun processBlock(block: Block)
 
     /**
      * @param block The block containing events to process.

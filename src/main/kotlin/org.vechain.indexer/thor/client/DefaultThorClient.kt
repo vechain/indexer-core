@@ -35,10 +35,9 @@ class DefaultThorClient(
                         throw Exception(
                             "Get block $blockNumber request failed with error: ${result.error}",
                         )
-                    else -> null
                 }
 
-            if (responseBody.isNullOrEmpty() || responseBody.trim() == "null") {
+            if (responseBody.isEmpty() || responseBody.trim() == "null") {
                 throw BlockNotFoundException("Block $blockNumber not found")
             }
 
@@ -55,7 +54,6 @@ class DefaultThorClient(
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
                     is Result.Failure ->
                         throw Exception("Get best block request failed with error: ${result.error}")
-                    else -> null
                 }
 
             return@withContext objectMapper.readValue(responseBody, Block::class.java)
@@ -75,7 +73,6 @@ class DefaultThorClient(
                         throw Exception(
                             "Get best finalized request failed with error: ${result.error}"
                         )
-                    else -> null
                 }
 
             return@withContext objectMapper.readValue(responseBody, Block::class.java)
@@ -94,7 +91,6 @@ class DefaultThorClient(
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
                     is Result.Failure ->
                         throw Exception("Get logs request failed with error: ${result.error}")
-                    else -> null
                 }
 
             return@withContext objectMapper.readValue(
@@ -118,7 +114,6 @@ class DefaultThorClient(
                         throw Exception(
                             "Get transfer logs request failed with error: ${result.error}"
                         )
-                    else -> null
                 }
 
             return@withContext objectMapper.readValue(
