@@ -146,7 +146,7 @@ tasks.jacocoTestReport { dependsOn(tasks.test) }
 dependencies {
     implementation("com.github.kittinunf.fuel:fuel:2.3.1")
     implementation("com.github.kittinunf.fuel:fuel-coroutines:2.3.1")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.0")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
     implementation("org.slf4j:slf4j-api:1.7.32")
     implementation("org.bouncycastle:bcprov-jdk15on:1.70")
 
