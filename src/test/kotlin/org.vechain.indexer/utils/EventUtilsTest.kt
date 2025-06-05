@@ -1,12 +1,11 @@
 package org.vechain.indexer.utils
 
-import java.math.BigInteger
-import java.util.*
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.EventMockFactory.transferAbiElement
 import org.vechain.indexer.EventMockFactory.transferERC721AbiElement
 import org.vechain.indexer.EventMockFactory.transferEvent
+import org.vechain.indexer.EventMockFactory.tupleAbiElement
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.event.model.generic.GenericEventParameters
@@ -16,6 +15,8 @@ import strikt.api.expectThat
 import strikt.api.expectThrows
 import strikt.assertions.isEqualTo
 import strikt.assertions.message
+import java.math.BigInteger
+import java.util.*
 
 internal class EventUtilsTest {
     @Nested
@@ -195,7 +196,7 @@ internal class EventUtilsTest {
                             mapOf(
                                 "addresses" to
                                     listOf(
-                                        "0xf8e81D47203A594245E36C48e151709F0C19fBe8",
+                                        "0xf8e81d47203a594245e36c48e151709f0c19fbe8",
                                         "0xd9145cce52d386f254917e481eb44e9943f39138",
                                     ),
                             ),
@@ -205,7 +206,7 @@ internal class EventUtilsTest {
         }
 
         @Test
-        fun `should decode tuple correctly `() {
+        fun `should decode tuple correctly 1`() {
             val randomAbiElement =
                 AbiElement(
                     name = "StructTest",
@@ -281,6 +282,52 @@ internal class EventUtilsTest {
                                     ),
                             ),
                         eventType = "StructTest",
+                    ),
+                )
+        }
+
+        @Test
+        fun `should decode tuple correctly 2 `() {
+            val randomAbiElement = tupleAbiElement
+
+            val event =
+                TxEvent(
+                    address = "0xb2f12edde215e39186cc7653aeb551c8cf1f77e3",
+                    topics =
+                        listOf(
+                            "0x9f1dcc07f753231c0dbaa6d98633dc57553fcae8695bf4d01769eb0bde9c3e19",
+                            "0x000000000000000000000000000000000000000000000000000000000000005c",
+                            "0x000000000000000000000000000000000000000000000000000000000000234a",
+                            "0x00000000000000000000000071b8e51af9280e8bef933586b7de30eb01c0cd92",
+                        ),
+                    data =
+                        @Suppress("ktlint:standard:max-line-length")
+                        "0x00000000000000000000000071b8e51af9280e8bef933586b7de30eb01c0cd92000000000000000000000000000000000000000000000000000000000000005c000000000000000000000000000000000000000000000000000000000000234a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000dc3a8351f3d86a000000000000000000000000000000000000000000000000000000000000000000000",
+                )
+
+            val result = EventUtils.decodeEvent(event, randomAbiElement)
+            println(result)
+            expectThat(result)
+                .isEqualTo(
+                    GenericEventParameters(
+                        returnValues =
+                            mapOf(
+                                "itemId" to BigInteger("92"),
+                                "tokenId" to BigInteger("9034"),
+                                "lister" to "0x71b8e51af9280e8bef933586b7de30eb01c0cd92",
+                                "updatedItem" to
+                                    mapOf(
+                                        "tokenOwner" to "0x71b8e51af9280e8bef933586b7de30eb01c0cd92",
+                                        "itemId" to BigInteger("92"),
+                                        "tokenId" to BigInteger("9034"),
+                                        "startTime" to BigInteger("0"),
+                                        "endTime" to BigInteger("0"),
+                                        "reserveTokenPrice" to BigInteger("0"),
+                                        "buyoutTokenPrice" to BigInteger("65000000000000000000000"),
+                                        "listingType" to BigInteger("0"),
+                                    ),
+                            ),
+                        eventType = "UpdateMarketItem",
                     ),
                 )
         }
@@ -414,13 +461,12 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                    EventUtils.isEventValid(
-                        event,
-                        listOf(transferAbiElement),
-                        listOf(transferEvent.address),
-                    ),
-                )
-                .isEqualTo(true)
+                EventUtils.isEventValid(
+                    event,
+                    listOf(transferAbiElement),
+                    listOf(transferEvent.address),
+                ),
+            ).isEqualTo(true)
         }
 
         @Test
@@ -433,13 +479,12 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                    EventUtils.isEventValid(
-                        event,
-                        listOf(transferAbiElement),
-                        listOf(transferEvent.address.uppercase(Locale.getDefault())),
-                    ),
-                )
-                .isEqualTo(true)
+                EventUtils.isEventValid(
+                    event,
+                    listOf(transferAbiElement),
+                    listOf(transferEvent.address.uppercase(Locale.getDefault())),
+                ),
+            ).isEqualTo(true)
         }
 
         @Test
@@ -452,13 +497,12 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                    EventUtils.isEventValid(
-                        event,
-                        listOf(transferAbiElement),
-                        listOf("0xdeaddeaddeaddeaddeaddeaddead"),
-                    ),
-                )
-                .isEqualTo(false)
+                EventUtils.isEventValid(
+                    event,
+                    listOf(transferAbiElement),
+                    listOf("0xdeaddeaddeaddeaddeaddeaddead"),
+                ),
+            ).isEqualTo(false)
         }
 
         @Test
