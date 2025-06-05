@@ -137,7 +137,7 @@ internal class EventUtilsTest {
 
             val event =
                 TxEvent(
-                    address = "0xd9145CCE52D386f254917e481eB44e9943F39138",
+                    address = "0xd9145cce52d386f254917e481eb44e9943f39138",
                     topics =
                         listOf(
                             "0x4275a3c6c689ed5bba95c8c92a82908d2a55331ad3a145c52459468a14290696",
@@ -176,7 +176,7 @@ internal class EventUtilsTest {
 
             val event =
                 TxEvent(
-                    address = "0xd9145CCE52D386f254917e481eB44e9943F39138",
+                    address = "0xd9145cce52d386f254917e481eb44e9943f39138",
                     topics =
                         listOf(
                             "0xee22d2969847e9b3ce81f2f1017daba3a00efb92015cd57c4f82b23efd395175",
@@ -196,7 +196,7 @@ internal class EventUtilsTest {
                                 "addresses" to
                                     listOf(
                                         "0xf8e81D47203A594245E36C48e151709F0C19fBe8",
-                                        "0xd9145CCE52D386f254917e481eB44e9943F39138",
+                                        "0xd9145cce52d386f254917e481eb44e9943f39138",
                                     ),
                             ),
                         eventType = "Addresses",
@@ -250,7 +250,7 @@ internal class EventUtilsTest {
 
             val event =
                 TxEvent(
-                    address = "0xd9145CCE52D386f254917e481eB44e9943F39138",
+                    address = "0xd9145cce52d386f254917e481eb44e9943f39138",
                     topics =
                         listOf(
                             "0x47d28b546cfbaa97e724e43a14c2fcfffb8aaf78ce3aaaae2efa7e34944cca50",
@@ -320,7 +320,7 @@ internal class EventUtilsTest {
 
             val event =
                 TxEvent(
-                    address = "0xd9145CCE52D386f254917e481eB44e9943F39138",
+                    address = "0xd9145cce52d386f254917e481eb44e9943f39138",
                     topics =
                         listOf(
                             "0x34c98f23004767b9ed37733437325f103ec0d3b244d31fb2989deaf75dbcc94b",
