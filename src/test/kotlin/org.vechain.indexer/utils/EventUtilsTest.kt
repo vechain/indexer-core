@@ -1,7 +1,5 @@
 package org.vechain.indexer.utils
 
-import java.math.BigInteger
-import java.util.*
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.EventMockFactory.transferAbiElement
@@ -16,6 +14,8 @@ import strikt.api.expectThat
 import strikt.api.expectThrows
 import strikt.assertions.isEqualTo
 import strikt.assertions.message
+import java.math.BigInteger
+import java.util.*
 
 internal class EventUtilsTest {
     @Nested
@@ -72,7 +72,7 @@ internal class EventUtilsTest {
                         returnValues =
                             mapOf(
                                 "from" to
-                                    "0x0000000000000000000000000000000000000000000000000000000000000000"
+                                    "0x0000000000000000000000000000000000000000000000000000000000000000",
                             ),
                         eventType = "RandomEvent",
                     ),
@@ -97,7 +97,7 @@ internal class EventUtilsTest {
 
             val event =
                 TxEvent(
-                    address = "0xd9145CCE52D386f254917e481eB44e9943F39138",
+                    address = "0xd9145cce52d386f254917e481eb44e9943f39138",
                     topics =
                         listOf(
                             "0x54612034f490f8c9efbbf618b99e0dd23834387135bf603e7f77f36ab5a0dc59",
@@ -196,7 +196,7 @@ internal class EventUtilsTest {
                                 "addresses" to
                                     listOf(
                                         "0xf8e81D47203A594245E36C48e151709F0C19fBe8",
-                                        "0xd9145CCE52D386f254917e481eB44e9943F39138"
+                                        "0xd9145CCE52D386f254917e481eB44e9943F39138",
                                     ),
                             ),
                         eventType = "Addresses",
@@ -414,13 +414,12 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                    EventUtils.isEventValid(
-                        event,
-                        listOf(transferAbiElement),
-                        listOf(transferEvent.address),
-                    ),
-                )
-                .isEqualTo(true)
+                EventUtils.isEventValid(
+                    event,
+                    listOf(transferAbiElement),
+                    listOf(transferEvent.address),
+                ),
+            ).isEqualTo(true)
         }
 
         @Test
@@ -433,13 +432,12 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                    EventUtils.isEventValid(
-                        event,
-                        listOf(transferAbiElement),
-                        listOf(transferEvent.address.uppercase(Locale.getDefault())),
-                    ),
-                )
-                .isEqualTo(true)
+                EventUtils.isEventValid(
+                    event,
+                    listOf(transferAbiElement),
+                    listOf(transferEvent.address.uppercase(Locale.getDefault())),
+                ),
+            ).isEqualTo(true)
         }
 
         @Test
@@ -452,13 +450,12 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                    EventUtils.isEventValid(
-                        event,
-                        listOf(transferAbiElement),
-                        listOf("0xdeaddeaddeaddeaddeaddeaddead"),
-                    ),
-                )
-                .isEqualTo(false)
+                EventUtils.isEventValid(
+                    event,
+                    listOf(transferAbiElement),
+                    listOf("0xdeaddeaddeaddeaddeaddeaddead"),
+                ),
+            ).isEqualTo(false)
         }
 
         @Test
