@@ -222,12 +222,15 @@ object EventMockFactory {
     fun createMockTransaction(txOutputs: List<TxOutputs>): Transaction =
         Transaction(
             id = "0xtxID",
+            type = 81,
             chainTag = 74,
             blockRef = "0xblockRef",
             expiration = 30,
             clauses = emptyList(),
-            gasPriceCoef = 1,
+            gasPriceCoef = null,
             gas = 50000,
+            maxFeePerGas = "0xDE0B6B3A7640000",
+            maxPriorityFeePerGas = "0xF4240",
             origin = "0xorigin",
             delegator = null,
             nonce = "0x1",

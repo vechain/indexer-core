@@ -21,7 +21,7 @@ const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
  * **LogsIndexer**
  *
  * Handles event logs and VET transfer logs from the VeChain Thor blockchain. Supports configurable
- * filtering and processing of both event and transfer logs.
+ * filtering and processing of both events and transfer logs.
  *
  * This indexer iterates through blockchain transactions, extracts logs based on criteria, and
  * processes them accordingly.
@@ -59,7 +59,7 @@ abstract class LogsIndexer(
      * @param events A list of `EventLog` instances representing on-chain event logs.
      * @param transfers A list of `TransferLog` instances representing VET transfer logs.
      *
-     * **Implementation Note:**
+     * **Implementation Note: **
      * - Subclasses **must** override this function.
      * - Depending on the `logsType` configuration, either **or both** lists may be empty.
      * - If only `LogType.EVENT` is enabled, `transfers` will be an empty list.
@@ -125,10 +125,9 @@ abstract class LogsIndexer(
                 val logsBatch = fetchLogs(currentBlockNumber, batchEndBlock)
 
                 // Log sync status
-                if (logger.isTraceEnabled) {
-                    logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
-                } else if (
-                    hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
+                if (
+                    logger.isTraceEnabled ||
+                        hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
                 ) {
                     logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
                 }

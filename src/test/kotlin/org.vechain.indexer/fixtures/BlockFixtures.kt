@@ -10,6 +10,7 @@ object BlockFixtures {
     val BLOCK_B3TR_ACTION = buildBlockFixture("blocks/b3tr_action_block.json")
     val BLOCK_TOKEN_EXCHANGE = buildBlockFixture("blocks/token_exchange_block.json")
     val BLOCK_WITH_INDEXED_ARRAY = buildBlockFixture("blocks/indexed_array_block.json")
+    val BLOCK_DYNAMIC_FEES = buildBlockFixture("blocks/dynamic_fees_block.json")
 
     private fun buildBlockFixture(name: String): Block {
         val resource =

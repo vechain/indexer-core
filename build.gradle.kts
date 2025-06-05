@@ -2,7 +2,7 @@ import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.gradle.api.tasks.testing.logging.TestLogEvent
 
 plugins {
-    kotlin("jvm") version "1.7.22"
+    kotlin("jvm") version "2.1.21"
     id("java-library")
     id("maven-publish")
     id("signing")
@@ -13,7 +13,7 @@ plugins {
 
 group = "org.vechain"
 
-val projectVersion = System.getenv("PROJECT_VERSION") ?: "3.0.1"
+val projectVersion = System.getenv("PROJECT_VERSION") ?: "4.1.1"
 version = projectVersion
 
 repositories {
@@ -146,7 +146,7 @@ tasks.jacocoTestReport { dependsOn(tasks.test) }
 dependencies {
     implementation("com.github.kittinunf.fuel:fuel:2.3.1")
     implementation("com.github.kittinunf.fuel:fuel-coroutines:2.3.1")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.14.2")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
     implementation("org.slf4j:slf4j-api:1.7.32")
     implementation("org.bouncycastle:bcprov-jdk15on:1.70")
 

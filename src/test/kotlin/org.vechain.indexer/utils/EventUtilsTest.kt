@@ -17,6 +17,7 @@ import strikt.api.expectThat
 import strikt.api.expectThrows
 import strikt.assertions.isEqualTo
 import strikt.assertions.message
+import java.util.*
 
 internal class EventUtilsTest {
     @Nested

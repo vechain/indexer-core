@@ -15,6 +15,7 @@ class BlockTestBuilder {
                 size = 0,
                 gasUsed = 0,
                 gasLimit = 0,
+                baseFeePerGas = "0x1e8c7ba68caf",
                 parentID = parentId,
                 beneficiary = "",
                 totalScore = 0,
