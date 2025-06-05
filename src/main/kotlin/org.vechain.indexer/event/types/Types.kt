@@ -1,10 +1,10 @@
 package org.vechain.indexer.event.types
 
-import java.math.BigInteger
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.utils.DataUtils
+import java.math.BigInteger
 
 enum class Types {
     ADDRESS {
@@ -90,8 +90,10 @@ enum class Types {
     BYTES {
         override fun isType(typeName: String): Boolean =
             typeName == "bytes" ||
-                (typeName.startsWith("bytes") &&
-                    typeName.removePrefix("bytes").toIntOrNull() in 1..32)
+                (
+                    typeName.startsWith("bytes") &&
+                        typeName.removePrefix("bytes").toIntOrNull() in 1..32
+                )
 
         override fun <T> decode(
             encoded: String,
@@ -150,50 +152,50 @@ enum class Types {
 
             val inputData = DataUtils.removePrefix(fullData ?: encoded)
             val decodedComponents = mutableMapOf<String, Any?>()
-            var currentOffset = startPosition
 
-            // Decode each component in the tuple
+            val startPositionInfo = inputData.substring(startPosition, startPosition + 64)
+            val startPosOfTuple = DataUtils.decodeQuantity(DataUtils.addPrefix(startPositionInfo)).toInt() * 2
+
+            val tupleData = inputData.substring(startPosOfTuple)
+
+            var currentOffset = 0
             for (component in components) {
-                // Extract the next 32 bytes
                 if (inputData.length < currentOffset + 64) {
-                    throw IllegalArgumentException(
-                        "Data too short for tuple component at offset $currentOffset"
-                    )
+                    throw IllegalArgumentException("Data too short for tuple component at offset $currentOffset")
                 }
-                val componentData = inputData.substring(currentOffset, currentOffset + 64)
 
-                // Decode the component based on its type
+                val componentData = tupleData.substring(currentOffset, currentOffset + 64)
+                var startPos = currentOffset
                 val decodedComponent =
-                    Types.values()
+                    Types
+                        .values()
                         .firstOrNull { it.isType(component.type) }
                         ?.decode(
                             encoded = DataUtils.addPrefix(componentData),
                             clazz = Any::class.java,
                             name = component.type,
-                            fullData = fullData,
-                            startPosition = currentOffset,
+                            fullData = tupleData,
+                            startPosition = startPos,
+                            components = component.components, // for nested tuples
                         )
-                        ?: throw IllegalArgumentException(
-                            "Unsupported type in tuple: ${component.type}"
-                        )
+                        ?: throw IllegalArgumentException("Unsupported type in tuple: ${component.type}")
 
                 decodedComponents[component.name] = decodedComponent.actualValue
-                currentOffset += 64 // Move to the next 32-byte slot
+                currentOffset += 64
             }
 
             return DecodedValue(
                 decodedComponents.toString(),
                 clazz,
                 clazz.cast(decodedComponents),
-                name
+                name,
             )
         }
 
         override fun getClaas(): Class<*> = List::class.java
     },
     ARRAY {
-        override fun isType(typeName: String): Boolean =
-            typeName.endsWith("[]") || typeName.matches(Regex(".+\\[\\d+\\]"))
+        override fun isType(typeName: String): Boolean = typeName.endsWith("[]") || typeName.matches(Regex(".+\\[\\d+\\]"))
 
         override fun <T> decode(
             encoded: String,
@@ -250,14 +252,12 @@ enum class Types {
                 }
                 val offsetHex = inputData.substring(startPosition, startPosition + 64)
                 val offset = DataUtils.decodeQuantity(DataUtils.addPrefix(offsetHex)).toInt()
-
                 if (offset * 2 + 64 > inputData.length) {
                     throw IllegalArgumentException("Invalid offset or data length")
                 }
 
                 val lengthHex = inputData.substring(offset * 2, offset * 2 + 64)
                 val length = DataUtils.decodeQuantity(DataUtils.addPrefix(lengthHex)).toInt()
-
                 val stringStart = offset * 2 + 64
                 val stringEnd = stringStart + length * 2
 
@@ -292,7 +292,12 @@ enum class Types {
             val arrayLength = DataUtils.decodeQuantity(DataUtils.addPrefix(arrayLengthHex)).toInt()
 
             val decodedArray = mutableListOf<Any>()
-            var currentOffset = arrayOffset + 64 // Start after the array length field
+            var currentOffset = arrayOffset + 64
+            var arrayData: String? = null
+            if (elementType == "bytes" || elementType == "string") {
+                arrayData = inputData.substring(arrayOffset + 64)
+                currentOffset = 0 // Reset offset for dynamic types
+            }
             for (i in 0 until arrayLength) {
                 val elementData = inputData.substring(currentOffset, currentOffset + 64)
                 try {
@@ -301,12 +306,14 @@ enum class Types {
                     val element =
                         decodeBasicType<Any>(
                             elementType,
-                            prefixedElementData
+                            prefixedElementData,
+                            fullData = arrayData,
+                            startPosition = currentOffset, // Start position for the element
                         ) // Decode individual elements
                     decodedArray.add(element.actualValue)
                 } catch (e: Exception) {
                     logger.error(
-                        "Error decoding element $i of type $elementType at offset $currentOffset: ${e.message}"
+                        "Error decoding element $i of type $elementType at offset $currentOffset: ${e.message}",
                     )
                     throw e
                 }
@@ -334,10 +341,13 @@ enum class Types {
         private inline fun <reified T> decodeBasicType(
             typeName: String,
             encoded: String,
+            fullData: String? = null,
+            startPosition: Int = 0,
         ): DecodedValue<T> =
-            Types.values()
+            Types
+                .values()
                 .firstOrNull { it.isType(typeName) }
-                ?.decode(encoded, T::class.java, typeName, null, 0) // Pass correct type to decode
-            ?: throw IllegalArgumentException("Unsupported type: $typeName")
+                ?.decode(encoded, T::class.java, typeName, fullData, startPosition) // Pass correct type to decode
+                ?: throw IllegalArgumentException("Unsupported type: $typeName")
     }
 }
