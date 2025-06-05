@@ -1,5 +1,7 @@
 package org.vechain.indexer.utils
 
+import java.math.BigInteger
+import java.util.*
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.EventMockFactory.transferAbiElement
@@ -15,8 +17,6 @@ import strikt.api.expectThat
 import strikt.api.expectThrows
 import strikt.assertions.isEqualTo
 import strikt.assertions.message
-import java.math.BigInteger
-import java.util.*
 
 internal class EventUtilsTest {
     @Nested
@@ -317,7 +317,8 @@ internal class EventUtilsTest {
                                 "lister" to "0x71b8e51af9280e8bef933586b7de30eb01c0cd92",
                                 "updatedItem" to
                                     mapOf(
-                                        "tokenOwner" to "0x71b8e51af9280e8bef933586b7de30eb01c0cd92",
+                                        "tokenOwner" to
+                                            "0x71b8e51af9280e8bef933586b7de30eb01c0cd92",
                                         "itemId" to BigInteger("92"),
                                         "tokenId" to BigInteger("9034"),
                                         "startTime" to BigInteger("0"),
@@ -461,12 +462,13 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                EventUtils.isEventValid(
-                    event,
-                    listOf(transferAbiElement),
-                    listOf(transferEvent.address),
-                ),
-            ).isEqualTo(true)
+                    EventUtils.isEventValid(
+                        event,
+                        listOf(transferAbiElement),
+                        listOf(transferEvent.address),
+                    ),
+                )
+                .isEqualTo(true)
         }
 
         @Test
@@ -479,12 +481,13 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                EventUtils.isEventValid(
-                    event,
-                    listOf(transferAbiElement),
-                    listOf(transferEvent.address.uppercase(Locale.getDefault())),
-                ),
-            ).isEqualTo(true)
+                    EventUtils.isEventValid(
+                        event,
+                        listOf(transferAbiElement),
+                        listOf(transferEvent.address.uppercase(Locale.getDefault())),
+                    ),
+                )
+                .isEqualTo(true)
         }
 
         @Test
@@ -497,12 +500,13 @@ internal class EventUtilsTest {
                 )
 
             expectThat(
-                EventUtils.isEventValid(
-                    event,
-                    listOf(transferAbiElement),
-                    listOf("0xdeaddeaddeaddeaddeaddeaddead"),
-                ),
-            ).isEqualTo(false)
+                    EventUtils.isEventValid(
+                        event,
+                        listOf(transferAbiElement),
+                        listOf("0xdeaddeaddeaddeaddeaddeaddead"),
+                    ),
+                )
+                .isEqualTo(false)
         }
 
         @Test

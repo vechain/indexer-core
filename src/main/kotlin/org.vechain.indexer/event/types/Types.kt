@@ -1,10 +1,10 @@
 package org.vechain.indexer.event.types
 
+import java.math.BigInteger
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.utils.DataUtils
-import java.math.BigInteger
 
 enum class Types {
     ADDRESS {
@@ -90,10 +90,8 @@ enum class Types {
     BYTES {
         override fun isType(typeName: String): Boolean =
             typeName == "bytes" ||
-                (
-                    typeName.startsWith("bytes") &&
-                        typeName.removePrefix("bytes").toIntOrNull() in 1..32
-                )
+                (typeName.startsWith("bytes") &&
+                    typeName.removePrefix("bytes").toIntOrNull() in 1..32)
 
         override fun <T> decode(
             encoded: String,
@@ -175,8 +173,7 @@ enum class Types {
                 val componentData = tupleData.substring(currentOffset, currentOffset + 64)
                 var startPos = currentOffset
                 val decodedComponent =
-                    Types
-                        .values()
+                    Types.values()
                         .firstOrNull { it.isType(component.type) }
                         ?.decode(
                             encoded = DataUtils.addPrefix(componentData),
@@ -205,7 +202,8 @@ enum class Types {
         override fun getClaas(): Class<*> = List::class.java
     },
     ARRAY {
-        override fun isType(typeName: String): Boolean = typeName.endsWith("[]") || typeName.matches(Regex(".+\\[\\d+\\]"))
+        override fun isType(typeName: String): Boolean =
+            typeName.endsWith("[]") || typeName.matches(Regex(".+\\[\\d+\\]"))
 
         override fun <T> decode(
             encoded: String,
@@ -354,8 +352,7 @@ enum class Types {
             fullData: String? = null,
             startPosition: Int = 0,
         ): DecodedValue<T> =
-            Types
-                .values()
+            Types.values()
                 .firstOrNull { it.isType(typeName) }
                 ?.decode(
                     encoded,
@@ -364,7 +361,7 @@ enum class Types {
                     fullData,
                     startPosition,
                 ) // Pass correct type to decode
-                ?: throw IllegalArgumentException("Unsupported type: $typeName")
+            ?: throw IllegalArgumentException("Unsupported type: $typeName")
     }
 
     fun isTupleDynamic(components: List<InputOutput>): Boolean =
