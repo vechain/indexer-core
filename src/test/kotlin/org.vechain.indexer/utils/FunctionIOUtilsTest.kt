@@ -1,6 +1,6 @@
 package org.vechain.indexer.utils
 
-import kotlin.test.assertEquals
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.event.utils.FunctionReturnDecoder
