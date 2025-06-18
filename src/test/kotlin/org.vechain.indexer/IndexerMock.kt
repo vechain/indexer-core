@@ -12,8 +12,8 @@ import org.vechain.indexer.thor.model.BlockIdentifier
 class IndexerMock(
     private val mocker: IndexerResponseMocker,
     thorClientMock: ThorClient,
-    abiManagerMock: AbiManager?,
-    businessEventManagerMock: BusinessEventManager?,
+    abiManagerMock: AbiManager? = null,
+    businessEventManagerMock: BusinessEventManager? = null,
     private val useMock: Boolean = false,
 ) :
     BlockIndexer(

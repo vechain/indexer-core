@@ -21,7 +21,6 @@ import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_DYNAMIC_FEES
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STRINGS
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_TOKEN_EXCHANGE
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_WITH_INDEXED_ARRAY
-import org.vechain.indexer.helpers.FileLoaderHelper
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
@@ -531,16 +530,10 @@ internal class IndexerTest {
 
         @Test
         fun `should process business events correctly and map to correct one`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val abiManager = AbiManager("test-abis")
 
             // Create the indexer with mocked dependencies
-            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager)
 
             // Input block to process
             val block: Block = BLOCK_WITH_INDEXED_ARRAY
@@ -566,16 +559,10 @@ internal class IndexerTest {
 
         @Test
         fun `should process block with dynamic fees correctly`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val abiManager = AbiManager("test-abis")
 
             // Create the indexer with mocked dependencies
-            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager)
 
             // Input block to process
             val block: Block = BLOCK_DYNAMIC_FEES
@@ -601,7 +588,7 @@ internal class IndexerTest {
 
         @Test
         fun `processAllEvents skips business event processing when manager is null`() {
-            indexer = IndexerMock(responseMocker, thorClient, abiManager, null)
+            indexer = IndexerMock(responseMocker, thorClient, abiManager)
 
             val block =
                 EventMockFactory.createMockBlockWithTransactions(
@@ -665,7 +652,7 @@ internal class IndexerTest {
 
         @Test
         fun `processBlockGenericEvents returns empty list when manager is null`() {
-            indexer = IndexerMock(responseMocker, thorClient, null, null)
+            indexer = IndexerMock(responseMocker, thorClient)
 
             val block =
                 EventMockFactory.createMockBlockWithTransactions(
@@ -725,19 +712,11 @@ internal class IndexerTest {
 
         @Test
         fun `should get latest business events and generic events`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager("business-events")
+            val abiManager = AbiManager("test-abis")
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val block: Block = BLOCK_B3TR_ACTION
@@ -761,19 +740,11 @@ internal class IndexerTest {
 
         @Test
         fun `should return all business events and all generic events if remove duplicates is false `() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager("business-events")
+            val abiManager = AbiManager("test-abis")
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val block: Block = BLOCK_B3TR_ACTION
@@ -801,19 +772,11 @@ internal class IndexerTest {
 
         @Test
         fun `should return all VET transfers as events if vet transfers is set to true`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager("business-events")
+            val abiManager = AbiManager("test-abis")
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val block: Block = BLOCK_B3TR_ACTION
@@ -845,19 +808,11 @@ internal class IndexerTest {
 
         @Test
         fun `should filter events based on names if event names to process was passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager("business-events")
+            val abiManager = AbiManager("test-abis")
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val block: Block = BLOCK_B3TR_ACTION
@@ -887,19 +842,11 @@ internal class IndexerTest {
 
         @Test
         fun `should filter events based on abi names if passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager("business-events")
+            val abiManager = AbiManager("test-abis")
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val block: Block = BLOCK_STRINGS
@@ -931,19 +878,11 @@ internal class IndexerTest {
 
         @Test
         fun `should filter events based on contract address if passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager("business-events")
+            val abiManager = AbiManager("test-abis")
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val block: Block = BLOCK_B3TR_ACTION
@@ -972,19 +911,11 @@ internal class IndexerTest {
 
         @Test
         fun `should return empty result if no events for contract address`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager("business-events")
+            val abiManager = AbiManager("test-abis")
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val block: Block = BLOCK_B3TR_ACTION
@@ -1004,19 +935,11 @@ internal class IndexerTest {
 
         @Test
         fun `should apply multiple filters if multiple are passed in`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager("business-events")
+            val abiManager = AbiManager("test-abis")
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val block: Block = BLOCK_STRINGS
@@ -1046,18 +969,12 @@ internal class IndexerTest {
 
         @Test
         fun `should get latest block and process events correctly`() {
-            val businessEventManager = mockk<BusinessEventManager>()
-            val abiManager = AbiManager()
+            val abiManager = AbiManager("test-abis")
             every { businessEventManager.updateCriteriaWithBusinessEvents(any()) } returns
                 FilterCriteria()
 
             // Create the indexer with mocked dependencies
-            val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
+            val indexer = IndexerMock(responseMocker, thorClient, abiManager)
 
             // Input block to process
             val block: Block = BLOCK_STRINGS
@@ -1122,19 +1039,11 @@ internal class IndexerTest {
 
         @Test
         fun `should process business events correctly and map to correct one`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager("business-events")
+            val abiManager = AbiManager("test-abis")
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val block: Block = BLOCK_TOKEN_EXCHANGE
@@ -1207,7 +1116,7 @@ internal class IndexerTest {
 
         @Test
         fun `processBlockBusinessEvents returns empty list when manager is null`() {
-            indexer = IndexerMock(responseMocker, thorClient, null, null)
+            indexer = IndexerMock(responseMocker, thorClient)
 
             val b3trSwapVot3IndexedEvent =
                 EventMockFactory.createIndexedEvent(
