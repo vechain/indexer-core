@@ -3,8 +3,8 @@ package org.vechain.indexer.event
 import com.fasterxml.jackson.core.type.TypeReference
 import org.vechain.indexer.event.model.abi.AbiElement
 
-class AbiManager(abiDirectory: String, envParams: Map<String, String> = emptyMap()) :
-    ResourceManager(abiDirectory, envParams) {
+class AbiManager(abiDirectory: String) :
+    ResourceManager(abiDirectory) {
 
     private val abis = mutableMapOf<String, List<AbiElement>>()
 
