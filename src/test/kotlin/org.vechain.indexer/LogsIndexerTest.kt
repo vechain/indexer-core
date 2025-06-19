@@ -19,6 +19,8 @@ import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_TOKEN_EXCHANGE
 import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_B3TR_ACTION
 import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_STRINGS
 import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_TOKEN_EXCHANGE
+import org.vechain.indexer.fixtures.FileFixtures.abiFiles
+import org.vechain.indexer.fixtures.FileFixtures.businessEventFiles
 import org.vechain.indexer.fixtures.TransferLogFixtures.LOGS_VET_TRANSFER
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.enums.LogType
@@ -595,8 +597,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should get latest business events and generic events`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer =
@@ -637,8 +639,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should return all business events and all generic events if remove duplicates is false `() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -685,8 +687,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should return all VET transfers as events if vet transfers is set to true`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -741,8 +743,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should filter events based on names if event names to process was passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -791,8 +793,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should filter events based on abi names if passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -843,8 +845,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should filter events based on contract address if passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -891,8 +893,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should return empty result if no events for contract address`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -927,8 +929,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should apply multiple filters if multiple are passed in`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -977,8 +979,9 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should process business events correctly and map to correct one`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -1030,7 +1033,7 @@ internal class LogsIndexerTest {
         @Test
         fun `should get latest block and process events correctly`() {
             val businessEventManager = mockk<BusinessEventManager>()
-            val abiManager = AbiManager("test-abis")
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 

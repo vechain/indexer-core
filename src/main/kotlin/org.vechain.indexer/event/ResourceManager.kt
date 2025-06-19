@@ -7,22 +7,14 @@ import java.util.regex.Pattern
 import org.slf4j.Logger
 import org.vechain.indexer.event.utils.FileUtils
 
-abstract class ResourceManager(
-    protected val resourceDirectory: String,
-    protected val envParams: Map<String, String> = emptyMap()
-) {
+abstract class ResourceManager(protected val envParams: Map<String, String> = emptyMap()) {
     protected val logger: Logger = org.slf4j.LoggerFactory.getLogger(this::class.java)
     protected val objectMapper: ObjectMapper = ObjectMapper().registerKotlinModule()
 
-    protected fun listJsonFiles(): List<String> =
-        FileUtils.listJsonFilesInClasspathDir(resourceDirectory)
-
     protected fun readAndSubstituteJson(path: String): String? {
-        val inputStream = FileUtils.getResourceAsStream(path)
-        if (inputStream == null) {
-            logger.warn("⚠️Could not find resource for $path")
-            return null
-        }
+        val inputStream =
+            FileUtils.getResourceAsStream(path)
+                ?: throw IllegalStateException("Resource not found: $path")
         val originalJson = inputStream.bufferedReader().use { it.readText() }
         val substitutedJson = substitutePlaceholders(originalJson, envParams)
         if (substitutedJson.contains("\${")) {

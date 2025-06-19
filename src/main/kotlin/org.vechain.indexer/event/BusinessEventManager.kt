@@ -3,8 +3,10 @@ package org.vechain.indexer.event
 import org.vechain.indexer.event.model.business.BusinessEventDefinition
 import org.vechain.indexer.event.model.generic.FilterCriteria
 
-class BusinessEventManager(eventDirectory: String, envParams: Map<String, String> = emptyMap()) :
-    ResourceManager(eventDirectory, envParams) {
+class BusinessEventManager(
+    private val eventFiles: List<String>,
+    envParams: Map<String, String> = emptyMap()
+) : ResourceManager(envParams) {
 
     private val businessEvents = mutableMapOf<String, BusinessEventDefinition>()
 
@@ -16,10 +18,9 @@ class BusinessEventManager(eventDirectory: String, envParams: Map<String, String
     }
 
     fun loadBusinessEvents(): List<BusinessEventDefinition> {
-        val jsonFiles = listJsonFiles()
         val loadedEvents = mutableListOf<BusinessEventDefinition>()
 
-        for (path in jsonFiles) {
+        for (path in eventFiles) {
             val substitutedJson = readAndSubstituteJson(path) ?: continue
             try {
                 val event =

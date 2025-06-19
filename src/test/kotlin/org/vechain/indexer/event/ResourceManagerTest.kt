@@ -3,17 +3,13 @@ package org.vechain.indexer.event
 import java.io.File
 import org.junit.jupiter.api.*
 import strikt.api.expectThat
-import strikt.assertions.containsExactly
 import strikt.assertions.isEqualTo
-import strikt.assertions.isNull
 
-class TestResourceManager(resourceDirectory: String, envParams: Map<String, String> = emptyMap()) :
-    ResourceManager(resourceDirectory, envParams) {
+class TestResourceManager(envParams: Map<String, String> = emptyMap()) :
+    ResourceManager(envParams) {
     // Expose protected for testing
     fun publicSubstitutePlaceholders(text: String, params: Map<String, String>) =
         substitutePlaceholders(text, params)
-
-    fun publicListJsonFiles() = listJsonFiles()
 
     fun publicReadAndSubstituteJson(path: String) = readAndSubstituteJson(path)
 }
@@ -34,7 +30,7 @@ class ResourceManagerTest {
                     ?: error("Test resource dir not found")
             )
         if (!dir.exists()) error("Test resource dir not found")
-        manager = TestResourceManager(testDir, envParams)
+        manager = TestResourceManager(envParams)
     }
 
     @Test
@@ -52,15 +48,11 @@ class ResourceManagerTest {
     }
 
     @Test
-    fun `readAndSubstituteJson returns null if resource not found`() {
-        val result = manager.publicReadAndSubstituteJson("$testDir/missing.json")
-        expectThat(result).isNull()
-    }
+    fun `readAndSubstituteJson throws is file not found`() {
+        // Ensure an exception is thrown when the file does not exist
 
-    @Test
-    fun `listJsonFiles delegates to FileUtils`() {
-        val files = manager.publicListJsonFiles()
-        // Should contain test.json if present in test-resources
-        expectThat(files.map { it.substringAfterLast("/") }).containsExactly("test.json")
+        Assertions.assertThrows(IllegalStateException::class.java) {
+            manager.publicReadAndSubstituteJson("$testDir/nonexistent.json")
+        }
     }
 }

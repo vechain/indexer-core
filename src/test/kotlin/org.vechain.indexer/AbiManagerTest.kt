@@ -3,6 +3,7 @@ package org.vechain.indexer
 import io.mockk.unmockkAll
 import org.junit.jupiter.api.*
 import org.vechain.indexer.event.AbiManager
+import org.vechain.indexer.fixtures.FileFixtures.abiFiles
 import strikt.api.expectThat
 import strikt.assertions.containsKeys
 import strikt.assertions.hasSize
@@ -21,7 +22,7 @@ class AbiManagerTest {
     inner class LoadAbisTests {
         @Test
         fun `should load ABIs when a valid file stream passed in`() {
-            abiManager = AbiManager("test-abis")
+            abiManager = AbiManager(abiFiles)
 
             val loadedAbis = abiManager.getAbis()
             expectThat(loadedAbis).containsKeys("SampleABI1", "SampleABI2")
@@ -34,7 +35,7 @@ class AbiManagerTest {
     inner class GetAbisTests {
         @Test
         fun `should return loaded ABIs`() {
-            abiManager = AbiManager("test-abis")
+            abiManager = AbiManager(abiFiles)
 
             val abis = abiManager.getAbis()
             expectThat(abis).containsKeys("SampleABI1", "SampleABI2")
@@ -47,7 +48,7 @@ class AbiManagerTest {
     inner class GetEventsByNamesTests {
         @Test
         fun `should return matching events for given ABI and event names`() {
-            abiManager = AbiManager("test-abis")
+            abiManager = AbiManager(abiFiles)
 
             val events = abiManager.getEventsByNames(listOf("SampleABI1"), listOf("Event1"))
             expectThat(events).hasSize(1)

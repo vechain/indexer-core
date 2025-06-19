@@ -21,6 +21,8 @@ import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_DYNAMIC_FEES
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STRINGS
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_TOKEN_EXCHANGE
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_WITH_INDEXED_ARRAY
+import org.vechain.indexer.fixtures.FileFixtures.abiFiles
+import org.vechain.indexer.fixtures.FileFixtures.businessEventFiles
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
@@ -530,7 +532,7 @@ internal class IndexerTest {
 
         @Test
         fun `should process business events correctly and map to correct one`() {
-            val abiManager = AbiManager("test-abis")
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager)
@@ -559,7 +561,7 @@ internal class IndexerTest {
 
         @Test
         fun `should process block with dynamic fees correctly`() {
-            val abiManager = AbiManager("test-abis")
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager)
@@ -712,8 +714,8 @@ internal class IndexerTest {
 
         @Test
         fun `should get latest business events and generic events`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
@@ -740,8 +742,8 @@ internal class IndexerTest {
 
         @Test
         fun `should return all business events and all generic events if remove duplicates is false `() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
@@ -772,8 +774,8 @@ internal class IndexerTest {
 
         @Test
         fun `should return all VET transfers as events if vet transfers is set to true`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
@@ -808,8 +810,8 @@ internal class IndexerTest {
 
         @Test
         fun `should filter events based on names if event names to process was passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
@@ -842,8 +844,8 @@ internal class IndexerTest {
 
         @Test
         fun `should filter events based on abi names if passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
@@ -878,8 +880,8 @@ internal class IndexerTest {
 
         @Test
         fun `should filter events based on contract address if passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
@@ -911,8 +913,8 @@ internal class IndexerTest {
 
         @Test
         fun `should return empty result if no events for contract address`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
@@ -935,8 +937,8 @@ internal class IndexerTest {
 
         @Test
         fun `should apply multiple filters if multiple are passed in`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
@@ -969,7 +971,7 @@ internal class IndexerTest {
 
         @Test
         fun `should get latest block and process events correctly`() {
-            val abiManager = AbiManager("test-abis")
+            val abiManager = AbiManager(abiFiles)
             every { businessEventManager.updateCriteriaWithBusinessEvents(any()) } returns
                 FilterCriteria()
 
@@ -1039,8 +1041,8 @@ internal class IndexerTest {
 
         @Test
         fun `should process business events correctly and map to correct one`() {
-            val businessEventManager = BusinessEventManager("business-events")
-            val abiManager = AbiManager("test-abis")
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer = IndexerMock(responseMocker, thorClient, abiManager, businessEventManager)
