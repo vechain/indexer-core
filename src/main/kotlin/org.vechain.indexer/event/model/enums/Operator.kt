@@ -5,7 +5,7 @@ enum class Operator {
         override fun evaluate(
             a: String,
             b: String,
-        ): Boolean = a == b
+        ): Boolean = a.equals(b, ignoreCase = true)
     },
     NE {
         override fun evaluate(
