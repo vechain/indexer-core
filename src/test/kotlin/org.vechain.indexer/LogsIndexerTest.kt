@@ -19,8 +19,9 @@ import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_TOKEN_EXCHANGE
 import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_B3TR_ACTION
 import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_STRINGS
 import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_TOKEN_EXCHANGE
+import org.vechain.indexer.fixtures.FileFixtures.abiFiles
+import org.vechain.indexer.fixtures.FileFixtures.businessEventFiles
 import org.vechain.indexer.fixtures.TransferLogFixtures.LOGS_VET_TRANSFER
-import org.vechain.indexer.helpers.FileLoaderHelper
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.enums.LogType
 import org.vechain.indexer.thor.model.*
@@ -596,8 +597,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should get latest business events and generic events`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             // Create the indexer with mocked dependencies
             val indexer =
@@ -610,15 +611,8 @@ internal class LogsIndexerTest {
                     abiManager,
                     businessEventManager,
                 )
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
 
             every { responseMocker.rollback(any()) } just Runs
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input logs to process
             val logs: List<EventLog> = LOGS_B3TR_ACTION
@@ -645,8 +639,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should return all business events and all generic events if remove duplicates is false `() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -661,14 +655,6 @@ internal class LogsIndexerTest {
                     abiManager,
                     businessEventManager,
                 )
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input logs to process
             val logs: List<EventLog> = LOGS_B3TR_ACTION
@@ -701,8 +687,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should return all VET transfers as events if vet transfers is set to true`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -717,14 +703,6 @@ internal class LogsIndexerTest {
                     abiManager,
                     businessEventManager,
                 )
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input logs to process
             val eventLogs: List<EventLog> = LOGS_B3TR_ACTION
@@ -765,8 +743,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should filter events based on names if event names to process was passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -782,14 +760,6 @@ internal class LogsIndexerTest {
                     abiManager,
                     businessEventManager,
                 )
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input logs to process
             val eventLogs: List<EventLog> = LOGS_B3TR_ACTION
@@ -823,8 +793,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should filter events based on abi names if passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -839,14 +809,6 @@ internal class LogsIndexerTest {
                     abiManager,
                     businessEventManager,
                 )
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input logs to process
             val logs: List<EventLog> = LOGS_STRINGS
@@ -883,8 +845,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should filter events based on contract address if passed into filter criteria`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -899,14 +861,6 @@ internal class LogsIndexerTest {
                     abiManager,
                     businessEventManager,
                 )
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val logs = LOGS_B3TR_ACTION
@@ -939,8 +893,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should return empty result if no events for contract address`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -955,14 +909,6 @@ internal class LogsIndexerTest {
                     abiManager,
                     businessEventManager,
                 )
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val logs = LOGS_B3TR_ACTION
@@ -983,8 +929,8 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should apply multiple filters if multiple are passed in`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -999,14 +945,6 @@ internal class LogsIndexerTest {
                     abiManager,
                     businessEventManager,
                 )
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input logs to process
             val logs = LOGS_STRINGS
@@ -1041,8 +979,9 @@ internal class LogsIndexerTest {
 
         @Test
         fun `should process business events correctly and map to correct one`() {
-            val businessEventManager = BusinessEventManager()
-            val abiManager = AbiManager()
+
+            val businessEventManager = BusinessEventManager(businessEventFiles)
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -1057,14 +996,6 @@ internal class LogsIndexerTest {
                     abiManager,
                     businessEventManager,
                 )
-
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            val fileStreamsBusiness = FileLoaderHelper.loadJsonFilesFromPath("business-events")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
-            // Load business events
-            businessEventManager.loadBusinessEvents(fileStreamsBusiness)
 
             // Input block to process
             val eventsLogs = LOGS_TOKEN_EXCHANGE
@@ -1102,7 +1033,7 @@ internal class LogsIndexerTest {
         @Test
         fun `should get latest block and process events correctly`() {
             val businessEventManager = mockk<BusinessEventManager>()
-            val abiManager = AbiManager()
+            val abiManager = AbiManager(abiFiles)
 
             every { responseMocker.rollback(any()) } just Runs
 
@@ -1120,10 +1051,6 @@ internal class LogsIndexerTest {
                     abiManager,
                     businessEventManager,
                 )
-            val fileStreamsAbis = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-
-            // Load ABIs required for decoding
-            abiManager.loadAbis(fileStreamsAbis)
 
             // Input block to process
             val logs = LOGS_STRINGS

@@ -1,44 +1,43 @@
 package org.vechain.indexer.event
 
 import com.fasterxml.jackson.core.type.TypeReference
-import java.io.InputStream
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.abi.AbiElement
-import org.vechain.indexer.utils.JsonUtils
 
-class AbiManager {
-    private val logger: Logger = LoggerFactory.getLogger(this::class.java)
+class AbiManager(private val abiFiles: List<String>) : ResourceManager() {
+
     private val abis = mutableMapOf<String, List<AbiElement>>()
 
-    /**
-     * Loads ABIs from a map of input streams.
-     *
-     * @param abiFiles A map where the key is the ABI name, and the value is its InputStream.
-     */
-    fun loadAbis(abiFiles: Map<String, InputStream>) {
-        abiFiles.forEach { (abiName, inputStream) ->
-            try {
-                inputStream.use { stream ->
-                    val abiList =
-                        JsonUtils.mapper.readValue(
-                            stream,
-                            object : TypeReference<List<AbiElement>>() {}
-                        )
-                    abiList.forEach { it.setSignature() }
-                    abis[abiName] = abiList
-                    logger.info("Loaded ABI: $abiName")
-                }
-            } catch (e: Exception) {
-                logger.error("Failed to parse ABI file: $abiName", e)
-            }
+    init {
+        loadAbis().forEach { (fileName, abiEntries) ->
+            abis[fileName] = abiEntries
+            logger.info("Loaded ABI from $fileName with ${abiEntries.size} entries")
         }
     }
 
-    /** Retrieves all loaded ABIs. */
+    fun loadAbis(): Map<String, List<AbiElement>> {
+        val result = mutableMapOf<String, List<AbiElement>>()
+
+        for (path in abiFiles) {
+            val substitutedJson = readAndSubstituteJson(path) ?: continue
+            try {
+                val abiEntries: List<AbiElement> =
+                    objectMapper.readValue(
+                        substitutedJson,
+                        object : TypeReference<List<AbiElement>>() {}
+                    )
+                val fileName = path.substringAfterLast("/").substringBeforeLast(".")
+                result[fileName] = abiEntries
+            } catch (ex: Exception) {
+                logger.error("❌ Error parsing ABI file $path: ${ex.message}")
+                throw ex
+            }
+        }
+        return result
+    }
+
+    // ...existing code (getAbis, getEventsByNames)...
     fun getAbis(): Map<String, List<AbiElement>> = abis
 
-    /** Fetches ABIs for a given list of names and event types. */
     fun getEventsByNames(
         abiNames: List<String>,
         eventNames: List<String>,

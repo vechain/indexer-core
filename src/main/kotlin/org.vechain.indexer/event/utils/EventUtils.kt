@@ -159,12 +159,13 @@ object EventUtils {
         configuredEvents: List<AbiElement>,
         contractAddresses: List<String>,
     ): Boolean {
-        val matchesAbi =
-            configuredEvents.any { it.signature == DataUtils.removePrefix(event.topics[0]) }
-        val matchesContract =
-            contractAddresses.isEmpty() ||
-                contractAddresses.any { it.equals(event.address, ignoreCase = true) }
+        if (event.topics.isEmpty()) return false
 
-        return event.topics.isNotEmpty() && matchesAbi && matchesContract
+        val eventSignature = DataUtils.removePrefix(event.topics[0])
+        val matchesAbi = configuredEvents.any { it.signature == eventSignature }
+        if (!matchesAbi) return false
+
+        return contractAddresses.isEmpty() ||
+            contractAddresses.any { it.equals(event.address, ignoreCase = true) }
     }
 }

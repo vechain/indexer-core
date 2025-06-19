@@ -1,20 +1,20 @@
 [
   {
-    "name": "Event1",
     "type": "event",
-    "anonymous": false,
+    "name": "Event1",
+    "signature": "Event1(address,uint256)",
     "inputs": [
-      { "name": "param1", "type": "uint256", "indexed": true },
-      { "name": "param2", "type": "address", "indexed": false }
+      { "name": "from", "type": "address", "indexed": true },
+      { "name": "value", "type": "uint256", "indexed": false }
     ]
   },
   {
-    "name": "Event2",
     "type": "event",
-    "anonymous": false,
+    "name": "Event2",
+    "signature": "Event2(address,uint256)",
     "inputs": [
-      { "name": "param1", "type": "string", "indexed": true },
-      { "name": "param2", "type": "bytes32", "indexed": false }
+      { "name": "to", "type": "address", "indexed": true },
+      { "name": "amount", "type": "uint256", "indexed": false }
     ]
   }
 ]

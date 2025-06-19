@@ -3,7 +3,7 @@ package org.vechain.indexer
 import io.mockk.unmockkAll
 import org.junit.jupiter.api.*
 import org.vechain.indexer.event.AbiManager
-import org.vechain.indexer.helpers.FileLoaderHelper
+import org.vechain.indexer.fixtures.FileFixtures.abiFiles
 import strikt.api.expectThat
 import strikt.assertions.containsKeys
 import strikt.assertions.hasSize
@@ -12,11 +12,6 @@ import strikt.assertions.isEqualTo
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class AbiManagerTest {
     private lateinit var abiManager: AbiManager
-
-    @BeforeAll
-    fun setUp() {
-        abiManager = AbiManager()
-    }
 
     @AfterAll
     fun tearDown() {
@@ -27,10 +22,7 @@ class AbiManagerTest {
     inner class LoadAbisTests {
         @Test
         fun `should load ABIs when a valid file stream passed in`() {
-            val testAbiPath = "test-abis"
-            val fileStreams = FileLoaderHelper.loadJsonFilesFromPath(testAbiPath)
-            // Load the ABIs
-            abiManager.loadAbis(fileStreams)
+            abiManager = AbiManager(abiFiles)
 
             val loadedAbis = abiManager.getAbis()
             expectThat(loadedAbis).containsKeys("SampleABI1", "SampleABI2")
@@ -43,8 +35,7 @@ class AbiManagerTest {
     inner class GetAbisTests {
         @Test
         fun `should return loaded ABIs`() {
-            val fileStreams = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            abiManager.loadAbis(fileStreams)
+            abiManager = AbiManager(abiFiles)
 
             val abis = abiManager.getAbis()
             expectThat(abis).containsKeys("SampleABI1", "SampleABI2")
@@ -57,8 +48,7 @@ class AbiManagerTest {
     inner class GetEventsByNamesTests {
         @Test
         fun `should return matching events for given ABI and event names`() {
-            val fileStreams = FileLoaderHelper.loadJsonFilesFromPath("test-abis")
-            abiManager.loadAbis(fileStreams)
+            abiManager = AbiManager(abiFiles)
 
             val events = abiManager.getEventsByNames(listOf("SampleABI1"), listOf("Event1"))
             expectThat(events).hasSize(1)
