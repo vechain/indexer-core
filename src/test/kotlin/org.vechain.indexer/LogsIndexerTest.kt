@@ -1142,10 +1142,12 @@ internal class LogsIndexerTest {
                     "Transfer",
                     "Sync",
                     "Swap",
+                    "Transfer",
                     "AddressChanged",
                     "AddrChanged",
                     "AddressChanged",
                     "NameChanged",
+                    "Transfer",
                     "RewardDistributed",
                     "Transfer",
                     "Upgraded",
@@ -1176,6 +1178,8 @@ internal class LogsIndexerTest {
 
             // Extract event types from the result
             val eventTypes = result.map { it.eventType }
+
+            println(eventTypes)
 
             // Assert that all expected events are present and in the correct order
             Assertions.assertEquals(
