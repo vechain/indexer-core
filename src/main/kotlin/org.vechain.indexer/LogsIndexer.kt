@@ -1,5 +1,7 @@
 package org.vechain.indexer
 
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.GenericEventIndexer
@@ -11,8 +13,6 @@ import org.vechain.indexer.thor.enums.LogType
 import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.matchesEventCriteria
 import org.vechain.indexer.utils.matchesTransferCriteria
-import java.time.LocalDateTime
-import java.time.ZoneOffset
 
 const val BLOCK_BATCH_SIZE = 100L //  Block batch size
 const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
@@ -127,7 +127,7 @@ abstract class LogsIndexer(
                 // Log sync status
                 if (
                     logger.isTraceEnabled ||
-                    hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
+                        hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
                 ) {
                     logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
                 }
