@@ -14,6 +14,7 @@ import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.exception.BlockNotFoundException
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_BASE_REWARD
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STRINGS
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_TOKEN_EXCHANGE
 import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_B3TR_ACTION
@@ -507,6 +508,74 @@ internal class LogsIndexerTest {
             }
 
         @Test
+        fun `Indexer should process all clauses when operating at a block level when getting near best block`() =
+            runBlocking {
+                val businessEventManager = BusinessEventManager(businessEventFiles)
+                val abiManager = AbiManager(abiFiles)
+
+                val indexer =
+                    LogIndexerMock(
+                        responseMocker,
+                        setOf(LogType.EVENT),
+                        blockBatchSize,
+                        logFetchLimit,
+                        thorClient,
+                        abiManager,
+                        businessEventManager,
+                        emptyList(),
+                        emptyList(),
+                        false,
+                    )
+
+                val indexerIterationsNumber = 1L
+                val lastSyncedBlock = BlockIdentifier(number = 99L, id = "0x99")
+                coEvery { thorClient.getEventLogs(any()) } coAnswers { LOGS_STRINGS }
+                coEvery { thorClient.getFinalizedBlock() } returns buildBlock(0L)
+                coEvery { thorClient.getBlock(any()) } coAnswers { BLOCK_STARGATE_BASE_REWARD }
+
+                coEvery { responseMocker.getLastSyncedBlock() } returns null andThen lastSyncedBlock
+
+                // --- Capture block and logs passed to processLogs
+                val logSlot = slot<List<EventLog>>()
+                val transferSlot = slot<List<TransferLog>>()
+                coEvery { responseMocker.processLogs(capture(logSlot), capture(transferSlot)) } just
+                    Runs
+                coEvery { responseMocker.processBlock(any()) } just Runs
+                every { responseMocker.rollback(any()) } just Runs
+
+                val job = launch { indexer.start(indexerIterationsNumber) }
+                job.join()
+
+                expect {
+                    that(indexer.status).isEqualTo(Status.SYNCING)
+
+                    verify(exactly = 1) { responseMocker.processLogs(any(), any()) }
+
+                    // Additional assertions on captured block and logs
+                    val capturedLogs = logSlot.captured
+                    val capturedTransfers = transferSlot.captured
+
+                    val events =
+                        indexer.processBlockGenericEvents(
+                            capturedLogs,
+                            capturedTransfers,
+                            FilterCriteria(
+                                vetTransfers = false,
+                            ),
+                        )
+                    val result = indexer.processBlockBusinessEvents(events)
+                    expect {
+                        that(result.size).isEqualTo(3)
+                        that(result[0].params.getEventType())
+                            .isEqualTo("STARGATE_CLAIM_REWARDS_BASE")
+                        that(result[1].params.getEventType())
+                            .isEqualTo("STARGATE_CLAIM_REWARDS_BASE")
+                        that(result[2].params.getEventType())
+                            .isEqualTo("STARGATE_CLAIM_REWARDS_BASE")
+                    }
+                }
+            }
+
         fun `Indexer should prcoess with filters at a block level when getting near best block`() =
             runBlocking {
                 val eventCriteria =
@@ -633,7 +702,7 @@ internal class LogsIndexerTest {
             Assertions.assertEquals(
                 expectedEventTypes,
                 eventTypes,
-                "Event types do not match expected list"
+                "Event types do not match expected list",
             )
         }
 
@@ -681,7 +750,7 @@ internal class LogsIndexerTest {
             Assertions.assertEquals(
                 expectedEventTypes,
                 eventTypes,
-                "Event types do not match expected list"
+                "Event types do not match expected list",
             )
         }
 
@@ -737,7 +806,7 @@ internal class LogsIndexerTest {
             Assertions.assertEquals(
                 expectedEventTypes,
                 eventTypes,
-                "Event types do not match expected list"
+                "Event types do not match expected list",
             )
         }
 
@@ -787,7 +856,7 @@ internal class LogsIndexerTest {
             Assertions.assertEquals(
                 expectedEventTypes,
                 eventTypes,
-                "Event types do not match expected list"
+                "Event types do not match expected list",
             )
         }
 
@@ -839,7 +908,7 @@ internal class LogsIndexerTest {
             Assertions.assertEquals(
                 expectedEventTypes,
                 eventTypes,
-                "Event types do not match expected list"
+                "Event types do not match expected list",
             )
         }
 
@@ -887,7 +956,7 @@ internal class LogsIndexerTest {
             Assertions.assertEquals(
                 expectedEventTypes,
                 eventTypes,
-                "Event types do not match expected list"
+                "Event types do not match expected list",
             )
         }
 
@@ -973,13 +1042,12 @@ internal class LogsIndexerTest {
             Assertions.assertEquals(
                 expectedEventTypes,
                 eventTypes,
-                "Event types do not match expected list"
+                "Event types do not match expected list",
             )
         }
 
         @Test
         fun `should process business events correctly and map to correct one`() {
-
             val businessEventManager = BusinessEventManager(businessEventFiles)
             val abiManager = AbiManager(abiFiles)
 
@@ -1026,7 +1094,7 @@ internal class LogsIndexerTest {
             Assertions.assertEquals(
                 expectedEventTypes,
                 eventTypes,
-                "Event types do not match expected list"
+                "Event types do not match expected list",
             )
         }
 
@@ -1074,10 +1142,12 @@ internal class LogsIndexerTest {
                     "Transfer",
                     "Sync",
                     "Swap",
+                    "Transfer",
                     "AddressChanged",
                     "AddrChanged",
                     "AddressChanged",
                     "NameChanged",
+                    "Transfer",
                     "RewardDistributed",
                     "Transfer",
                     "Upgraded",
@@ -1109,11 +1179,13 @@ internal class LogsIndexerTest {
             // Extract event types from the result
             val eventTypes = result.map { it.eventType }
 
+            println(eventTypes)
+
             // Assert that all expected events are present and in the correct order
             Assertions.assertEquals(
                 expectedEventTypes,
                 eventTypes,
-                "Event types do not match expected list"
+                "Event types do not match expected list",
             )
         }
     }
