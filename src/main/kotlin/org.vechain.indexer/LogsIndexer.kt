@@ -1,7 +1,5 @@
 package org.vechain.indexer
 
-import java.time.LocalDateTime
-import java.time.ZoneOffset
 import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.GenericEventIndexer
@@ -13,6 +11,8 @@ import org.vechain.indexer.thor.enums.LogType
 import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.matchesEventCriteria
 import org.vechain.indexer.utils.matchesTransferCriteria
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 
 const val BLOCK_BATCH_SIZE = 100L //  Block batch size
 const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
@@ -127,7 +127,7 @@ abstract class LogsIndexer(
                 // Log sync status
                 if (
                     logger.isTraceEnabled ||
-                        hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
+                    hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
                 ) {
                     logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
                 }
@@ -239,12 +239,12 @@ abstract class LogsIndexer(
         val transferLogs = mutableListOf<TransferLog>()
 
         for (tx in block.transactions) {
-            for (output in tx.outputs) {
+            for ((clauseIndex, output) in tx.outputs.withIndex()) {
                 if (logsType.contains(LogType.EVENT)) {
-                    eventLogs.addAll(processBlockEvents(output, block, tx))
+                    eventLogs.addAll(processBlockEvents(output, block, tx, clauseIndex))
                 }
                 if (logsType.contains(LogType.TRANSFER)) {
-                    transferLogs.addAll(processBlockTransfers(output, block, tx))
+                    transferLogs.addAll(processBlockTransfers(output, block, tx, clauseIndex))
                 }
             }
         }
@@ -271,18 +271,17 @@ abstract class LogsIndexer(
         output: TxOutputs,
         block: Block,
         tx: Transaction,
+        clauseIndex: Int = 0,
     ): List<EventLog> {
         val eventLogs = mutableListOf<EventLog>()
 
         output.events.forEach { event ->
             if (eventCriteriaSet.isNullOrEmpty()) {
-                eventLogs.add(event.toEventLog(block, tx))
-                return@forEach
+                eventLogs.add(event.toEventLog(block, tx, clauseIndex))
             } else {
                 for (criteria in eventCriteriaSet!!) {
                     if (matchesEventCriteria(event, criteria)) {
-                        eventLogs.add(event.toEventLog(block, tx))
-                        return@forEach
+                        eventLogs.add(event.toEventLog(block, tx, clauseIndex))
                     }
                 }
             }
@@ -307,16 +306,17 @@ abstract class LogsIndexer(
         output: TxOutputs,
         block: Block,
         tx: Transaction,
+        clauseIndex: Int = 0,
     ): List<TransferLog> {
         val transferLogs = mutableListOf<TransferLog>()
 
         output.transfers.forEach { transfer ->
             if (transferCriteriaSet.isNullOrEmpty()) {
-                transferLogs.add(transfer.toTransferLog(block, tx))
+                transferLogs.add(transfer.toTransferLog(block, tx, clauseIndex))
             } else {
                 for (criteria in transferCriteriaSet!!) {
                     if (matchesTransferCriteria(transfer, criteria, tx)) {
-                        transferLogs.add(transfer.toTransferLog(block, tx))
+                        transferLogs.add(transfer.toTransferLog(block, tx, clauseIndex))
                     }
                 }
             }
@@ -334,6 +334,7 @@ abstract class LogsIndexer(
     private fun TxEvent.toEventLog(
         block: Block,
         tx: Transaction,
+        clauseIndex: Int = 0,
     ): EventLog =
         EventLog(
             address = this.address,
@@ -346,7 +347,7 @@ abstract class LogsIndexer(
                     blockTimestamp = block.timestamp,
                     txID = tx.id,
                     txOrigin = tx.origin,
-                    clauseIndex = 0,
+                    clauseIndex = clauseIndex,
                 ),
         )
 
@@ -360,6 +361,7 @@ abstract class LogsIndexer(
     private fun TxTransfer.toTransferLog(
         block: Block,
         tx: Transaction,
+        clauseIndex: Int = 0,
     ): TransferLog =
         TransferLog(
             sender = this.sender,
@@ -372,7 +374,7 @@ abstract class LogsIndexer(
                     blockTimestamp = block.timestamp,
                     txID = tx.id,
                     txOrigin = tx.origin,
-                    clauseIndex = 0,
+                    clauseIndex = clauseIndex,
                 ),
         )
 
@@ -394,7 +396,7 @@ abstract class LogsIndexer(
         return processBusinessEvents(
             decodedEvents,
             criteria.businessEventNames,
-            criteria.removeDuplicates
+            criteria.removeDuplicates,
         )
     }
 
@@ -412,7 +414,6 @@ abstract class LogsIndexer(
         transferLogs: List<TransferLog> = emptyList(),
         criteria: FilterCriteria = FilterCriteria(),
     ): List<IndexedEvent> {
-
         // TODO: Why do we need a pair here when the params are contained in the indexed event?
 
         if (abiManager == null) {
@@ -428,7 +429,7 @@ abstract class LogsIndexer(
             cachedConfiguredEvents =
                 eventIndexer.getConfiguredEvents(
                     updatedCriteria.abiNames,
-                    updatedCriteria.eventNames
+                    updatedCriteria.eventNames,
                 )
         }
 
@@ -445,7 +446,11 @@ abstract class LogsIndexer(
      * @param x The number to check for multiples.
      * @notice Determines if any multiples of `x` exist in the range `[startBlock, endBlock]`.
      */
-    private fun hasMultipleInRange(startBlock: Long, endBlock: Long, x: Long): Boolean {
+    private fun hasMultipleInRange(
+        startBlock: Long,
+        endBlock: Long,
+        x: Long,
+    ): Boolean {
         if (x == 0L) return false // Prevent division by zero
 
         val firstMultiple = if (startBlock % x == 0L) startBlock else (startBlock / x + 1) * x
