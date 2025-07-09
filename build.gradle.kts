@@ -7,6 +7,7 @@ plugins {
     id("maven-publish")
     id("signing")
     id("jacoco-report-aggregation")
+    id("io.github.gradle-nexus.publish-plugin")
     id("com.diffplug.spotless") version "6.25.0"
     jacoco
 }
