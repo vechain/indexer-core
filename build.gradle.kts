@@ -162,6 +162,7 @@ dependencies {
 nexusPublishing {
     repositories {
         sonatype {
+            nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
             username.set(findProperty("ossrhUsername") as String?)
             password.set(findProperty("ossrhPassword") as String?)
         }
