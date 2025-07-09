@@ -43,6 +43,9 @@ jobs:
           fi
           echo "PROJECT_VERSION=$VERSION" >> $GITHUB_ENV
 
+      - name: Build the artifact
+        run: ./gradlew build
+
       - name: Publish to Maven Central
         run: |
           ./gradlew \
