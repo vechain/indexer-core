@@ -46,8 +46,12 @@ jobs:
       - name: Build the artifact
         run: ./gradlew build
 
-      - name: Publish the artifact to maven
-        run: ./gradlew publish --info
+      - name: Publish to Maven Central
+        run: |
+          ./gradlew \
+            publishToSonatype \
+            closeAndReleaseSonatypeStagingRepository \
+            --info --stacktrace
         env:
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SECRET_KEY }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
