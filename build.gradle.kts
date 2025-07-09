@@ -158,3 +158,12 @@ dependencies {
 
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.9.3")
 }
+
+nexusPublishing {
+    repositories {
+        sonatype {
+            username.set(findProperty("ossrhUsername") as String?)
+            password.set(findProperty("ossrhPassword") as String?)
+        }
+    }
+}
