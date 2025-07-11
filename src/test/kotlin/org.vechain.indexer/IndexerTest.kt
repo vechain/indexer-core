@@ -1059,7 +1059,7 @@ internal class IndexerTest {
                     FilterCriteria(),
                 )
 
-            val result = indexer.processBlockBusinessEvents(events)
+            val result = indexer.processOnlyBusinessEvents(events)
 
             val expectedEventTypes =
                 listOf(
@@ -1105,7 +1105,7 @@ internal class IndexerTest {
             val indexer =
                 IndexerMock(responseMocker, thorClient, abiManager, businessEventManager, true)
             // Act
-            val result = indexer.processBlockBusinessEvents(events)
+            val result = indexer.processOnlyBusinessEvents(events)
             expectThat(result.size).isEqualTo(1)
             expectThat(result[0].params.getEventType()).isEqualTo("B3trVot3Swap")
             expectThat(result[0].params.getReturnValues())
@@ -1144,7 +1144,7 @@ internal class IndexerTest {
             val criteria = FilterCriteria()
 
             // Act
-            val result = indexer.processBlockBusinessEvents(events, criteria)
+            val result = indexer.processOnlyBusinessEvents(events, criteria)
 
             // Assert
             expectThat(result.size).isEqualTo(0)

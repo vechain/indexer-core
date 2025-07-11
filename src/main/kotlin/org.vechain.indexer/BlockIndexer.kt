@@ -8,7 +8,7 @@ import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.BusinessEventProcessor
-import org.vechain.indexer.event.GenericEventIndexer
+import org.vechain.indexer.event.GenericEventProcessor
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.exception.BlockNotFoundException
@@ -296,7 +296,7 @@ abstract class BlockIndexer(
             return emptyList()
         }
 
-        val eventIndexer = GenericEventIndexer(abiManager!!)
+        val eventIndexer = GenericEventProcessor(abiManager!!)
         return eventIndexer.getBlockEventsByFilters(
             block = block,
             filterCriteria = criteria,
@@ -311,7 +311,7 @@ abstract class BlockIndexer(
      *   events.
      * @dev Requires the `BusinessEventManager` to decode and process business events.
      */
-    protected open fun processBlockBusinessEvents(
+    protected open fun processOnlyBusinessEvents(
         decodedEvents: List<IndexedEvent>,
         criteria: FilterCriteria = FilterCriteria(),
     ): List<IndexedEvent> {

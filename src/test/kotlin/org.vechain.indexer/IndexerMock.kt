@@ -53,10 +53,10 @@ class IndexerMock(
         criteria: FilterCriteria,
     ): List<IndexedEvent> = super.processAllEvents(block, criteria)
 
-    public override fun processBlockBusinessEvents(
+    public override fun processOnlyBusinessEvents(
         decodedEvents: List<IndexedEvent>,
         criteria: FilterCriteria,
-    ): List<IndexedEvent> = super.processBlockBusinessEvents(decodedEvents, criteria)
+    ): List<IndexedEvent> = super.processOnlyBusinessEvents(decodedEvents, criteria)
 }
 
 interface IndexerResponseMocker {

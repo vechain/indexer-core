@@ -63,10 +63,10 @@ class LogIndexerMock(
         criteria: FilterCriteria,
     ): List<IndexedEvent> = super.processAllEvents(eventLogs, transferLogs, criteria)
 
-    public override fun processBlockBusinessEvents(
+    public override fun processOnlyBusinessEvents(
         decodedEvents: List<IndexedEvent>,
         criteria: FilterCriteria,
-    ): List<IndexedEvent> = super.processBlockBusinessEvents(decodedEvents, criteria)
+    ): List<IndexedEvent> = super.processOnlyBusinessEvents(decodedEvents, criteria)
 }
 
 interface LogsIndexerResponseMocker {

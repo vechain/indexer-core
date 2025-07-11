@@ -11,7 +11,7 @@ import org.vechain.indexer.event.utils.EventUtils
 import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.DataUtils
 
-class GenericEventIndexer(
+class GenericEventProcessor(
     private val abiManager: AbiManager,
 ) {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)

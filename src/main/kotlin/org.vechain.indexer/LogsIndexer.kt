@@ -4,7 +4,7 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 import org.vechain.indexer.event.AbiManager
 import org.vechain.indexer.event.BusinessEventManager
-import org.vechain.indexer.event.GenericEventIndexer
+import org.vechain.indexer.event.GenericEventProcessor
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.event.model.generic.IndexedEvent
@@ -271,7 +271,7 @@ abstract class LogsIndexer(
         output: TxOutputs,
         block: Block,
         tx: Transaction,
-        clauseIndex: Int = 0,
+        clauseIndex: Int,
     ): List<EventLog> {
         val eventLogs = mutableListOf<EventLog>()
 
@@ -306,7 +306,7 @@ abstract class LogsIndexer(
         output: TxOutputs,
         block: Block,
         tx: Transaction,
-        clauseIndex: Int = 0,
+        clauseIndex: Int,
     ): List<TransferLog> {
         val transferLogs = mutableListOf<TransferLog>()
 
@@ -421,7 +421,7 @@ abstract class LogsIndexer(
             return emptyList()
         }
 
-        val eventIndexer = GenericEventIndexer(abiManager)
+        val eventIndexer = GenericEventProcessor(abiManager)
 
         if (cachedConfiguredEvents == null) {
             val updatedCriteria =

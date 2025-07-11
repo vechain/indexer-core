@@ -21,7 +21,7 @@ import org.vechain.indexer.EventMockFactory.transferEventClause
 import org.vechain.indexer.EventMockFactory.tupleAbiElement
 import org.vechain.indexer.EventMockFactory.tupleEventClause
 import org.vechain.indexer.event.AbiManager
-import org.vechain.indexer.event.GenericEventIndexer
+import org.vechain.indexer.event.GenericEventProcessor
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.event.model.generic.FilterCriteria
@@ -35,13 +35,13 @@ import strikt.assertions.isNotEqualTo
 import strikt.assertions.message
 
 @ExtendWith(MockKExtension::class)
-internal class GenericEventIndexerTest {
+internal class GenericEventProcessorTest {
     @MockK private lateinit var abiManager: AbiManager
-    private lateinit var genericEventIndexer: GenericEventIndexer
+    private lateinit var genericEventProcessor: GenericEventProcessor
 
     @BeforeEach
     fun setup() {
-        genericEventIndexer = GenericEventIndexer(abiManager)
+        genericEventProcessor = GenericEventProcessor(abiManager)
     }
 
     @Nested
@@ -62,7 +62,7 @@ internal class GenericEventIndexerTest {
             every { abiManager.getAbis() } returns mapOf("AbiName" to configuredEvents)
 
             // Spy on the GenericEventIndexer to track internal calls
-            val spyGenericEventIndexer = spyk(genericEventIndexer, recordPrivateCalls = true)
+            val spyGenericEventIndexer = spyk(genericEventProcessor, recordPrivateCalls = true)
 
             // Execute the function under test
             val result = spyGenericEventIndexer.getBlockEvents(block)
@@ -101,7 +101,7 @@ internal class GenericEventIndexerTest {
             every { abiManager.getAbis() } returns mapOf("AbiName" to configuredEvents)
 
             val result =
-                genericEventIndexer.getBlockEventsByFilters(
+                genericEventProcessor.getBlockEventsByFilters(
                     block,
                     FilterCriteria(abiNames = listOf("AbiName"), eventNames = listOf("EventName")),
                 )
@@ -120,7 +120,7 @@ internal class GenericEventIndexerTest {
             every { abiManager.getAbis() } returns emptyMap()
 
             val result =
-                genericEventIndexer.getBlockEventsByFilters(
+                genericEventProcessor.getBlockEventsByFilters(
                     block,
                     FilterCriteria(vetTransfers = true),
                 )
@@ -144,7 +144,7 @@ internal class GenericEventIndexerTest {
 
             // Execute the method under test
             val result =
-                genericEventIndexer.getBlockEventsByFilters(
+                genericEventProcessor.getBlockEventsByFilters(
                     block,
                     FilterCriteria(
                         vetTransfers = true,
@@ -174,7 +174,7 @@ internal class GenericEventIndexerTest {
 
             // Execute the method under test
             val result =
-                genericEventIndexer.getBlockEventsByFilters(
+                genericEventProcessor.getBlockEventsByFilters(
                     block,
                     FilterCriteria(eventNames = listOf("VET_TRANSFER"), vetTransfers = true),
                 )
@@ -204,7 +204,7 @@ internal class GenericEventIndexerTest {
             every { abiManager.getAbis() } returns mapOf("AbiName" to configuredEvents)
 
             val result =
-                genericEventIndexer.getBlockEventsByFilters(
+                genericEventProcessor.getBlockEventsByFilters(
                     block,
                     FilterCriteria(
                         abiNames = listOf("AbiName"),
@@ -231,7 +231,7 @@ internal class GenericEventIndexerTest {
                 )
 
             val result =
-                genericEventIndexer.getBlockEventsByFilters(
+                genericEventProcessor.getBlockEventsByFilters(
                     block,
                     FilterCriteria(abiNames = listOf("OtherAbiName"))
                 )
@@ -261,7 +261,7 @@ internal class GenericEventIndexerTest {
                 )
 
             val result =
-                genericEventIndexer.getBlockEventsByFilters(
+                genericEventProcessor.getBlockEventsByFilters(
                     block,
                     filterCriteria =
                         FilterCriteria(
@@ -296,7 +296,7 @@ internal class GenericEventIndexerTest {
                     "ERC721" to listOf(transferERC721AbiElement),
                 )
 
-            val result = genericEventIndexer.getBlockEventsByFilters(block)
+            val result = genericEventProcessor.getBlockEventsByFilters(block)
 
             expectThat(result.size).isEqualTo(2)
             expectThat(result[0].params.getReturnValues())
@@ -342,7 +342,7 @@ internal class GenericEventIndexerTest {
                     "ERC721" to listOf(transferERC721AbiElement),
                 )
 
-            val result = genericEventIndexer.getBlockEventsByFilters(block)
+            val result = genericEventProcessor.getBlockEventsByFilters(block)
 
             // Result should be empty since an exception was thrown
             expectThat(result).isEqualTo(emptyList())
@@ -369,7 +369,7 @@ internal class GenericEventIndexerTest {
 
             // Execute the method under test
             val result =
-                genericEventIndexer.getBlockEventsByFilters(
+                genericEventProcessor.getBlockEventsByFilters(
                     block,
                     FilterCriteria(
                         abiNames = listOf("AbiName"),
@@ -417,7 +417,7 @@ internal class GenericEventIndexerTest {
             every { abiManager.getAbis() } returns mapOf("AbiName" to configuredEvents)
 
             // Execute the method under test
-            val result = genericEventIndexer.getBlockEventsByFilters(block)
+            val result = genericEventProcessor.getBlockEventsByFilters(block)
 
             // Assertions
             expectThat(result[0].params.name).isEqualTo("RewardDistributed")
@@ -452,7 +452,7 @@ internal class GenericEventIndexerTest {
             every { abiManager.getAbis() } returns mapOf("AbiName" to configuredEvents)
 
             // Execute the method under test
-            val result = genericEventIndexer.getBlockEventsByFilters(block)
+            val result = genericEventProcessor.getBlockEventsByFilters(block)
 
             // Assertions
             expectThat(result[0].params.name).isEqualTo("Conversion")
@@ -488,7 +488,7 @@ internal class GenericEventIndexerTest {
 
             // Execute the method under test
             val result =
-                genericEventIndexer.getBlockEventsByFilters(
+                genericEventProcessor.getBlockEventsByFilters(
                     block,
                     FilterCriteria(
                         abiNames = listOf("AbiName"),

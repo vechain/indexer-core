@@ -563,7 +563,7 @@ internal class LogsIndexerTest {
                                 vetTransfers = false,
                             ),
                         )
-                    val result = indexer.processBlockBusinessEvents(events)
+                    val result = indexer.processOnlyBusinessEvents(events)
                     expect {
                         that(result.size).isEqualTo(3)
                         that(result[0].params.getEventType())
@@ -1079,7 +1079,7 @@ internal class LogsIndexerTest {
                     ),
                 )
 
-            val result = indexer.processBlockBusinessEvents(events)
+            val result = indexer.processOnlyBusinessEvents(events)
 
             val expectedEventTypes =
                 listOf(
