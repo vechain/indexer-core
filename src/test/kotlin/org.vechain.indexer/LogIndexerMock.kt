@@ -51,11 +51,11 @@ class LogIndexerMock(
 
     override fun rollback(blockNumber: Long) {}
 
-    public override fun processBlockGenericEvents(
+    public override fun processGenericEvents(
         eventLogs: List<EventLog>,
         transferLogs: List<TransferLog>,
         criteria: FilterCriteria,
-    ): List<IndexedEvent> = super.processBlockGenericEvents(eventLogs, transferLogs, criteria)
+    ): List<IndexedEvent> = super.processGenericEvents(eventLogs, transferLogs, criteria)
 
     public override fun processAllEvents(
         eventLogs: List<EventLog>,

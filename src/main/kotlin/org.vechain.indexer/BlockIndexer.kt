@@ -296,8 +296,8 @@ abstract class BlockIndexer(
             return emptyList()
         }
 
-        val eventIndexer = GenericEventProcessor(abiManager!!)
-        return eventIndexer.getBlockEventsByFilters(
+        val eventProcessor = GenericEventProcessor(abiManager!!)
+        return eventProcessor.getBlockEventsByFilters(
             block = block,
             filterCriteria = criteria,
         )

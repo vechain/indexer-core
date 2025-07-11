@@ -556,7 +556,7 @@ internal class LogsIndexerTest {
                     val capturedTransfers = transferSlot.captured
 
                     val events =
-                        indexer.processBlockGenericEvents(
+                        indexer.processGenericEvents(
                             capturedLogs,
                             capturedTransfers,
                             FilterCriteria(
@@ -1071,7 +1071,7 @@ internal class LogsIndexerTest {
 
             // Process the block
             val events =
-                indexer.processBlockGenericEvents(
+                indexer.processGenericEvents(
                     eventsLogs,
                     transferLogs,
                     FilterCriteria(

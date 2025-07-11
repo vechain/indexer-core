@@ -392,7 +392,7 @@ abstract class LogsIndexer(
         transferLogs: List<TransferLog> = emptyList(),
         criteria: FilterCriteria = FilterCriteria(),
     ): List<IndexedEvent> {
-        val decodedEvents = processBlockGenericEvents(eventLogs, transferLogs, criteria)
+        val decodedEvents = processGenericEvents(eventLogs, transferLogs, criteria)
         return processBusinessEvents(
             decodedEvents,
             criteria.businessEventNames,
@@ -409,7 +409,7 @@ abstract class LogsIndexer(
      * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and
      *   returns an empty list.
      */
-    protected open fun processBlockGenericEvents(
+    protected open fun processGenericEvents(
         eventLogs: List<EventLog>,
         transferLogs: List<TransferLog> = emptyList(),
         criteria: FilterCriteria = FilterCriteria(),
@@ -421,21 +421,21 @@ abstract class LogsIndexer(
             return emptyList()
         }
 
-        val eventIndexer = GenericEventProcessor(abiManager)
+        val eventProcessor = GenericEventProcessor(abiManager)
 
         if (cachedConfiguredEvents == null) {
             val updatedCriteria =
                 businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria
             cachedConfiguredEvents =
-                eventIndexer.getConfiguredEvents(
+                eventProcessor.getConfiguredEvents(
                     updatedCriteria.abiNames,
                     updatedCriteria.eventNames,
                 )
         }
 
         val contractEvents =
-            eventIndexer.decodeLogEvents(eventLogs, cachedConfiguredEvents!!, criteria)
-        val vetTransfers = eventIndexer.decodeLogTransfers(transferLogs)
+            eventProcessor.decodeLogEvents(eventLogs, cachedConfiguredEvents!!, criteria)
+        val vetTransfers = eventProcessor.decodeLogTransfers(transferLogs)
 
         return contractEvents + vetTransfers
     }
