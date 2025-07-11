@@ -24,7 +24,6 @@ import org.vechain.indexer.fixtures.FileFixtures.abiFiles
 import org.vechain.indexer.fixtures.FileFixtures.businessEventFiles
 import org.vechain.indexer.fixtures.TransferLogFixtures.LOGS_VET_TRANSFER
 import org.vechain.indexer.thor.client.ThorClient
-import org.vechain.indexer.thor.enums.LogType
 import org.vechain.indexer.thor.model.*
 import strikt.api.expect
 import strikt.assertions.isEqualTo
@@ -55,24 +54,24 @@ internal class LogsIndexerTest {
 
         indexer =
             LogIndexerMock(
-                responseMocker,
-                setOf(LogType.EVENT),
-                blockBatchSize,
-                logFetchLimit,
-                thorClient,
-                abiManager,
-                businessEventManager,
+                mocker = responseMocker,
+                excludeVetTransfers = true,
+                blockBatchSize = blockBatchSize,
+                logFetchLimit = logFetchLimit,
+                thorClientMock = thorClient,
+                abiManagerMock = abiManager,
+                businessEventManagerMock = businessEventManager,
             )
 
         transferIndexer =
             LogIndexerMock(
-                responseMocker,
-                setOf(LogType.TRANSFER),
-                blockBatchSize,
-                logFetchLimit,
-                thorClient,
-                abiManager,
-                businessEventManager,
+                mocker = responseMocker,
+                excludeLogEvents = true,
+                blockBatchSize = blockBatchSize,
+                logFetchLimit = logFetchLimit,
+                thorClientMock = thorClient,
+                abiManagerMock = abiManager,
+                businessEventManagerMock = businessEventManager,
             )
     }
 
@@ -420,16 +419,16 @@ internal class LogsIndexerTest {
             runBlocking {
                 val indexer =
                     LogIndexerMock(
-                        responseMocker,
-                        setOf(LogType.EVENT),
-                        blockBatchSize,
-                        logFetchLimit,
-                        thorClient,
-                        abiManager,
-                        businessEventManager,
-                        emptyList(),
-                        emptyList(),
-                        false,
+                        mocker = responseMocker,
+                        excludeVetTransfers = true,
+                        blockBatchSize = blockBatchSize,
+                        logFetchLimit = logFetchLimit,
+                        thorClientMock = thorClient,
+                        abiManagerMock = abiManager,
+                        businessEventManagerMock = businessEventManager,
+                        eventCriteriaSet = emptyList(),
+                        transferCriteriaSet = emptyList(),
+                        mock = false,
                     )
 
                 val indexerIterationsNumber = 1L
@@ -466,16 +465,16 @@ internal class LogsIndexerTest {
             runBlocking {
                 val indexer =
                     LogIndexerMock(
-                        responseMocker,
-                        setOf(LogType.TRANSFER),
-                        blockBatchSize,
-                        logFetchLimit,
-                        thorClient,
-                        abiManager,
-                        businessEventManager,
-                        emptyList(),
-                        emptyList(),
-                        false,
+                        mocker = responseMocker,
+                        excludeVetTransfers = false,
+                        blockBatchSize = blockBatchSize,
+                        logFetchLimit = logFetchLimit,
+                        thorClientMock = thorClient,
+                        abiManagerMock = abiManager,
+                        businessEventManagerMock = businessEventManager,
+                        eventCriteriaSet = emptyList(),
+                        transferCriteriaSet = emptyList(),
+                        mock = false,
                     )
 
                 val indexerIterationsNumber = 1L
@@ -515,16 +514,14 @@ internal class LogsIndexerTest {
 
                 val indexer =
                     LogIndexerMock(
-                        responseMocker,
-                        setOf(LogType.EVENT),
-                        blockBatchSize,
-                        logFetchLimit,
-                        thorClient,
-                        abiManager,
-                        businessEventManager,
-                        emptyList(),
-                        emptyList(),
-                        false,
+                        mocker = responseMocker,
+                        excludeLogEvents = false,
+                        blockBatchSize = blockBatchSize,
+                        logFetchLimit = logFetchLimit,
+                        thorClientMock = thorClient,
+                        abiManagerMock = abiManager,
+                        businessEventManagerMock = businessEventManager,
+                        mock = false,
                     )
 
                 val indexerIterationsNumber = 1L
@@ -598,16 +595,15 @@ internal class LogsIndexerTest {
                     )
                 val indexer =
                     LogIndexerMock(
-                        responseMocker,
-                        setOf(LogType.TRANSFER, LogType.EVENT),
-                        blockBatchSize,
-                        logFetchLimit,
-                        thorClient,
-                        abiManager,
-                        businessEventManager,
-                        eventCriteria,
-                        transferCriteria,
-                        false,
+                        mocker = responseMocker,
+                        blockBatchSize = blockBatchSize,
+                        logFetchLimit = logFetchLimit,
+                        thorClientMock = thorClient,
+                        abiManagerMock = abiManager,
+                        businessEventManagerMock = businessEventManager,
+                        eventCriteriaSet = eventCriteria,
+                        transferCriteriaSet = transferCriteria,
+                        mock = false,
                     )
 
                 val indexerIterationsNumber = 1L
@@ -644,13 +640,11 @@ internal class LogsIndexerTest {
             // Create the indexer with mocked dependencies
             val indexer =
                 LogIndexerMock(
-                    responseMocker,
-                    setOf(LogType.EVENT),
-                    blockBatchSize,
-                    logFetchLimit,
-                    thorClient,
-                    null,
-                    null,
+                    mocker = responseMocker,
+                    excludeVetTransfers = true,
+                    blockBatchSize = blockBatchSize,
+                    logFetchLimit = logFetchLimit,
+                    thorClientMock = thorClient
                 )
 
             every { responseMocker.rollback(any()) } just Runs
@@ -672,13 +666,13 @@ internal class LogsIndexerTest {
             // Create the indexer with mocked dependencies
             val indexer =
                 LogIndexerMock(
-                    responseMocker,
-                    setOf(LogType.EVENT),
-                    blockBatchSize,
-                    logFetchLimit,
-                    thorClient,
-                    abiManager,
-                    businessEventManager,
+                    mocker = responseMocker,
+                    excludeVetTransfers = true,
+                    blockBatchSize = blockBatchSize,
+                    logFetchLimit = logFetchLimit,
+                    thorClientMock = thorClient,
+                    abiManagerMock = abiManager,
+                    businessEventManagerMock = businessEventManager,
                 )
 
             every { responseMocker.rollback(any()) } just Runs
@@ -716,13 +710,13 @@ internal class LogsIndexerTest {
             // Create the indexer with mocked dependencies
             val indexer =
                 LogIndexerMock(
-                    responseMocker,
-                    setOf(LogType.EVENT),
-                    blockBatchSize,
-                    logFetchLimit,
-                    thorClient,
-                    abiManager,
-                    businessEventManager,
+                    mocker = responseMocker,
+                    excludeVetTransfers = true,
+                    blockBatchSize = blockBatchSize,
+                    logFetchLimit = logFetchLimit,
+                    thorClientMock = thorClient,
+                    abiManagerMock = abiManager,
+                    businessEventManagerMock = businessEventManager,
                 )
 
             // Input logs to process
@@ -765,12 +759,11 @@ internal class LogsIndexerTest {
             val indexer =
                 LogIndexerMock(
                     responseMocker,
-                    setOf(LogType.EVENT, LogType.TRANSFER),
-                    blockBatchSize,
-                    logFetchLimit,
-                    thorClient,
-                    abiManager,
-                    businessEventManager,
+                    blockBatchSize = blockBatchSize,
+                    logFetchLimit = logFetchLimit,
+                    thorClientMock = thorClient,
+                    abiManagerMock = abiManager,
+                    businessEventManagerMock = businessEventManager,
                 )
 
             // Input logs to process
@@ -822,12 +815,11 @@ internal class LogsIndexerTest {
             val indexer =
                 LogIndexerMock(
                     responseMocker,
-                    setOf(LogType.EVENT, LogType.TRANSFER),
-                    blockBatchSize,
-                    logFetchLimit,
-                    thorClient,
-                    abiManager,
-                    businessEventManager,
+                    blockBatchSize = blockBatchSize,
+                    logFetchLimit = logFetchLimit,
+                    thorClientMock = thorClient,
+                    abiManagerMock = abiManager,
+                    businessEventManagerMock = businessEventManager,
                 )
 
             // Input logs to process
@@ -871,12 +863,11 @@ internal class LogsIndexerTest {
             val indexer =
                 LogIndexerMock(
                     responseMocker,
-                    setOf(LogType.EVENT, LogType.TRANSFER),
-                    blockBatchSize,
-                    logFetchLimit,
-                    thorClient,
-                    abiManager,
-                    businessEventManager,
+                    blockBatchSize = blockBatchSize,
+                    logFetchLimit = logFetchLimit,
+                    thorClientMock = thorClient,
+                    abiManagerMock = abiManager,
+                    businessEventManagerMock = businessEventManager,
                 )
 
             // Input logs to process
@@ -923,12 +914,11 @@ internal class LogsIndexerTest {
             val indexer =
                 LogIndexerMock(
                     responseMocker,
-                    setOf(LogType.EVENT, LogType.TRANSFER),
-                    blockBatchSize,
-                    logFetchLimit,
-                    thorClient,
-                    abiManager,
-                    businessEventManager,
+                    blockBatchSize = blockBatchSize,
+                    logFetchLimit = logFetchLimit,
+                    thorClientMock = thorClient,
+                    abiManagerMock = abiManager,
+                    businessEventManagerMock = businessEventManager,
                 )
 
             // Input block to process
@@ -971,12 +961,11 @@ internal class LogsIndexerTest {
             val indexer =
                 LogIndexerMock(
                     responseMocker,
-                    setOf(LogType.EVENT, LogType.TRANSFER),
-                    blockBatchSize,
-                    logFetchLimit,
-                    thorClient,
-                    abiManager,
-                    businessEventManager,
+                    blockBatchSize = blockBatchSize,
+                    logFetchLimit = logFetchLimit,
+                    thorClientMock = thorClient,
+                    abiManagerMock = abiManager,
+                    businessEventManagerMock = businessEventManager,
                 )
 
             // Input block to process
@@ -1007,12 +996,11 @@ internal class LogsIndexerTest {
             val indexer =
                 LogIndexerMock(
                     responseMocker,
-                    setOf(LogType.EVENT, LogType.TRANSFER),
-                    blockBatchSize,
-                    logFetchLimit,
-                    thorClient,
-                    abiManager,
-                    businessEventManager,
+                    blockBatchSize = blockBatchSize,
+                    logFetchLimit = logFetchLimit,
+                    thorClientMock = thorClient,
+                    abiManagerMock = abiManager,
+                    businessEventManagerMock = businessEventManager,
                 )
 
             // Input logs to process
@@ -1057,12 +1045,11 @@ internal class LogsIndexerTest {
             val indexer =
                 LogIndexerMock(
                     responseMocker,
-                    setOf(LogType.EVENT, LogType.TRANSFER),
-                    blockBatchSize,
-                    logFetchLimit,
-                    thorClient,
-                    abiManager,
-                    businessEventManager,
+                    blockBatchSize = blockBatchSize,
+                    logFetchLimit = logFetchLimit,
+                    thorClientMock = thorClient,
+                    abiManagerMock = abiManager,
+                    businessEventManagerMock = businessEventManager,
                 )
 
             // Input block to process
@@ -1112,12 +1099,11 @@ internal class LogsIndexerTest {
             val indexer =
                 LogIndexerMock(
                     responseMocker,
-                    setOf(LogType.EVENT, LogType.TRANSFER),
-                    blockBatchSize,
-                    logFetchLimit,
-                    thorClient,
-                    abiManager,
-                    businessEventManager,
+                    blockBatchSize = blockBatchSize,
+                    logFetchLimit = logFetchLimit,
+                    thorClientMock = thorClient,
+                    abiManagerMock = abiManager,
+                    businessEventManagerMock = businessEventManager,
                 )
 
             // Input block to process

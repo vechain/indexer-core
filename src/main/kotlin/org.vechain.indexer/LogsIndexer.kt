@@ -8,8 +8,8 @@ import org.vechain.indexer.event.GenericEventProcessor
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.event.model.generic.IndexedEvent
+import org.vechain.indexer.thor.client.LogClient
 import org.vechain.indexer.thor.client.ThorClient
-import org.vechain.indexer.thor.enums.LogType
 import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.matchesEventCriteria
 import org.vechain.indexer.utils.matchesTransferCriteria
@@ -29,7 +29,8 @@ const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
  * @param thorClient The Thor blockchain client instance.
  * @param startBlock The starting block number for indexing.
  * @param syncLoggerInterval Frequency of log sync status updates.
- * @param logsType The types of logs to index (EVENT and/or TRANSFER).
+ * @param excludeLogEvents If true, excludes event logs from processing.
+ * @param excludeVetTransfers If true, excludes VET transfer logs from processing.
  * @param blockBatchSize Number of blocks fetched per batch.
  * @param logFetchLimit Maximum number of logs fetched per API call.
  * @param eventCriteriaSet Filtering criteria for event logs.
@@ -41,7 +42,8 @@ abstract class LogsIndexer(
     override val thorClient: ThorClient,
     startBlock: Long = 0L,
     private val syncLoggerInterval: Long = 1_000L,
-    private val logsType: Set<LogType> = setOf(LogType.EVENT), // Default to EVENT
+    private val excludeLogEvents: Boolean = false,
+    private val excludeVetTransfers: Boolean = false,
     private val blockBatchSize: Long = BLOCK_BATCH_SIZE,
     private val logFetchLimit: Long = LOG_FETCH_LIMIT,
     private var eventCriteriaSet: List<EventCriteria>? = null,
@@ -49,6 +51,9 @@ abstract class LogsIndexer(
     final override val abiManager: AbiManager? = null,
     override val businessEventManager: BusinessEventManager? = null,
 ) : BlockIndexer(thorClient, startBlock, syncLoggerInterval, abiManager, businessEventManager) {
+
+    private val logClient = LogClient(thorClient)
+
     /**
      * Processes the retrieved logs from blocks.
      *
@@ -121,9 +126,6 @@ abstract class LogsIndexer(
 
                 val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
 
-                // Fetch both event logs and VET transfers
-                val logsBatch = fetchLogs(currentBlockNumber, batchEndBlock)
-
                 // Log sync status
                 if (
                     logger.isTraceEnabled ||
@@ -132,14 +134,35 @@ abstract class LogsIndexer(
                     logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
                 }
 
-                if (logsBatch.eventLogs.isEmpty() && logsBatch.transferLogs.isEmpty()) {
+                // Fetch both event logs and VET transfers
+                val eventLogs =
+                    if (!excludeLogEvents)
+                        logClient.fetchEventLogs(
+                            currentBlockNumber,
+                            batchEndBlock,
+                            logFetchLimit,
+                            eventCriteriaSet
+                        )
+                    else emptyList()
+
+                val transferLogs =
+                    if (!excludeVetTransfers)
+                        logClient.fetchTransfers(
+                            currentBlockNumber,
+                            batchEndBlock,
+                            logFetchLimit,
+                            transferCriteriaSet
+                        )
+                    else emptyList()
+
+                if (eventLogs.isEmpty() && transferLogs.isEmpty()) {
                     currentBlockNumber = batchEndBlock + 1
                     timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
                     continue
                 }
 
                 // Process events and transfers
-                processLogs(logsBatch.eventLogs, logsBatch.transferLogs)
+                processLogs(eventLogs, transferLogs)
 
                 // Update last processed block
                 currentBlockNumber = batchEndBlock + 1
@@ -149,79 +172,6 @@ abstract class LogsIndexer(
                 handleError()
             }
         }
-    }
-
-    /** Fetches both event logs and VET transfer logs based on `logsType`. */
-    private suspend fun fetchLogs(
-        fromBlock: Long,
-        toBlock: Long,
-    ): LogFetchResult {
-        val eventLogs = mutableListOf<EventLog>()
-        val transferLogs = mutableListOf<TransferLog>()
-
-        if (logsType.contains(LogType.EVENT)) {
-            eventLogs.addAll(fetchEventLogs(fromBlock, toBlock))
-        }
-
-        if (logsType.contains(LogType.TRANSFER)) {
-            transferLogs.addAll(fetchTransfers(fromBlock, toBlock))
-        }
-
-        return LogFetchResult(eventLogs, transferLogs)
-    }
-
-    /** Fetches event logs from the Thor client. */
-    private suspend fun fetchEventLogs(
-        fromBlock: Long,
-        toBlock: Long,
-    ): List<EventLog> {
-        val logs = mutableListOf<EventLog>()
-        var offset = 0L
-        while (true) {
-            val response =
-                thorClient.getEventLogs(
-                    EventLogsRequest(
-                        range = LogsRange(from = fromBlock, to = toBlock, unit = "block"),
-                        options = LogsOptions(offset = offset, limit = logFetchLimit),
-                        criteriaSet = eventCriteriaSet,
-                        order = "asc",
-                    ),
-                )
-
-            if (response.isEmpty()) break
-            logs.addAll(response)
-            if (response.size < logFetchLimit) break
-            offset += logFetchLimit
-        }
-        return logs
-    }
-
-    /** Fetches VET transfer logs from the Thor client. */
-    private suspend fun fetchTransfers(
-        fromBlock: Long,
-        toBlock: Long,
-    ): List<TransferLog> {
-        val transfers = mutableListOf<TransferLog>()
-        var offset = 0L
-
-        while (true) {
-            val response =
-                thorClient.getVetTransfers(
-                    TransferLogsRequest(
-                        range = LogsRange(from = fromBlock, to = toBlock, unit = "block"),
-                        options = LogsOptions(offset = offset, limit = logFetchLimit),
-                        order = "asc",
-                        criteriaSet = transferCriteriaSet,
-                    ),
-                )
-
-            if (response.isEmpty()) break
-            transfers.addAll(response)
-            if (response.size < logFetchLimit) break
-            offset += logFetchLimit
-        }
-
-        return transfers
     }
 
     /**
@@ -240,10 +190,9 @@ abstract class LogsIndexer(
 
         for (tx in block.transactions) {
             for ((clauseIndex, output) in tx.outputs.withIndex()) {
-                if (logsType.contains(LogType.EVENT)) {
-                    eventLogs.addAll(processBlockEvents(output, block, tx, clauseIndex))
-                }
-                if (logsType.contains(LogType.TRANSFER)) {
+                eventLogs.addAll(processBlockEvents(output, block, tx, clauseIndex))
+
+                if (!excludeVetTransfers) {
                     transferLogs.addAll(processBlockTransfers(output, block, tx, clauseIndex))
                 }
             }

@@ -5,17 +5,17 @@ import org.vechain.indexer.event.BusinessEventManager
 import org.vechain.indexer.event.model.generic.FilterCriteria
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.client.ThorClient
-import org.vechain.indexer.thor.enums.LogType
 import org.vechain.indexer.thor.model.*
 
 class LogIndexerMock(
     private val mocker: LogsIndexerResponseMocker,
-    logsType: Set<LogType> = setOf(LogType.EVENT),
     blockBatchSize: Long,
     logFetchLimit: Long,
     thorClientMock: ThorClient,
-    abiManagerMock: AbiManager?,
-    businessEventManagerMock: BusinessEventManager?,
+    excludeLogEvents: Boolean = false,
+    excludeVetTransfers: Boolean = false,
+    abiManagerMock: AbiManager? = null,
+    businessEventManagerMock: BusinessEventManager? = null,
     eventCriteriaSet: List<EventCriteria>? = null,
     transferCriteriaSet: List<TransferCriteria>? = null,
     private val mock: Boolean = true,
@@ -24,7 +24,8 @@ class LogIndexerMock(
         thorClient = thorClientMock,
         startBlock = 0,
         syncLoggerInterval = 1000,
-        logsType = logsType,
+        excludeLogEvents = excludeLogEvents,
+        excludeVetTransfers = excludeVetTransfers,
         blockBatchSize = blockBatchSize,
         logFetchLimit = logFetchLimit,
         abiManager = abiManagerMock,
