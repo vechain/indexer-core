@@ -10,7 +10,7 @@ import org.vechain.indexer.EventMockFactory.transferEvent
 import org.vechain.indexer.EventMockFactory.tupleAbiElement
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
-import org.vechain.indexer.event.model.generic.GenericEventParameters
+import org.vechain.indexer.event.model.generic.AbiEventParameters
 import org.vechain.indexer.event.utils.EventUtils
 import org.vechain.indexer.thor.model.TxEvent
 import strikt.api.expectThat
@@ -69,7 +69,7 @@ internal class EventUtilsTest {
             val result = EventUtils.decodeEvent(event, randomAbiElement)
             expectThat(result)
                 .isEqualTo(
-                    GenericEventParameters(
+                    AbiEventParameters(
                         returnValues =
                             mapOf(
                                 "from" to
@@ -112,7 +112,7 @@ internal class EventUtilsTest {
             println(result)
             expectThat(result)
                 .isEqualTo(
-                    GenericEventParameters(
+                    AbiEventParameters(
                         returnValues =
                             mapOf("name" to listOf("Apple", "Mango", "Banana", "Orange", "Grapes")),
                         eventType = "Names",
@@ -152,7 +152,7 @@ internal class EventUtilsTest {
             println(result)
             expectThat(result)
                 .isEqualTo(
-                    GenericEventParameters(
+                    AbiEventParameters(
                         returnValues = mapOf("name" to "test"),
                         eventType = "StringTest",
                     ),
@@ -191,7 +191,7 @@ internal class EventUtilsTest {
             println(result)
             expectThat(result)
                 .isEqualTo(
-                    GenericEventParameters(
+                    AbiEventParameters(
                         returnValues =
                             mapOf(
                                 "addresses" to
@@ -265,7 +265,7 @@ internal class EventUtilsTest {
             println(result)
             expectThat(result)
                 .isEqualTo(
-                    GenericEventParameters(
+                    AbiEventParameters(
                         returnValues =
                             mapOf(
                                 "person" to
@@ -309,7 +309,7 @@ internal class EventUtilsTest {
             println(result)
             expectThat(result)
                 .isEqualTo(
-                    GenericEventParameters(
+                    AbiEventParameters(
                         returnValues =
                             mapOf(
                                 "itemId" to BigInteger("92"),
@@ -382,7 +382,7 @@ internal class EventUtilsTest {
             println(result)
             expectThat(result)
                 .isEqualTo(
-                    GenericEventParameters(
+                    AbiEventParameters(
                         returnValues =
                             mapOf(
                                 "name" to "john",
@@ -411,7 +411,7 @@ internal class EventUtilsTest {
 
             expectThat(result)
                 .isEqualTo(
-                    GenericEventParameters(
+                    AbiEventParameters(
                         returnValues =
                             mapOf(
                                 "from" to "0x0000000000000000000000000000000000000000",

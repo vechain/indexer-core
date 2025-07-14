@@ -2,20 +2,13 @@ package org.vechain.indexer
 
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-import org.vechain.indexer.event.AbiManager
-import org.vechain.indexer.event.BusinessEventManager
-import org.vechain.indexer.event.GenericEventProcessor
-import org.vechain.indexer.event.model.abi.AbiElement
-import org.vechain.indexer.event.model.generic.FilterCriteria
+import org.vechain.indexer.event.AbiEventProcessor
+import org.vechain.indexer.event.BusinessEventProcessor
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.client.LogClient
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.*
-import org.vechain.indexer.utils.matchesEventCriteria
-import org.vechain.indexer.utils.matchesTransferCriteria
-
-const val BLOCK_BATCH_SIZE = 100L //  Block batch size
-const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
+import org.vechain.indexer.utils.LogsUtils
 
 /**
  * **LogsIndexer**
@@ -35,48 +28,34 @@ const val LOG_FETCH_LIMIT = 1000L //  Limits logs per API call (pagination)
  * @param logFetchLimit Maximum number of logs fetched per API call.
  * @param eventCriteriaSet Filtering criteria for event logs.
  * @param transferCriteriaSet Filtering criteria for transfer logs.
- * @param abiManager ABI manager for decoding contract events.
- * @param businessEventManager Business event manager for processing business logic.
+ * @param abiEventProcessor Optional ABI event processor for decoding events.
+ * @param businessEventProcessor Optional business event processor for handling business-specific
+ *   events.
  */
-abstract class LogsIndexer(
+open class LogsIndexer(
     override val thorClient: ThorClient,
+    processor: IndexerProcessor,
     startBlock: Long = 0L,
     private val syncLoggerInterval: Long = 1_000L,
     private val excludeLogEvents: Boolean = false,
     private val excludeVetTransfers: Boolean = false,
-    private val blockBatchSize: Long = BLOCK_BATCH_SIZE,
-    private val logFetchLimit: Long = LOG_FETCH_LIMIT,
+    private val blockBatchSize: Long,
+    private val logFetchLimit: Long,
     private var eventCriteriaSet: List<EventCriteria>? = null,
     private var transferCriteriaSet: List<TransferCriteria>? = null,
-    final override val abiManager: AbiManager? = null,
-    override val businessEventManager: BusinessEventManager? = null,
-) : BlockIndexer(thorClient, startBlock, syncLoggerInterval, abiManager, businessEventManager) {
+    override val abiEventProcessor: AbiEventProcessor? = null,
+    override val businessEventProcessor: BusinessEventProcessor? = null,
+) :
+    BlockIndexer(
+        thorClient,
+        processor,
+        startBlock,
+        syncLoggerInterval,
+        abiEventProcessor,
+        businessEventProcessor
+    ) {
 
     private val logClient = LogClient(thorClient)
-
-    /**
-     * Processes the retrieved logs from blocks.
-     *
-     * This function is **abstract** and must be implemented by subclasses of `LogsIndexer`. It is
-     * responsible for handling both **event logs** and **transfer logs** based on the indexer's
-     * configuration.
-     *
-     * @param events A list of `EventLog` instances representing on-chain event logs.
-     * @param transfers A list of `TransferLog` instances representing VET transfer logs.
-     *
-     * **Implementation Note: **
-     * - Subclasses **must** override this function.
-     * - Depending on the `logsType` configuration, either **or both** lists may be empty.
-     * - If only `LogType.EVENT` is enabled, `transfers` will be an empty list.
-     * - If only `LogType.TRANSFER` is enabled, `events` will be an empty list.
-     * - Implementers should handle each type accordingly.
-     */
-    abstract fun processLogs(
-        events: List<EventLog>,
-        transfers: List<TransferLog>,
-    )
-
-    private var cachedConfiguredEvents: List<AbiElement>? = null
 
     /**
      * Initializes the indexer by setting the last synced block and updating status.
@@ -162,7 +141,8 @@ abstract class LogsIndexer(
                 }
 
                 // Process events and transfers
-                processLogs(eventLogs, transferLogs)
+                val indexedEvents = processEvents(eventLogs, transferLogs)
+                process(indexedEvents)
 
                 // Update last processed block
                 currentBlockNumber = batchEndBlock + 1
@@ -174,219 +154,58 @@ abstract class LogsIndexer(
         }
     }
 
-    /**
-     * Processes a given block by extracting and categorizing logs.
-     *
-     * This function iterates through all transactions in the block, analyzing both event logs and
-     * transfer logs based on the specified `logsType` (EVENT and/or TRANSFER).
-     * - If EVENT logging is enabled, it extracts event logs using `processEventLogs`.
-     * - If TRANSFER logging is enabled, it extracts transfer logs using `processTransferLogs`.
-     *
-     * @param block The blockchain block containing transactions to be processed.
-     */
-    override fun processBlock(block: Block) {
+    /** Processes events from a block. */
+    override fun processEvents(block: Block): List<IndexedEvent> {
         val eventLogs = mutableListOf<EventLog>()
         val transferLogs = mutableListOf<TransferLog>()
 
         for (tx in block.transactions) {
             for ((clauseIndex, output) in tx.outputs.withIndex()) {
-                eventLogs.addAll(processBlockEvents(output, block, tx, clauseIndex))
+                eventLogs.addAll(LogsUtils.extractEventLogs(output, block, tx, clauseIndex))
 
                 if (!excludeVetTransfers) {
-                    transferLogs.addAll(processBlockTransfers(output, block, tx, clauseIndex))
+                    transferLogs.addAll(
+                        LogsUtils.extractTransferLogs(output, block, tx, clauseIndex)
+                    )
                 }
             }
         }
 
-        if (eventLogs.isNotEmpty() || transferLogs.isNotEmpty()) {
-            processLogs(eventLogs, transferLogs)
-        }
-    }
-
-    /**
-     * Extracts and filters event logs from a transaction output.
-     *
-     * This function processes all event logs found in the given transaction output. If event
-     * filtering criteria (`eventCriteriaSet`) are provided, only logs matching the criteria are
-     * included.
-     *
-     * @param output The transaction output containing event logs.
-     * @param block The block containing the transaction.
-     * @param tx The transaction associated with the output.
-     * @return A list of event logs that match the defined criteria (or all logs if no criteria
-     *   exist).
-     */
-    private fun processBlockEvents(
-        output: TxOutputs,
-        block: Block,
-        tx: Transaction,
-        clauseIndex: Int,
-    ): List<EventLog> {
-        val eventLogs = mutableListOf<EventLog>()
-
-        output.events.forEach { event ->
-            if (eventCriteriaSet.isNullOrEmpty()) {
-                eventLogs.add(event.toEventLog(block, tx, clauseIndex))
-            } else {
-                for (criteria in eventCriteriaSet!!) {
-                    if (matchesEventCriteria(event, criteria)) {
-                        eventLogs.add(event.toEventLog(block, tx, clauseIndex))
-                    }
-                }
-            }
-        }
-        return eventLogs
-    }
-
-    /**
-     * Extracts and filters transfer logs from a transaction output.
-     *
-     * This function processes all token/VET transfers found in the transaction output. If filtering
-     * criteria (`transferCriteriaSet`) are provided, only transfers matching the criteria are
-     * included.
-     *
-     * @param output The transaction output containing transfer logs.
-     * @param block The block containing the transaction.
-     * @param tx The transaction associated with the output.
-     * @return A list of transfer logs that match the defined criteria (or all logs if no criteria
-     *   exist).
-     */
-    private fun processBlockTransfers(
-        output: TxOutputs,
-        block: Block,
-        tx: Transaction,
-        clauseIndex: Int,
-    ): List<TransferLog> {
-        val transferLogs = mutableListOf<TransferLog>()
-
-        output.transfers.forEach { transfer ->
-            if (transferCriteriaSet.isNullOrEmpty()) {
-                transferLogs.add(transfer.toTransferLog(block, tx, clauseIndex))
-            } else {
-                for (criteria in transferCriteriaSet!!) {
-                    if (matchesTransferCriteria(transfer, criteria, tx)) {
-                        transferLogs.add(transfer.toTransferLog(block, tx, clauseIndex))
-                    }
-                }
-            }
-        }
-        return transferLogs
-    }
-
-    /**
-     * Converts a transaction event into an EventLog.
-     *
-     * @param block The block containing the transaction.
-     * @param tx The transaction associated with the event.
-     * @return The formatted EventLog.
-     */
-    private fun TxEvent.toEventLog(
-        block: Block,
-        tx: Transaction,
-        clauseIndex: Int = 0,
-    ): EventLog =
-        EventLog(
-            address = this.address,
-            topics = this.topics,
-            data = this.data,
-            meta =
-                EventMeta(
-                    blockID = block.id,
-                    blockNumber = block.number,
-                    blockTimestamp = block.timestamp,
-                    txID = tx.id,
-                    txOrigin = tx.origin,
-                    clauseIndex = clauseIndex,
-                ),
-        )
-
-    /**
-     * Converts a transaction transfer into a TransferLog.
-     *
-     * @param block The block containing the transaction.
-     * @param tx The transaction associated with the transfer.
-     * @return The formatted TransferLog.
-     */
-    private fun TxTransfer.toTransferLog(
-        block: Block,
-        tx: Transaction,
-        clauseIndex: Int = 0,
-    ): TransferLog =
-        TransferLog(
-            sender = this.sender,
-            recipient = this.recipient,
-            amount = this.amount,
-            meta =
-                EventMeta(
-                    blockID = block.id,
-                    blockNumber = block.number,
-                    blockTimestamp = block.timestamp,
-                    txID = tx.id,
-                    txOrigin = tx.origin,
-                    clauseIndex = clauseIndex,
-                ),
-        )
-
-    /**
-     * @param eventLogs The Thor logs to process.
-     * @param criteria Filtering criteria to determine which events to process.
-     * @return A list of decoded events and their associated parameters.
-     * @notice Processes all events (generic and business) in a group of log events based on the
-     *   provided criteria.
-     * @dev Updates the filter criteria with business event names if applicable. Decodes and
-     *   processes both generic and business events.
-     */
-    protected open fun processAllEvents(
-        eventLogs: List<EventLog>,
-        transferLogs: List<TransferLog> = emptyList(),
-        criteria: FilterCriteria = FilterCriteria(),
-    ): List<IndexedEvent> {
-        val decodedEvents = processGenericEvents(eventLogs, transferLogs, criteria)
-        return processBusinessEvents(
-            decodedEvents,
-            criteria.businessEventNames,
-            criteria.removeDuplicates,
-        )
-    }
-
-    /**
-     * @param eventLogs The Thor event logs to process.
-     * @param transferLogs The Thor transfer logs to process.
-     * @param criteria Filtering criteria to determine which generic events to process.
-     * @return A list of decoded generic events and their associated parameters.
-     * @notice Processes generic events in a of log events based on the provided criteria.
-     * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and
-     *   returns an empty list.
-     */
-    protected open fun processGenericEvents(
-        eventLogs: List<EventLog>,
-        transferLogs: List<TransferLog> = emptyList(),
-        criteria: FilterCriteria = FilterCriteria(),
-    ): List<IndexedEvent> {
-        // TODO: Why do we need a pair here when the params are contained in the indexed event?
-
-        if (abiManager == null) {
-            logger.warn("ABI Manager is not configured. Skipping generic event processing.")
+        if (eventLogs.isEmpty() && transferLogs.isEmpty()) {
             return emptyList()
         }
 
-        val eventProcessor = GenericEventProcessor(abiManager)
+        return processEvents(eventLogs, transferLogs)
+    }
 
-        if (cachedConfiguredEvents == null) {
-            val updatedCriteria =
-                businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria
-            cachedConfiguredEvents =
-                eventProcessor.getConfiguredEvents(
-                    updatedCriteria.abiNames,
-                    updatedCriteria.eventNames,
-                )
+    /**
+     * @param eventLogs The Thor logs to process.
+     * @return A list of decoded events and their associated parameters.
+     * @notice Processes all events (generic and business) in a group of log events based on the
+     *   provided criteria.
+     */
+    protected open fun processEvents(
+        eventLogs: List<EventLog>,
+        transferLogs: List<TransferLog> = emptyList()
+    ): List<IndexedEvent> {
+        // If the abiEventProcessor is not set, return an empty list.
+        if (abiEventProcessor == null) {
+            logger.warn("AbiEventProcessor is not set, returning empty event list")
+            return emptyList()
         }
 
-        val contractEvents =
-            eventProcessor.decodeLogEvents(eventLogs, cachedConfiguredEvents!!, criteria)
-        val vetTransfers = eventProcessor.decodeLogTransfers(transferLogs)
+        // Process the events using the abiEventProcessor.
+        val contractEvents = abiEventProcessor?.decodeLogEvents(eventLogs) ?: emptyList()
+        val vetTransfers = abiEventProcessor?.decodeLogTransfers(transferLogs) ?: emptyList()
 
-        return contractEvents + vetTransfers
+        val allEvents = contractEvents + vetTransfers
+
+        if (allEvents.isEmpty()) {
+            return emptyList()
+        }
+
+        // If the businessEventProcessor is set, process the events further.
+        return businessEventProcessor?.getEvents(allEvents) ?: allEvents
     }
 
     /**

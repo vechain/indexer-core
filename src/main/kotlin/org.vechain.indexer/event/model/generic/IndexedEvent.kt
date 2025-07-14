@@ -11,7 +11,7 @@ data class IndexedEvent(
     val gasUsed: Long? = null,
     val gasPayer: String? = null,
     val raw: RawEvent? = null,
-    val params: GenericEventParameters,
+    val params: AbiEventParameters,
     val address: String? = null,
     val eventType: String,
     val clauseIndex: Long,

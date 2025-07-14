@@ -5,7 +5,7 @@ import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
 import org.vechain.indexer.event.model.business.*
 import org.vechain.indexer.event.model.enums.Operator
-import org.vechain.indexer.event.model.generic.GenericEventParameters
+import org.vechain.indexer.event.model.generic.AbiEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.model.generic.RawEvent
 import org.vechain.indexer.thor.model.*
@@ -591,7 +591,7 @@ object EventMockFactory {
         )
 
     val b3trSwapVot3Event =
-        GenericEventParameters(
+        AbiEventParameters(
             eventType = "Transfer",
             returnValues =
                 mapOf(
@@ -602,7 +602,7 @@ object EventMockFactory {
         )
 
     val b3trSwapB3trEvent =
-        GenericEventParameters(
+        AbiEventParameters(
             eventType = "Transfer",
             returnValues =
                 mapOf(
@@ -613,7 +613,7 @@ object EventMockFactory {
         )
 
     val nonB3trSwapVot3Event =
-        GenericEventParameters(
+        AbiEventParameters(
             eventType = "Transfer",
             returnValues =
                 mapOf(
@@ -624,7 +624,7 @@ object EventMockFactory {
         )
 
     val nonB3trSwapB3trEvent =
-        GenericEventParameters(
+        AbiEventParameters(
             eventType = "Transfer",
             returnValues =
                 mapOf(
@@ -635,7 +635,7 @@ object EventMockFactory {
         )
 
     val purchaseEvent =
-        GenericEventParameters(
+        AbiEventParameters(
             eventType = "PurchaseNonCustodial",
             returnValues =
                 mapOf(
@@ -652,7 +652,7 @@ object EventMockFactory {
         )
 
     val nftTransferEvent =
-        GenericEventParameters(
+        AbiEventParameters(
             returnValues =
                 mapOf(
                     "from" to "0xa52b171d88be72f2550f2ffcd166b4825656a9d7",
@@ -665,7 +665,7 @@ object EventMockFactory {
     fun createIndexedEvent(
         address: String,
         clauseIndex: Long,
-        params: GenericEventParameters,
+        params: AbiEventParameters,
     ) =
         IndexedEvent(
             id = "0xid",

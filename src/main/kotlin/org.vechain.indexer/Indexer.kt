@@ -1,5 +1,6 @@
 package org.vechain.indexer
 
+import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
 
@@ -18,16 +19,18 @@ enum class Status {
     ERROR,
 }
 
-interface Indexer {
+interface Indexer : IndexerProcessor {
     var status: Status
 
     fun startInCoroutine(iterations: Long? = null)
 
     suspend fun start(iterations: Long? = null)
+}
 
+interface IndexerProcessor {
     fun getLastSyncedBlock(): BlockIdentifier?
 
     fun rollback(blockNumber: Long)
 
-    fun processBlock(block: Block)
+    fun process(events: List<IndexedEvent>, block: Block? = null)
 }

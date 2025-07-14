@@ -2,72 +2,34 @@ package org.vechain.indexer.event
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.vechain.indexer.event.model.abi.AbiElement
-import org.vechain.indexer.event.model.generic.FilterCriteria
-import org.vechain.indexer.event.model.generic.GenericEventParameters
+import org.vechain.indexer.event.model.generic.AbiEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.model.generic.RawEvent
 import org.vechain.indexer.event.utils.EventUtils
 import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.DataUtils
 
-class GenericEventProcessor(
+class AbiEventProcessor(
     private val abiManager: AbiManager,
+    private val contractAddresses: List<String>,
+    private val includeVetTransfers: Boolean
 ) {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     /** Extracts and decodes all events in a block based on loaded ABIs. */
-    fun getBlockEvents(block: Block): List<IndexedEvent> = getBlockEventsByFilters(block)
-
-    /** Extracts and decodes events in a block based on specified filters. */
-    fun getBlockEventsByFilters(
-        block: Block,
-        filterCriteria: FilterCriteria? = FilterCriteria(),
-    ): List<IndexedEvent> {
-        val configuredEvents =
-            getConfiguredEvents(filterCriteria!!.abiNames, filterCriteria.eventNames)
-        return processBlockEvents(
-            block,
-            configuredEvents,
-            filterCriteria.contractAddresses,
-            filterCriteria.vetTransfers
-        )
-    }
-
-    /** Retrieves the configured ABIs based on filter criteria. */
-    fun getConfiguredEvents(
-        abiNames: List<String>,
-        eventNames: List<String>,
-    ): List<AbiElement> =
-        if (abiNames.isNotEmpty()) {
-            abiManager.getEventsByNames(abiNames, eventNames)
-        } else {
-            abiManager
-                .getAbis()
-                .values
-                .flatten()
-                .filter { it.type == "event" && (eventNames.isEmpty() || it.name in eventNames) }
-                .distinctBy { it.signature to it.inputs.count { input -> input.indexed } }
-        }
-
-    /** Processes and decodes events from a block based on provided ABIs. */
-    private fun processBlockEvents(
-        block: Block,
-        configuredEvents: List<AbiElement>,
-        contractAddresses: List<String>,
-        vetTransfers: Boolean,
-    ): List<IndexedEvent> {
+    fun getEvents(block: Block): List<IndexedEvent> {
         val events = mutableListOf<IndexedEvent>()
 
         block.transactions.forEach { tx ->
             tx.outputs.forEachIndexed { outputIndex, output ->
                 output.events.forEachIndexed { eventIndex, event ->
-                    if (EventUtils.isEventValid(event, configuredEvents, contractAddresses)) {
-                        decodeEvent(event, configuredEvents, tx, block, outputIndex, eventIndex)
-                            ?.let { events.add(it) }
+                    if (EventUtils.isEventValid(event, abiManager.eventAbis, contractAddresses)) {
+                        decodeEvent(event, tx, block, outputIndex, eventIndex)?.let {
+                            events.add(it)
+                        }
                     }
                 }
-                if (vetTransfers) {
+                if (includeVetTransfers) {
                     events.addAll(extractVetTransfers(output, tx, block, outputIndex))
                 }
             }
@@ -78,13 +40,12 @@ class GenericEventProcessor(
     /** Decodes an event and returns a pair of IndexedEvent and its parameters if successful. */
     private fun decodeEvent(
         event: TxEvent,
-        configuredEvents: List<AbiElement>,
         tx: Transaction,
         block: Block,
         outputIndex: Int,
         eventIndex: Int,
     ): IndexedEvent? {
-        val matchingAbi = EventUtils.findMatchingAbi(event.topics, configuredEvents)
+        val matchingAbi = EventUtils.findMatchingAbi(event.topics, abiManager.eventAbis)
         return matchingAbi?.let { abi ->
             try {
                 val parameters = EventUtils.decodeEvent(event, abi)
@@ -105,7 +66,7 @@ class GenericEventProcessor(
                     clauseIndex = outputIndex.toLong(),
                     signature = event.topics[0],
                 )
-            } catch (ex: IllegalArgumentException) {
+            } catch (_: IllegalArgumentException) {
                 logger.warn(
                     "Failed to decode event with ABI: ${abi.name}, txId: ${tx.id}. Skipping event."
                 )
@@ -120,21 +81,17 @@ class GenericEventProcessor(
      * @param logs List of raw EventLogs.
      * @return A list of decoded Indexed Events with their parameters.
      */
-    fun decodeLogEvents(
-        logs: List<EventLog>,
-        configuredEvents: List<AbiElement>,
-        criteria: FilterCriteria = FilterCriteria(),
-    ): List<IndexedEvent> {
+    fun decodeLogEvents(logs: List<EventLog>): List<IndexedEvent> {
         if (logs.isEmpty()) return emptyList()
 
         return logs.mapIndexedNotNull { i, log ->
             val txEvent = TxEvent(log.address, log.topics, log.data)
 
             // Check if the event is valid and has a matching ABI
-            if (!EventUtils.isEventValid(txEvent, configuredEvents, criteria.contractAddresses))
+            if (!EventUtils.isEventValid(txEvent, abiManager.eventAbis, contractAddresses))
                 return@mapIndexedNotNull null
             val matchingAbi =
-                EventUtils.findMatchingAbi(log.topics, configuredEvents)
+                EventUtils.findMatchingAbi(log.topics, abiManager.eventAbis)
                     ?: return@mapIndexedNotNull null
 
             try {
@@ -154,7 +111,7 @@ class GenericEventProcessor(
                     clauseIndex = log.meta.clauseIndex.toLong(),
                     signature = log.topics[0],
                 )
-            } catch (ex: Exception) {
+            } catch (_: Exception) {
                 logger.warn(
                     "Failed to decode log event with ABI: ${matchingAbi.name}, txId: ${log.meta.txID}"
                 )
@@ -175,7 +132,7 @@ class GenericEventProcessor(
         return logs.mapIndexedNotNull { i, log ->
             try {
                 val parameters =
-                    GenericEventParameters(
+                    AbiEventParameters(
                         mapOf(
                             "from" to log.sender,
                             "to" to log.recipient,
@@ -212,7 +169,7 @@ class GenericEventProcessor(
         output.transfers.mapIndexedNotNull { transferIndex, transfer ->
             try {
                 val parameters =
-                    GenericEventParameters(
+                    AbiEventParameters(
                         mapOf(
                             "from" to transfer.sender,
                             "to" to transfer.recipient,

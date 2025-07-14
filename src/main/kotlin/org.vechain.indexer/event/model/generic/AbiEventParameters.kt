@@ -1,6 +1,6 @@
 package org.vechain.indexer.event.model.generic
 
-data class GenericEventParameters(
+data class AbiEventParameters(
     private val returnValues: Map<String, Any> = emptyMap(),
     private val eventType: String = "GenericEvent",
 ) {
