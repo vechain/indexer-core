@@ -2,6 +2,7 @@ package org.vechain.indexer.event
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.generic.AbiEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.model.generic.RawEvent
@@ -10,7 +11,7 @@ import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.DataUtils
 
 class AbiEventProcessor(
-    private val abiManager: AbiManager,
+    private val eventAbis: List<AbiElement>,
     private val contractAddresses: List<String>,
     private val includeVetTransfers: Boolean
 ) {
@@ -23,7 +24,7 @@ class AbiEventProcessor(
         block.transactions.forEach { tx ->
             tx.outputs.forEachIndexed { outputIndex, output ->
                 output.events.forEachIndexed { eventIndex, event ->
-                    if (EventUtils.isEventValid(event, abiManager.eventAbis, contractAddresses)) {
+                    if (EventUtils.isEventValid(event, eventAbis, contractAddresses)) {
                         decodeEvent(event, tx, block, outputIndex, eventIndex)?.let {
                             events.add(it)
                         }
@@ -37,15 +38,15 @@ class AbiEventProcessor(
         return events
     }
 
-    /** Decodes an event and returns a pair of IndexedEvent and its parameters if successful. */
-    private fun decodeEvent(
+    /** Decodes a single transaction event into an IndexedEvent. */
+    fun decodeEvent(
         event: TxEvent,
         tx: Transaction,
         block: Block,
         outputIndex: Int,
         eventIndex: Int,
     ): IndexedEvent? {
-        val matchingAbi = EventUtils.findMatchingAbi(event.topics, abiManager.eventAbis)
+        val matchingAbi = EventUtils.findMatchingAbi(event.topics, eventAbis)
         return matchingAbi?.let { abi ->
             try {
                 val parameters = EventUtils.decodeEvent(event, abi)
@@ -88,11 +89,10 @@ class AbiEventProcessor(
             val txEvent = TxEvent(log.address, log.topics, log.data)
 
             // Check if the event is valid and has a matching ABI
-            if (!EventUtils.isEventValid(txEvent, abiManager.eventAbis, contractAddresses))
+            if (!EventUtils.isEventValid(txEvent, eventAbis, contractAddresses))
                 return@mapIndexedNotNull null
             val matchingAbi =
-                EventUtils.findMatchingAbi(log.topics, abiManager.eventAbis)
-                    ?: return@mapIndexedNotNull null
+                EventUtils.findMatchingAbi(log.topics, eventAbis) ?: return@mapIndexedNotNull null
 
             try {
                 val parameters = EventUtils.decodeEvent(txEvent, matchingAbi)

@@ -23,38 +23,41 @@ open class EventProcessor(
     private val businessEventProcessor: BusinessEventProcessor?
 
     init {
-        // First create the business event manager if business events are included.
-        val businessEventManager =
-            if (businessEventFiles.isNotEmpty()) {
-                BusinessEventManager(businessEventFiles, businessEventNames, substitutionParams)
-            } else {
-                null
-            }
-        // If business events are included, create the business event processor.
-        businessEventProcessor =
-            if (includeEvents && businessEventManager != null) {
-                BusinessEventProcessor(
-                    businessEventManager = businessEventManager,
-                    removeDuplicates = true,
-                    onlyBusinessEvents = false
+        val businessEvents =
+            if (includeEvents) {
+                BusinessEventLoader.loadBusinessEvents(
+                    businessEventFiles,
+                    businessEventNames,
+                    substitutionParams
                 )
             } else {
-                null
+                emptyList()
             }
 
-        // If business manager is not null add the abiEventNames from it to the provided event
-        // names.
+        businessEventProcessor =
+            businessEvents
+                .takeIf { includeEvents && it.isNotEmpty() }
+                ?.let {
+                    BusinessEventProcessor(
+                        businessEvents = it,
+                        removeDuplicates = true,
+                        onlyBusinessEvents = false
+                    )
+                }
+
+        // TODO: doing a lot of business logic here, consider refactoring
         val updatedEventNames =
-            if (businessEventManager != null) {
-                (eventNames + businessEventManager.abiEventNames).distinct()
+            if (includeEvents) {
+                (eventNames + businessEvents.flatMap { it.events.map { e -> e.name } })
+                    .distinct()
+                    .filter { it.isNotEmpty() && !it.equals("VET_TRANSFER", ignoreCase = true) }
             } else {
-                eventNames
+                emptyList()
             }
 
-        // Create the ABI event processor with the provided parameters.
         abiEventProcessor =
             AbiEventProcessor(
-                abiManager = AbiManager(abiFiles, updatedEventNames),
+                eventAbis = AbiLoader.loadEvents(abiFiles, updatedEventNames),
                 contractAddresses = contractAddresses,
                 includeVetTransfers = includeVetTransfers
             )

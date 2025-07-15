@@ -12,7 +12,7 @@ import org.vechain.indexer.event.utils.BusinessEventUtils
  * business events.
  */
 class BusinessEventProcessor(
-    private val businessEventManager: BusinessEventManager,
+    private val businessEvents: List<BusinessEventDefinition>,
     private val removeDuplicates: Boolean,
     private val onlyBusinessEvents: Boolean
 ) {
@@ -74,9 +74,6 @@ class BusinessEventProcessor(
     private fun processTransactionForBusinessEvents(
         txEvents: List<IndexedEvent>
     ): List<IndexedEvent> {
-        // Fetch business events based on the provided names
-        val businessEvents = businessEventManager.businessEvents
-
         val matchedBusinessEvents = mutableListOf<IndexedEvent>()
 
         for (definition in businessEvents) {
