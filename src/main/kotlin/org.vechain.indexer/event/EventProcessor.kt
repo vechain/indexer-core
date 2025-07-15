@@ -3,6 +3,7 @@ package org.vechain.indexer.event
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.generic.IndexedEvent
+import org.vechain.indexer.event.utils.BusinessEventUtils.extractAbiEventNames
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.TransferLog
@@ -45,12 +46,9 @@ open class EventProcessor(
                     )
                 }
 
-        // TODO: doing a lot of business logic here, consider refactoring
         val updatedEventNames =
             if (includeEvents) {
-                (eventNames + businessEvents.flatMap { it.events.map { e -> e.name } })
-                    .distinct()
-                    .filter { it.isNotEmpty() && !it.equals("VET_TRANSFER", ignoreCase = true) }
+                (eventNames + extractAbiEventNames(businessEvents)).distinct()
             } else {
                 emptyList()
             }
