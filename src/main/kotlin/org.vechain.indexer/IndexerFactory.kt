@@ -1,9 +1,6 @@
 package org.vechain.indexer
 
-import org.vechain.indexer.event.AbiEventProcessor
-import org.vechain.indexer.event.AbiManager
-import org.vechain.indexer.event.BusinessEventManager
-import org.vechain.indexer.event.BusinessEventProcessor
+import org.vechain.indexer.event.EventProcessor
 import org.vechain.indexer.thor.client.DefaultThorClient
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.EventCriteria
@@ -11,6 +8,7 @@ import org.vechain.indexer.thor.model.TransferCriteria
 
 class IndexerFactory {
 
+    private var name: String? = null
     private var thorClient: ThorClient? = null
     private var processor: IndexerProcessor? = null
     private var startBlock: Long = 0L
@@ -27,38 +25,42 @@ class IndexerFactory {
     private var syncLoggerInterval: Long = 1_000L
     private var blockBatchSize: Long = 100L //  Block batch size
     private var logFetchLimit: Long = 1000L //  Limits logs per API call (pagination)
+    private var pruner: Pruner? = null
     private var eventCriteriaSet: List<EventCriteria>? = null
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
 
     fun build(): Indexer {
+        requireNotNull(name)
         requireNotNull(thorClient) { "Thor client must be set using thorClient() method." }
         requireNotNull(processor) { "Processor must be set using processor() method." }
-        val abiManager = AbiManager(abiFiles, eventNames)
-        val abiEventProcessor =
-            AbiEventProcessor(abiManager, contractAddresses, includeVetTransfers)
 
-        val businessEventManager =
-            BusinessEventManager(businessEventFiles, businessEventNames, substitutionParams)
-        val businessEventProcessor =
-            BusinessEventProcessor(
-                businessEventManager,
-                removeDuplicates,
-                onlyBusinessEvents,
+        val eventProcessor =
+            EventProcessor(
+                abiFiles = abiFiles,
+                eventNames = eventNames,
+                contractAddresses = contractAddresses,
+                includeVetTransfers = includeVetTransfers,
+                includeEvents = includeEvents,
+                businessEventFiles = businessEventFiles,
+                businessEventNames = businessEventNames,
+                substitutionParams = substitutionParams,
             )
 
         // If `includeFullBlock` is true, return a `BlockIndexer`
         return if (includeFullBlock) {
             BlockIndexer(
+                name = name!!,
                 thorClient = thorClient!!,
                 processor = processor!!,
                 startBlock = startBlock,
                 syncLoggerInterval = syncLoggerInterval,
-                abiEventProcessor = abiEventProcessor,
-                businessEventProcessor = businessEventProcessor,
+                pruner = pruner,
+                eventProcessor = eventProcessor,
             )
         } else {
             LogsIndexer(
+                name = name!!,
                 thorClient = thorClient!!,
                 processor = processor!!,
                 startBlock = startBlock,
@@ -67,15 +69,23 @@ class IndexerFactory {
                 excludeVetTransfers = !includeVetTransfers,
                 blockBatchSize = blockBatchSize,
                 logFetchLimit = logFetchLimit,
+                pruner = pruner,
                 eventCriteriaSet = eventCriteriaSet ?: emptyList(),
                 transferCriteriaSet = transferCriteriaSet ?: emptyList(),
-                abiEventProcessor = abiEventProcessor,
-                businessEventProcessor = businessEventProcessor,
+                eventProcessor = eventProcessor,
             )
         }
     }
 
     // Setters for configuration options
+    /**
+     * Sets the name of the indexer.
+     *
+     * This is used for logging and identification purposes.
+     *
+     * @param name The name of the indexer.
+     */
+    fun name(name: String) = apply { this.name = name }
 
     /**
      * Sets the Thor client to be used by the indexer.
@@ -90,6 +100,13 @@ class IndexerFactory {
         baseUrl: String,
         vararg headers: Pair<String, Any>,
     ) = apply { this.thorClient = DefaultThorClient(baseUrl, *headers) }
+
+    /**
+     * Sets the Thor client to be used by the indexer.
+     *
+     * @param thorClient The Thor client instance to use.
+     */
+    fun thorClient(thorClient: ThorClient) = apply { this.thorClient = thorClient }
 
     /**
      * Sets the processor function to handle indexed events.
@@ -123,7 +140,7 @@ class IndexerFactory {
      *
      * @param eventNames List of event names to filter.
      */
-    fun events(eventNames: List<String>) = apply { this.eventNames = eventNames }
+    fun eventNames(eventNames: List<String>) = apply { this.eventNames = eventNames }
 
     /**
      * Sets the contract addresses to be used for filtering events.
@@ -200,6 +217,15 @@ class IndexerFactory {
      * If you are using abis or business events, you might want to keep this enabled
      */
     fun excludeEvents() = apply { this.includeEvents = false }
+
+    /**
+     * Sets the pruner to be used by the indexer.
+     *
+     * The pruner will be called periodically to remove old blocks from the indexer.
+     *
+     * @param pruner The pruner to use for removing old data
+     */
+    fun pruner(pruner: Pruner) = apply { this.pruner = pruner }
 
     /**
      * Optional criteria for filtering event logs. This can be used to optimise the call to the Thor

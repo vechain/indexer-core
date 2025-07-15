@@ -1,0 +1,115 @@
+package org.vechain.indexer.event
+
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+import org.vechain.indexer.event.model.generic.IndexedEvent
+import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.EventLog
+import org.vechain.indexer.thor.model.TransferLog
+
+open class EventProcessor(
+    abiFiles: List<String>,
+    eventNames: List<String>,
+    val contractAddresses: List<String>,
+    val includeVetTransfers: Boolean,
+    includeEvents: Boolean,
+    businessEventFiles: List<String>,
+    businessEventNames: List<String>,
+    substitutionParams: Map<String, String>
+) {
+    private val logger: Logger = LoggerFactory.getLogger(EventProcessor::class.java)
+
+    private val abiEventProcessor: AbiEventProcessor?
+    private val businessEventProcessor: BusinessEventProcessor?
+
+    init {
+        // First create the business event manager if business events are included.
+        val businessEventManager =
+            if (businessEventFiles.isNotEmpty()) {
+                BusinessEventManager(businessEventFiles, businessEventNames, substitutionParams)
+            } else {
+                null
+            }
+        // If business events are included, create the business event processor.
+        businessEventProcessor =
+            if (includeEvents && businessEventManager != null) {
+                BusinessEventProcessor(
+                    businessEventManager = businessEventManager,
+                    removeDuplicates = true,
+                    onlyBusinessEvents = false
+                )
+            } else {
+                null
+            }
+
+        // If business manager is not null add the abiEventNames from it to the provided event
+        // names.
+        val updatedEventNames =
+            if (businessEventManager != null) {
+                (eventNames + businessEventManager.abiEventNames).distinct()
+            } else {
+                eventNames
+            }
+
+        // Create the ABI event processor with the provided parameters.
+        abiEventProcessor =
+            AbiEventProcessor(
+                abiManager = AbiManager(abiFiles, updatedEventNames),
+                contractAddresses = contractAddresses,
+                includeVetTransfers = includeVetTransfers
+            )
+    }
+
+    /**
+     * @param block The block containing events to process.
+     * @return A list of decoded events and their associated parameters.
+     */
+    fun processEvents(block: Block): List<IndexedEvent> {
+        // If the abiEventProcessor is not set, return an empty list.
+        if (abiEventProcessor == null) {
+            logger.debug("AbiEventProcessor is not set, returning empty event list")
+            return emptyList()
+        }
+
+        // Process the events using the abiEventProcessor.
+        val events = abiEventProcessor.getEvents(block)
+
+        if (events.isEmpty()) {
+            logger.debug("No events found in block ${block.number}")
+            return emptyList()
+        }
+
+        // If the businessEventProcessor is set, process the events further.
+        return businessEventProcessor?.getEvents(events) ?: events
+    }
+
+    /**
+     * @param eventLogs The Thor logs to process.
+     * @return A list of decoded events and their associated parameters.
+     * @notice Processes all events (generic and business) in a group of log events based on the
+     *   provided criteria.
+     */
+    fun processEvents(
+        eventLogs: List<EventLog>,
+        transferLogs: List<TransferLog> = emptyList()
+    ): List<IndexedEvent> {
+        // If the abiEventProcessor is not set, return an empty list.
+        if (abiEventProcessor == null) {
+            logger.debug("AbiEventProcessor is not set, returning empty event list")
+            return emptyList()
+        }
+
+        // Process the events using the abiEventProcessor.
+        val contractEvents = abiEventProcessor.decodeLogEvents(eventLogs)
+        val vetTransfers = abiEventProcessor.decodeLogTransfers(transferLogs)
+
+        val allEvents = contractEvents + vetTransfers
+
+        if (allEvents.isEmpty()) {
+            return emptyList()
+        }
+
+        // If the businessEventProcessor is set, process the events further.
+        return businessEventProcessor?.getEvents(allEvents) ?: allEvents
+    }
+}

@@ -19,7 +19,9 @@ enum class Status {
     ERROR,
 }
 
-interface Indexer : IndexerProcessor {
+interface Indexer : IndexerProcessor, Pruner {
+    val name: String
+
     var status: Status
 
     fun startInCoroutine(iterations: Long? = null)
@@ -33,4 +35,8 @@ interface IndexerProcessor {
     fun rollback(blockNumber: Long)
 
     fun process(events: List<IndexedEvent>, block: Block? = null)
+}
+
+interface Pruner {
+    fun runPruner(currentBlockNumber: Long)
 }

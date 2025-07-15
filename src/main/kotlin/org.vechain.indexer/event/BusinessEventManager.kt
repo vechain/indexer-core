@@ -9,9 +9,11 @@ class BusinessEventManager(
 ) : ResourceManager(envParams) {
 
     val businessEvents: List<BusinessEventDefinition>
+    val abiEventNames: List<String>
 
     init {
         businessEvents = loadBusinessEvents()
+        abiEventNames = businessEvents.map { it.name }.distinct()
     }
 
     fun loadBusinessEvents(): List<BusinessEventDefinition> {

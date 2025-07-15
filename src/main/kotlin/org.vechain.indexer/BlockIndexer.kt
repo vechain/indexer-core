@@ -5,8 +5,7 @@ import java.time.ZoneOffset
 import kotlinx.coroutines.*
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.vechain.indexer.event.AbiEventProcessor
-import org.vechain.indexer.event.BusinessEventProcessor
+import org.vechain.indexer.event.EventProcessor
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.ReorgException
@@ -18,12 +17,13 @@ import org.vechain.indexer.thor.model.BlockIdentifier
 const val INITIAL_BACKOFF_PERIOD = 10_000L
 
 open class BlockIndexer(
+    override val name: String,
     protected open val thorClient: ThorClient,
     private val processor: IndexerProcessor,
     protected val startBlock: Long,
     private val syncLoggerInterval: Long,
-    protected open val abiEventProcessor: AbiEventProcessor? = null,
-    protected open val businessEventProcessor: BusinessEventProcessor? = null,
+    private val pruner: Pruner?,
+    protected open val eventProcessor: EventProcessor?
 ) : Indexer {
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
@@ -34,10 +34,7 @@ open class BlockIndexer(
      */
     internal var remainingIterations: Long? = null
 
-    val name: String
-        get() = this.javaClass.simpleName
-
-    protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
+    protected val logger: Logger = LoggerFactory.getLogger(name)
 
     override var status = Status.SYNCING
 
@@ -135,8 +132,8 @@ open class BlockIndexer(
                 logger.info("Processing @ Block $currentBlockNumber ($status)")
             }
 
-            // TODO: Parse the events from the block
-            process(emptyList(), block)
+            val events = eventProcessor?.processEvents(block) ?: emptyList()
+            process(events, block)
             postProcessBlock(block)
         } catch (_: BlockNotFoundException) {
             logger.info("Block $currentBlockNumber not found. Indexer may be fully synchronised.")
@@ -254,33 +251,14 @@ open class BlockIndexer(
      */
     private suspend fun getBestBlockFromChain(): Block = thorClient.getBestBlock()
 
-    /**
-     * @param block The block containing events to process.
-     * @return A list of decoded events and their associated parameters.
-     */
-    protected open fun processEvents(block: Block): List<IndexedEvent> {
-        // If the abiEventProcessor is not set, return an empty list.
-        if (abiEventProcessor == null) {
-            logger.warn("AbiEventProcessor is not set, returning empty event list")
-            return emptyList()
-        }
-
-        // Process the events using the abiEventProcessor.
-        val events = abiEventProcessor?.getEvents(block) ?: emptyList()
-
-        if (events.isEmpty()) {
-            logger.info("No events found in block ${block.number}")
-            return emptyList()
-        }
-
-        // If the businessEventProcessor is set, process the events further.
-        return businessEventProcessor?.getEvents(events) ?: events
-    }
-
     override fun getLastSyncedBlock(): BlockIdentifier? = processor.getLastSyncedBlock()
 
     override fun rollback(blockNumber: Long) = processor.rollback(blockNumber)
 
     override fun process(events: List<IndexedEvent>, block: Block?) =
         processor.process(events, block)
+
+    override fun runPruner(currentBlockNumber: Long) {
+        pruner?.runPruner(currentBlockNumber)
+    }
 }
