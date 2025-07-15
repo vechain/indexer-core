@@ -1,29 +1,65 @@
 # Indexer Core
 
-This package contains an abstract VeChainThor indexer class. This class can be extended to create a custom indexer.
-Simply extend the class and implement the abstract methods:
+This library provides the core functionality for building an indexer for a VechainThor. Here is a simple example of how to use it:
 
-- `getLastSyncedBlock` - should return the number and ID of the last block that was synchronised by the indexer.
-- `rollback` - should undo the effects of processing a block. This is used when the indexer needs to roll back to
-  a previous block for example in the event of a re-organization or on startup to ensure data integrity.
-- `processBlock` - the core business logic of the indexer. Generally the block data will be parsed and stored in a
-  database.
+## Example usage
 
-## Implementation
+```kotlin
+@Configuration
+open class Config() {
 
-It is important to note that it is the responsibility of the implementing code to keep track of the last synced block.
-There are many strategies for doing this. The simplest is to store the block number in whatever record you are storing
-as part of your `processBlock` implementation.
-Then the last synced block can be estimated by querying the database for the highest block number. This implementation
-isn't perfect, but it is a safe strategy to use.
-If the data stored is sparse then you may need to reprocess a number of records when the indexer is restarted. But this
-is a small tradeoff for the simplicity of the approach.
+    @Bean
+    open fun myPruner(): Pruner = PrunerService()
 
-Also, it is important that the indexer is implemented in such a way that it is possible to roll back to a previous
-block.
-This is where the rollback method comes in. In some scenarios such as a chain re-organization, the indexer will need to roll
-back to a previous block in order to maintain data integrity. Further to this, any database updates in the processBlock
-method should be atomic i.e. they should either complete fully or fail completely.
+    @Bean
+    open fun myIndexer(
+        myProcessor: IndexerProcessor,
+        startBlock: Long,
+        syncLogInterval: Long,
+        syncBlockBatchSize: Long,
+        myPruner: Pruner,
+    ): Indexer =
+        IndexerFactory()
+            .name("MyIndexer")
+            .thorClient("https://mainnet.vechain.org")
+            .processor(myProcessor)
+            .pruner(myPruner)
+            .startBlock(startBlock)
+            .syncLoggerInterval(syncLogInterval)
+            .abis(FileUtils.getJsonFilePaths("/abis"))
+            .businessEvents(FileUtils.getJsonFilePaths("/business-events"))
+            .excludeVetTransfers()
+            .build()
+}
+```
+
+The `IndexerFactory` can be used to configure your indexer. The only required parameters are the `name`, `thorClient` and the `processor`.
+For details of the available configuration options, see the comments in the `IndexerFactory` class.
+
+An example of an `IndexerProcessor` implementation is as follows:
+
+```kotlin
+@Component
+open class MyProcessor(
+  private val myService: Service,
+) : IndexerProcessor {
+    override fun process(events: List<IndexedEvent>, block: Block?) {
+        myService.processEvents(events)
+    }
+
+    override fun rollback(blockNumber: Long) {
+        myService.rollback(blockNumber)
+    }
+
+    override fun getLastSyncedBlock(): BlockIdentifier? {
+      myService.getLatestRecord()?.let {
+        return BlockIdentifier(number = it.blockNumber, id = it.blockId)
+      }
+      logger.info("No records found in repository, returning null")
+      return null
+    }
+}
+```
 
 ## Java compatibility
 
