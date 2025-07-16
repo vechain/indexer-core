@@ -1,6 +1,6 @@
 package org.vechain.indexer
 
-import org.vechain.indexer.event.EventProcessor
+import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.thor.client.DefaultThorClient
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.EventCriteria
@@ -13,14 +13,13 @@ class IndexerFactory {
     private var processor: IndexerProcessor? = null
     private var startBlock: Long = 0L
     private var abiFiles: List<String> = emptyList()
-    private var eventNames: List<String> = emptyList()
-    private var contractAddresses: List<String> = emptyList()
+    private var abiEventNames: List<String> = emptyList()
+    private var abiContracts: List<String> = emptyList()
     private var includeVetTransfers: Boolean = true
-    private var includeEvents: Boolean = true
     private var businessEventFiles: List<String> = emptyList()
+    private var businessEventAbiFiles: List<String> = emptyList()
     private var businessEventNames: List<String> = emptyList()
-    private var removeDuplicates: Boolean = true
-    private var onlyBusinessEvents: Boolean = true
+    private var businessEventContracts: List<String> = emptyList()
     private var substitutionParams: Map<String, String> = emptyMap()
     private var syncLoggerInterval: Long = 1_000L
     private var blockBatchSize: Long = 100L //  Block batch size
@@ -36,14 +35,15 @@ class IndexerFactory {
         requireNotNull(processor) { "Processor must be set using processor() method." }
 
         val eventProcessor =
-            EventProcessor.create(
+            CombinedEventProcessor.create(
                 abiFiles = abiFiles,
-                eventNames = eventNames,
-                contractAddresses = contractAddresses,
+                abiEventNames = abiEventNames,
+                abiContracts = abiContracts,
                 includeVetTransfers = includeVetTransfers,
-                includeEvents = includeEvents,
                 businessEventFiles = businessEventFiles,
+                businessEventAbiFiles = businessEventAbiFiles,
                 businessEventNames = businessEventNames,
+                businessEventContracts = businessEventContracts,
                 substitutionParams = substitutionParams,
             )
 
@@ -65,7 +65,6 @@ class IndexerFactory {
                 processor = processor!!,
                 startBlock = startBlock,
                 syncLoggerInterval = syncLoggerInterval,
-                excludeLogEvents = !includeEvents,
                 excludeVetTransfers = !includeVetTransfers,
                 blockBatchSize = blockBatchSize,
                 logFetchLimit = logFetchLimit,
@@ -131,7 +130,7 @@ class IndexerFactory {
      *
      * @param abiFiles List of ABI file paths.
      */
-    fun abis(abiFiles: List<String>) = apply { this.abiFiles = abiFiles }
+    fun abiFiles(abiFiles: List<String>) = apply { this.abiFiles = abiFiles }
 
     /**
      * Sets the event names to be used for filtering ABI events.
@@ -140,25 +139,34 @@ class IndexerFactory {
      *
      * @param eventNames List of event names to filter.
      */
-    fun eventNames(eventNames: List<String>) = apply { this.eventNames = eventNames }
+    fun abiEventNames(eventNames: List<String>) = apply { this.abiEventNames = eventNames }
 
     /**
      * Sets the contract addresses to be used for filtering events.
      *
      * This is useful when you want to process events only from specific contracts.
      *
-     * @param contractAddresses List of contract addresses to filter.
+     * @param abiContracts List of contract addresses to filter.
      */
-    fun contractAddresses(contractAddresses: List<String>) = apply {
-        this.contractAddresses = contractAddresses
-    }
+    fun abiContracts(abiContracts: List<String>) = apply { this.abiContracts = abiContracts }
 
     /**
      * Sets the business event files to be used for processing business events.
      *
-     * @param eventFiles List of business event file paths.
+     * @param filesPaths List of business event file paths.
      */
-    fun businessEvents(eventFiles: List<String>) = apply { this.businessEventFiles = eventFiles }
+    fun businessEventFiles(filesPaths: List<String>) = apply {
+        this.businessEventFiles = filesPaths
+    }
+
+    /**
+     * Set the ABIs to be used for processing business events.
+     *
+     * @param filesPaths List of business event ABI file paths.
+     */
+    fun businessEventAbiFiles(filesPaths: List<String>) = apply {
+        this.businessEventAbiFiles = filesPaths
+    }
 
     /**
      * Sets the business event names to be used for filtering business events.
@@ -169,6 +177,15 @@ class IndexerFactory {
      */
     fun businessEventNames(eventNames: List<String>) = apply {
         this.businessEventNames = eventNames
+    }
+
+    /**
+     * Sets the business event contracts to be used for filtering business events.
+     *
+     * @param contracts List of contract addresses to filter business events.
+     */
+    fun businessEventContracts(contracts: List<String>) = apply {
+        this.businessEventContracts = contracts
     }
 
     /**
@@ -184,39 +201,10 @@ class IndexerFactory {
     }
 
     /**
-     * If set to `true`, the indexer will remove the abi events that match a business event.
-     *
-     * Generally this will always be set to `true` and that is the default value.
-     *
-     * @param removeDuplicates If `true`, abi events that match a business event will be removed.
-     */
-    fun removeDuplicates(removeDuplicates: Boolean) = apply {
-        this.removeDuplicates = removeDuplicates
-    }
-
-    /**
-     * If set to `true`, the indexer will only process business events. This is useful when you want
-     * to focus on business events only and ignore other events.
-     *
-     * @param onlyBusinessEvents If `true`, only business events will be processed.
-     */
-    fun onlyBusinessEvents(onlyBusinessEvents: Boolean) = apply {
-        this.onlyBusinessEvents = onlyBusinessEvents
-    }
-
-    /**
      * Vet transfer events will be included by default. If you don't need them, you can exclude them
      * and reduce the number of calls to the Thor API.
      */
     fun excludeVetTransfers() = apply { this.includeVetTransfers = false }
-
-    /**
-     * Event logs will be included by default. If you don't need them, you can exclude them and
-     * reduce the number of calls to the Thor API.
-     *
-     * If you are using abis or business events, you might want to keep this enabled
-     */
-    fun excludeEvents() = apply { this.includeEvents = false }
 
     /**
      * Sets the pruner to be used by the indexer.

@@ -5,7 +5,7 @@ import java.time.ZoneOffset
 import kotlinx.coroutines.*
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.vechain.indexer.event.EventProcessor
+import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.ReorgException
@@ -23,7 +23,7 @@ open class BlockIndexer(
     protected val startBlock: Long,
     private val syncLoggerInterval: Long,
     private val pruner: Pruner?,
-    protected open val eventProcessor: EventProcessor?
+    protected open val eventProcessor: CombinedEventProcessor?
 ) : Indexer {
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
@@ -126,10 +126,12 @@ open class BlockIndexer(
                 )
             }
 
-            if (logger.isTraceEnabled) {
-                logger.trace("Processing @ Block $currentBlockNumber ($status)")
-            } else if (status != Status.SYNCING || currentBlockNumber % syncLoggerInterval == 0L) {
-                logger.info("Processing @ Block $currentBlockNumber ($status)")
+            if (
+                logger.isTraceEnabled ||
+                    status != Status.SYNCING ||
+                    currentBlockNumber % syncLoggerInterval == 0L
+            ) {
+                logger.info("($status) Processing Block  $currentBlockNumber")
             }
 
             val events = eventProcessor?.processEvents(block) ?: emptyList()
@@ -201,7 +203,7 @@ open class BlockIndexer(
             val timeSinceLastBlock = maxOf(currentEpoch - block.timestamp.times(1000), 0)
             backoffPeriod = maxOf(0, INITIAL_BACKOFF_PERIOD - (timeSinceLastBlock)) + 100
 
-            logger.info("Success @ Block $currentBlockNumber ($timeSinceLastBlock ms since mine)")
+            logger.debug("Success @ Block $currentBlockNumber ($timeSinceLastBlock ms since mine)")
         }
 
         // Increment the current block.

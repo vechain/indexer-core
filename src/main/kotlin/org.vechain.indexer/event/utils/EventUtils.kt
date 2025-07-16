@@ -168,4 +168,23 @@ object EventUtils {
         return contractAddresses.isEmpty() ||
             contractAddresses.any { it.equals(event.address, ignoreCase = true) }
     }
+
+    /**
+     * Generates a unique event ID based on transaction ID, output index, event index, and event hash.
+     *
+     * @param txId The transaction ID.
+     * @param outputIndex The index of the output in the transaction.
+     * @param eventIndex The index of the event in the output.
+     * @param event The event object to generate the ID for.
+     * @return A unique string identifier for the event.
+     */
+    fun generateEventId(
+        txId: String,
+        outputIndex: Int,
+        eventIndex: Int,
+        event: Any,
+    ): String {
+        val eventHash = event.hashCode() // Use hash of the event as a unique identifier
+        return "$txId-$outputIndex-$eventIndex-$eventHash"
+    }
 }

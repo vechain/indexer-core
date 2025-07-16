@@ -2,7 +2,7 @@ package org.vechain.indexer
 
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-import org.vechain.indexer.event.EventProcessor
+import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.thor.client.LogClient
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.*
@@ -19,7 +19,6 @@ import org.vechain.indexer.thor.model.*
  * @param thorClient The Thor blockchain client instance.
  * @param startBlock The starting block number for indexing.
  * @param syncLoggerInterval Frequency of log sync status updates.
- * @param excludeLogEvents If true, excludes event logs from processing.
  * @param excludeVetTransfers If true, excludes VET transfer logs from processing.
  * @param blockBatchSize Number of blocks fetched per batch.
  * @param logFetchLimit Maximum number of logs fetched per API call.
@@ -34,14 +33,13 @@ open class LogsIndexer(
     processor: IndexerProcessor,
     startBlock: Long,
     private val syncLoggerInterval: Long,
-    private val excludeLogEvents: Boolean,
     private val excludeVetTransfers: Boolean,
     private val blockBatchSize: Long,
     private val logFetchLimit: Long,
     private val pruner: Pruner?,
     private var eventCriteriaSet: List<EventCriteria>?,
     private var transferCriteriaSet: List<TransferCriteria>?,
-    override val eventProcessor: EventProcessor?,
+    override val eventProcessor: CombinedEventProcessor?,
 ) :
     BlockIndexer(
         name,
@@ -108,19 +106,20 @@ open class LogsIndexer(
                     logger.isTraceEnabled ||
                         hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
                 ) {
-                    logger.info("Fast Syncing @ Block Range $currentBlockNumber - $batchEndBlock")
+                    logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
                 }
 
                 // Fetch both event logs and VET transfers
+                // Only fetch event logs if we have ABI definitions
                 val eventLogs =
-                    if (!excludeLogEvents)
+                    if (eventProcessor?.hasAbis() == true) {
                         logClient.fetchEventLogs(
                             currentBlockNumber,
                             batchEndBlock,
                             logFetchLimit,
                             eventCriteriaSet
                         )
-                    else emptyList()
+                    } else emptyList()
 
                 val transferLogs =
                     if (!excludeVetTransfers)

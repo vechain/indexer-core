@@ -7,18 +7,21 @@ import org.vechain.indexer.event.model.generic.AbiEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.model.generic.RawEvent
 import org.vechain.indexer.event.utils.EventUtils
+import org.vechain.indexer.event.utils.EventUtils.generateEventId
 import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.DataUtils
 
-class AbiEventProcessor(
-    private val eventAbis: List<AbiElement>,
+open class AbiEventProcessor(
+    abiFiles: List<String>,
+    eventNames: List<String>,
     private val contractAddresses: List<String>,
     private val includeVetTransfers: Boolean
-) {
+) : EventProcessor {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
-    /** Extracts and decodes all events in a block based on loaded ABIs. */
-    fun getEvents(block: Block): List<IndexedEvent> {
+    val eventAbis: List<AbiElement> = AbiLoader.loadEvents(abiFiles, eventNames)
+
+    override fun processEvents(block: Block): List<IndexedEvent> {
         val events = mutableListOf<IndexedEvent>()
 
         block.transactions.forEach { tx ->
@@ -38,8 +41,17 @@ class AbiEventProcessor(
         return events
     }
 
+    override fun processEvents(
+        eventLogs: List<EventLog>,
+        transferLogs: List<TransferLog>
+    ): List<IndexedEvent> {
+        val abiEvents = decodeLogEvents(eventLogs)
+        val vetTransfers = decodeLogTransfers(transferLogs)
+        return abiEvents + vetTransfers
+    }
+
     /** Decodes a single transaction event into an IndexedEvent. */
-    fun decodeEvent(
+    protected fun decodeEvent(
         event: TxEvent,
         tx: Transaction,
         block: Block,
@@ -82,7 +94,7 @@ class AbiEventProcessor(
      * @param logs List of raw EventLogs.
      * @return A list of decoded Indexed Events with their parameters.
      */
-    fun decodeLogEvents(logs: List<EventLog>): List<IndexedEvent> {
+    protected fun decodeLogEvents(logs: List<EventLog>): List<IndexedEvent> {
         if (logs.isEmpty()) return emptyList()
 
         return logs.mapIndexedNotNull { i, log ->
@@ -126,7 +138,7 @@ class AbiEventProcessor(
      * @param logs List of raw TransferLogs.
      * @return A list of decoded Indexed Transfers with their senders and receivers.
      */
-    fun decodeLogTransfers(logs: List<TransferLog>): List<IndexedEvent> {
+    protected fun decodeLogTransfers(logs: List<TransferLog>): List<IndexedEvent> {
         if (logs.isEmpty()) return emptyList()
 
         return logs.mapIndexedNotNull { i, log ->
@@ -160,7 +172,7 @@ class AbiEventProcessor(
     }
 
     /** Extracts VET transfers from a transaction output and returns them as events. */
-    private fun extractVetTransfers(
+    protected fun extractVetTransfers(
         output: TxOutputs,
         tx: Transaction,
         block: Block,
@@ -202,14 +214,4 @@ class AbiEventProcessor(
             }
         }
 
-    /** Generates a unique ID for an event based on its transaction, output, and topic. */
-    private fun generateEventId(
-        txId: String,
-        outputIndex: Int,
-        eventIndex: Int,
-        event: Any,
-    ): String {
-        val eventHash = event.hashCode() // Use hash of the event as a unique identifier
-        return "$txId-$outputIndex-$eventIndex-$eventHash"
-    }
 }

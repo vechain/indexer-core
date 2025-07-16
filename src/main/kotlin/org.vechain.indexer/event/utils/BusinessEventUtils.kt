@@ -110,10 +110,10 @@ object BusinessEventUtils {
         }
 
     fun extractAbiEventNames(businessEvents: List<BusinessEventDefinition>): List<String> =
-        businessEvents.flatMap { it.events.map { e -> e.name } }
+        businessEvents
+            .flatMap { it.events.map { e -> e.name } }
             .distinct()
             .filter { it.isNotEmpty() && !it.equals("VET_TRANSFER", ignoreCase = true) }
-
 
     /** Validates conditions for a single event against a list of [conditions]. */
     private fun validateConditions(
