@@ -36,7 +36,7 @@ class IndexerFactory {
         requireNotNull(processor) { "Processor must be set using processor() method." }
 
         val eventProcessor =
-            EventProcessor(
+            EventProcessor.create(
                 abiFiles = abiFiles,
                 eventNames = eventNames,
                 contractAddresses = contractAddresses,

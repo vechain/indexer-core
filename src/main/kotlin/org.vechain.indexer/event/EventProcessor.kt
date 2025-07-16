@@ -8,57 +8,64 @@ import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.TransferLog
 
-open class EventProcessor(
-    abiFiles: List<String>,
-    eventNames: List<String>,
-    val contractAddresses: List<String>,
-    val includeVetTransfers: Boolean,
-    includeEvents: Boolean,
-    businessEventFiles: List<String>,
-    businessEventNames: List<String>,
-    substitutionParams: Map<String, String>
+open class EventProcessor protected constructor(
+    private val abiEventProcessor: AbiEventProcessor?,
+    private val businessEventProcessor: BusinessEventProcessor?
 ) {
     private val logger: Logger = LoggerFactory.getLogger(EventProcessor::class.java)
 
-    private val abiEventProcessor: AbiEventProcessor?
-    private val businessEventProcessor: BusinessEventProcessor?
-
-    init {
-        val businessEvents =
-            if (includeEvents) {
-                BusinessEventLoader.loadBusinessEvents(
-                    businessEventFiles,
-                    businessEventNames,
-                    substitutionParams
-                )
-            } else {
-                emptyList()
-            }
-
-        businessEventProcessor =
-            businessEvents
-                .takeIf { includeEvents && it.isNotEmpty() }
-                ?.let {
-                    BusinessEventProcessor(
-                        businessEvents = it,
-                        removeDuplicates = true,
-                        onlyBusinessEvents = false
+    companion object {
+        fun create(
+            abiFiles: List<String>,
+            eventNames: List<String>,
+            contractAddresses: List<String>,
+            includeVetTransfers: Boolean,
+            includeEvents: Boolean,
+            businessEventFiles: List<String>,
+            businessEventNames: List<String>,
+            substitutionParams: Map<String, String>
+        ): EventProcessor {
+            val businessEvents =
+                if (includeEvents) {
+                    BusinessEventLoader.loadBusinessEvents(
+                        businessEventFiles,
+                        businessEventNames,
+                        substitutionParams
                     )
+                } else {
+                    emptyList()
                 }
 
-        val updatedEventNames =
-            if (includeEvents) {
-                (eventNames + extractAbiEventNames(businessEvents)).distinct()
-            } else {
-                emptyList()
-            }
+            val businessEventProcessor =
+                businessEvents
+                    .takeIf { includeEvents && it.isNotEmpty() }
+                    ?.let {
+                        BusinessEventProcessor(
+                            businessEvents = it,
+                            removeDuplicates = true,
+                            onlyBusinessEvents = false
+                        )
+                    }
 
-        abiEventProcessor =
-            AbiEventProcessor(
-                eventAbis = AbiLoader.loadEvents(abiFiles, updatedEventNames),
-                contractAddresses = contractAddresses,
-                includeVetTransfers = includeVetTransfers
+            val updatedEventNames =
+                if (includeEvents) {
+                    (eventNames + extractAbiEventNames(businessEvents)).distinct()
+                } else {
+                    emptyList()
+                }
+
+            val abiEventProcessor =
+                AbiEventProcessor(
+                    eventAbis = AbiLoader.loadEvents(abiFiles, updatedEventNames),
+                    contractAddresses = contractAddresses,
+                    includeVetTransfers = includeVetTransfers
+                )
+
+            return EventProcessor(
+                abiEventProcessor = abiEventProcessor,
+                businessEventProcessor = businessEventProcessor
             )
+        }
     }
 
     /**
