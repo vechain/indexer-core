@@ -213,5 +213,4 @@ open class AbiEventProcessor(
                 null
             }
         }
-
 }

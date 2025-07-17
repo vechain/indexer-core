@@ -7,6 +7,7 @@ object BlockFixtures {
     private val objectMapper = JsonUtils.mapper
 
     val BLOCK_STRINGS = buildBlockFixture("blocks/string_event_block.json")
+    val BLOCK_TRANSFERS = buildBlockFixture("blocks/transfers.json")
     val BLOCK_B3TR_ACTION = buildBlockFixture("blocks/b3tr_action_block.json")
     val BLOCK_TOKEN_EXCHANGE = buildBlockFixture("blocks/token_exchange_block.json")
     val BLOCK_WITH_INDEXED_ARRAY = buildBlockFixture("blocks/indexed_array_block.json")

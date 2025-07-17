@@ -4,9 +4,35 @@ import com.fasterxml.jackson.core.type.TypeReference
 import org.vechain.indexer.event.model.abi.AbiElement
 
 object AbiLoader {
+
     fun loadEvents(
         abiFiles: List<String>,
         eventNames: List<String>,
+        substitutionParams: Map<String, String> = emptyMap()
+    ): List<AbiElement> =
+        load(
+            abiFiles = abiFiles,
+            names = eventNames,
+            typeFilter = "event",
+            substitutionParams = substitutionParams
+        )
+
+    fun loadFunctions(
+        abiFiles: List<String>,
+        functionNames: List<String>,
+        substitutionParams: Map<String, String> = emptyMap()
+    ): List<AbiElement> =
+        load(
+            abiFiles = abiFiles,
+            names = functionNames,
+            typeFilter = "function",
+            substitutionParams = substitutionParams
+        )
+
+    fun load(
+        abiFiles: List<String>,
+        names: List<String>,
+        typeFilter: String? = null,
         substitutionParams: Map<String, String> = emptyMap()
     ): List<AbiElement> {
         val allAbisElements =
@@ -17,20 +43,22 @@ object AbiLoader {
             )
 
         val matchedEvents =
-            if (eventNames.isEmpty()) {
+            if (names.isEmpty()) {
                 allAbisElements
-                    .filter { it.type == "event" && it.name != null }
+                    .filter { abi ->
+                        (typeFilter == null || abi.type == typeFilter) && abi.name != null
+                    }
                     .distinctBy { it.name?.lowercase() }
             } else {
                 val matched =
                     allAbisElements.filter { abi ->
-                        abi.type == "event" &&
+                        (typeFilter == null || abi.type == typeFilter) &&
                             abi.name != null &&
-                            eventNames.any { it.equals(abi.name, ignoreCase = true) }
+                            names.any { it.equals(abi.name, ignoreCase = true) }
                     }
 
                 val unmatchedNames =
-                    eventNames.filter { name ->
+                    names.filter { name ->
                         matched.none { it.name?.equals(name, ignoreCase = true) == true }
                     }
 

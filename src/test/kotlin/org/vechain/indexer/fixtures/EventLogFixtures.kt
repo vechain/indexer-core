@@ -10,6 +10,9 @@ object EventLogFixtures {
     val LOGS_STRINGS = buildBlockFixture("logs/string_event_block_logs.json")
     val LOGS_B3TR_ACTION = buildBlockFixture("logs/b3tr_actions_block_logs.json")
     val LOGS_TOKEN_EXCHANGE = buildBlockFixture("logs/token_exchange_block_logs.json")
+    val LOGS_NFT_MINT = buildBlockFixture("logs/nft_mint.json")
+    val LOGS_BATCH_TRANSFER = buildBlockFixture("logs/batch_transfers.json")
+    val LOGS_MULTIPLE_EVENTS = buildBlockFixture("logs/multiple_txs.json")
 
     private fun buildBlockFixture(name: String): List<EventLog> {
         val resource =

@@ -170,7 +170,8 @@ object EventUtils {
     }
 
     /**
-     * Generates a unique event ID based on transaction ID, output index, event index, and event hash.
+     * Generates a unique event ID based on transaction ID, output index, event index, and event
+     * hash.
      *
      * @param txId The transaction ID.
      * @param outputIndex The index of the output in the transaction.
