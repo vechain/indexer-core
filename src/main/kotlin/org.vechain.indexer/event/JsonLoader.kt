@@ -69,7 +69,10 @@ object JsonLoader {
         val originalJson = inputStream.bufferedReader().use { it.readText() }
         val substitutedJson = substitutePlaceholders(originalJson, substitutionParams)
         if (substitutedJson.contains("\${")) {
-            logger.warn("⚠️Unresolved placeholders found in $path")
+            throw IllegalStateException(
+                "Not all placeholders were substituted in JSON file $path. " +
+                    "Please check the substitution parameters."
+            )
         }
         return substitutedJson
     }

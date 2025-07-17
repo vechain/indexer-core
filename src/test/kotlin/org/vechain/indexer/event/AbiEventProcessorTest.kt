@@ -1,15 +1,11 @@
 package org.vechain.indexer.event
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import io.mockk.junit5.MockKExtension
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.vechain.indexer.event.utils.EventUtils.generateEventId
 import org.vechain.indexer.fixtures.*
-import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_TRANSFERS
 import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_B3TR_ACTION
-import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_MULTIPLE_EVENTS
 import org.vechain.indexer.thor.model.*
 import strikt.api.expectThat
 import strikt.assertions.isEmpty
@@ -151,26 +147,26 @@ class AbiEventProcessorTest {
         expectThat(result).isEmpty()
     }
 
-//    @Test
-//    fun `decodeLogEvents temp`() {
-//        val processor =
-//            TestableAbiEventProcessor(
-//                abiFiles = listOf("test-abis/erc20.json"),
-//                eventNames = listOf("Transfer"),
-//                contractAddresses = emptyList(),
-//                includeVetTransfers = false
-//            )
-//
-////        val logs = LOGS_MULTIPLE_EVENTS
-////        val result = processor.publicDecodeLogEvents(logs)
-//        val result = processor.processEvents(BLOCK_TRANSFERS)
-//
-//        // Convert to json string for easier debugging
-//        val objectMapper: ObjectMapper = ObjectMapper().registerKotlinModule()
-//        val jsonResult = objectMapper.writeValueAsString(result)
-//
-//        expectThat(result).isNotEmpty()
-//    }
+    //    @Test
+    //    fun `decodeLogEvents temp`() {
+    //        val processor =
+    //            TestableAbiEventProcessor(
+    //                abiFiles = listOf("test-abis/erc20.json"),
+    //                eventNames = listOf("Transfer"),
+    //                contractAddresses = emptyList(),
+    //                includeVetTransfers = false
+    //            )
+    //
+    ////        val logs = LOGS_MULTIPLE_EVENTS
+    ////        val result = processor.publicDecodeLogEvents(logs)
+    //        val result = processor.processEvents(BLOCK_TRANSFERS)
+    //
+    //        // Convert to json string for easier debugging
+    //        val objectMapper: ObjectMapper = ObjectMapper().registerKotlinModule()
+    //        val jsonResult = objectMapper.writeValueAsString(result)
+    //
+    //        expectThat(result).isNotEmpty()
+    //    }
 
     @Test
     fun `decodeLogTransfers should return events for valid transfer logs`() {
