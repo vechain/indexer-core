@@ -10,36 +10,16 @@ class BusinessEventLoaderTest {
     fun `loadBusinessEvents returns all business events if no eventNames provided `() {
         val businessEvents =
             BusinessEventLoader.loadBusinessEvents(
-                eventFiles =
-                    listOf(
-                        "business-events/action-reward.json",
-                        "business-events/SampleEvent1.json"
-                    ),
+                basePath = "business-events/b3tr",
                 eventNames = emptyList()
             )
 
         // Should return all business events defined in the files
-        assert(businessEvents.size == 2) {
+        assert(businessEvents.size == 1) {
             "Expected 2 business events, but got ${businessEvents.size}"
         }
         assert(businessEvents.any { it.name == "B3TR_ActionReward" }) {
             "B3TR_ActionReward event not found"
-        }
-        assert(businessEvents.any { it.name == "SampleEvent1" }) { "SampleEvent1 event not found" }
-    }
-
-    @Test
-    fun `loadBusinessEvents should throw an exception if file not found`() {
-        try {
-            BusinessEventLoader.loadBusinessEvents(
-                eventFiles = listOf("business-events/non-existent.json"),
-                eventNames = emptyList()
-            )
-            assert(false) { "Expected IllegalStateException for non-existent file" }
-        } catch (e: IllegalStateException) {
-            assert(e.message?.contains("non-existent.json") == true) {
-                "Unexpected exception message: ${e.message}"
-            }
         }
     }
 
@@ -47,7 +27,7 @@ class BusinessEventLoaderTest {
     fun `loadBusinessEvents preforms substitution`() {
         val businessEvents =
             BusinessEventLoader.loadBusinessEvents(
-                eventFiles = listOf("business-events/substitution-test.json"),
+                basePath = "business-events/substitution",
                 eventNames = emptyList(),
                 envParams = mapOf("REPLACE_ME" to "Blah")
             )
@@ -68,11 +48,7 @@ class BusinessEventLoaderTest {
     fun `loadBusinessEvents filters by event names`() {
         val businessEvents =
             BusinessEventLoader.loadBusinessEvents(
-                eventFiles =
-                    listOf(
-                        "business-events/action-reward.json",
-                        "business-events/SampleEvent1.json"
-                    ),
+                basePath = "business-events/b3tr",
                 eventNames = listOf("B3TR_ActionReward")
             )
 
@@ -89,7 +65,7 @@ class BusinessEventLoaderTest {
     fun `loadBusinessEvents throws exception for non-existent event name`() {
         try {
             BusinessEventLoader.loadBusinessEvents(
-                eventFiles = listOf("business-events/action-reward.json"),
+                basePath = "business-events/b3tr",
                 eventNames = listOf("NonExistentEvent")
             )
             assert(false) { "Expected IllegalArgumentException for non-existent event name" }
@@ -104,11 +80,7 @@ class BusinessEventLoaderTest {
     fun `loadBusinessEvents should return only distinct events`() {
         val businessEvents =
             BusinessEventLoader.loadBusinessEvents(
-                eventFiles =
-                    listOf(
-                        "business-events/action-reward.json",
-                        "business-events/action-reward.json"
-                    ),
+                basePath = "business-events/duplicate",
                 eventNames = emptyList()
             )
 
@@ -125,11 +97,7 @@ class BusinessEventLoaderTest {
     fun `loadBusinessEvents should return only distinct events 2`() {
         val businessEvents =
             BusinessEventLoader.loadBusinessEvents(
-                eventFiles =
-                    listOf(
-                        "business-events/action-reward.json",
-                        "business-events/SampleEvent1.json"
-                    ),
+                basePath = "business-events/b3tr",
                 eventNames = listOf("B3TR_ActionReward", "B3TR_ActionReward")
             )
 

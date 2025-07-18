@@ -2,13 +2,15 @@ package org.vechain.indexer.event
 
 import com.fasterxml.jackson.core.type.TypeReference
 import org.vechain.indexer.event.model.business.BusinessEventDefinition
+import org.vechain.indexer.utils.FileScanner
 
 object BusinessEventLoader {
     fun loadBusinessEvents(
-        eventFiles: List<String>,
+        basePath: String,
         eventNames: List<String>,
         envParams: Map<String, String> = emptyMap()
     ): List<BusinessEventDefinition> {
+        val eventFiles = FileScanner.findFiles(basePath = basePath, suffix = "json")
         val allBusinessEvents =
             JsonLoader.load(
                 eventFiles,

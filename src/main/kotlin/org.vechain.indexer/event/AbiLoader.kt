@@ -2,39 +2,43 @@ package org.vechain.indexer.event
 
 import com.fasterxml.jackson.core.type.TypeReference
 import org.vechain.indexer.event.model.abi.AbiElement
+import org.vechain.indexer.utils.FileScanner
 
 object AbiLoader {
 
     fun loadEvents(
-        abiFiles: List<String>,
+        basePath: String,
         eventNames: List<String>,
         substitutionParams: Map<String, String> = emptyMap()
     ): List<AbiElement> =
         load(
-            abiFiles = abiFiles,
+            basePath = basePath,
             names = eventNames,
             typeFilter = "event",
             substitutionParams = substitutionParams
         )
 
     fun loadFunctions(
-        abiFiles: List<String>,
+        basePath: String,
         functionNames: List<String>,
         substitutionParams: Map<String, String> = emptyMap()
     ): List<AbiElement> =
         load(
-            abiFiles = abiFiles,
+            basePath = basePath,
             names = functionNames,
             typeFilter = "function",
             substitutionParams = substitutionParams
         )
 
     fun load(
-        abiFiles: List<String>,
+        basePath: String,
         names: List<String>,
         typeFilter: String? = null,
         substitutionParams: Map<String, String> = emptyMap()
     ): List<AbiElement> {
+
+        val abiFiles = FileScanner.findFiles(basePath = basePath, suffix = "json")
+
         val allAbisElements =
             JsonLoader.loadAndFlatten(
                 abiFiles,

@@ -21,11 +21,7 @@ class AbiEventProcessorTest {
     fun `decodeEvent should decode valid event`() {
         val processor =
             TestableAbiEventProcessor(
-                abiFiles =
-                    listOf(
-                        "test-abis/VeBetterDAO-b3tr.json",
-                        "test-abis/VeBetterDAO-x-2-earn-rewards-pool.json"
-                    ),
+                basePath = "test-abis/b3tr",
                 eventNames = emptyList(),
                 contractAddresses = emptyList(),
                 includeVetTransfers = false
@@ -68,7 +64,7 @@ class AbiEventProcessorTest {
     fun `decodeEvent return null if no event matches`() {
         val processor =
             TestableAbiEventProcessor(
-                abiFiles = listOf("test-abis/stringsAbis.json"),
+                basePath = "test-abis/stringsabi",
                 eventNames = listOf(),
                 contractAddresses = emptyList(),
                 includeVetTransfers = false
@@ -96,11 +92,7 @@ class AbiEventProcessorTest {
     fun `decodeLogEvents should decode valid log events`() {
         val processor =
             TestableAbiEventProcessor(
-                abiFiles =
-                    listOf(
-                        "test-abis/VeBetterDAO-b3tr.json",
-                        "test-abis/VeBetterDAO-x-2-earn-rewards-pool.json"
-                    ),
+                basePath = "test-abis/b3tr",
                 eventNames = listOf("RewardDistributed"),
                 contractAddresses = emptyList(),
                 includeVetTransfers = false
@@ -134,7 +126,7 @@ class AbiEventProcessorTest {
     fun `decodeLogEvents should return empty list if no logs match`() {
         val processor =
             TestableAbiEventProcessor(
-                abiFiles = listOf("test-abis/stringsAbis.json"),
+                basePath = "test-abis/stringsabi",
                 eventNames = listOf(),
                 contractAddresses = emptyList(),
                 includeVetTransfers = false
@@ -172,7 +164,7 @@ class AbiEventProcessorTest {
     fun `decodeLogTransfers should return events for valid transfer logs`() {
         val processor =
             TestableAbiEventProcessor(
-                abiFiles = listOf("test-abis/stringsAbis.json"),
+                basePath = "test-abis/stringsabi",
                 eventNames = listOf(),
                 contractAddresses = emptyList(),
                 includeVetTransfers = false
@@ -215,7 +207,7 @@ class AbiEventProcessorTest {
     fun `decodeLogTransfers should return empty list for empty logs`() {
         val processor =
             TestableAbiEventProcessor(
-                abiFiles = listOf("test-abis/stringsAbis.json"),
+                basePath = "test-abis/stringsabi",
                 eventNames = listOf(),
                 contractAddresses = emptyList(),
                 includeVetTransfers = false
@@ -227,11 +219,11 @@ class AbiEventProcessorTest {
     }
 
     private class TestableAbiEventProcessor(
-        abiFiles: List<String>,
+        basePath: String,
         eventNames: List<String>,
         contractAddresses: List<String>,
         includeVetTransfers: Boolean
-    ) : AbiEventProcessor(abiFiles, eventNames, contractAddresses, includeVetTransfers) {
+    ) : AbiEventProcessor(basePath, eventNames, contractAddresses, includeVetTransfers) {
 
         fun publicDecodeEvent(
             event: TxEvent,

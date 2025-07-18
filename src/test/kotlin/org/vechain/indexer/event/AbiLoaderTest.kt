@@ -9,7 +9,7 @@ class AbiLoaderTest {
     fun `load returns all events if no eventNames provided`() {
         val events =
             AbiLoader.load(
-                abiFiles = listOf("test-abis/stringsAbis.json"),
+                basePath = "test-abis/stringsabi",
                 names = emptyList(),
                 typeFilter = "event"
             )
@@ -40,7 +40,7 @@ class AbiLoaderTest {
     fun `load filters by event names`() {
         val events =
             AbiLoader.load(
-                abiFiles = listOf("test-abis/stringsAbis.json"),
+                basePath = "test-abis/stringsabi",
                 names = listOf("ABIChanged", "AddrChanged"),
                 typeFilter = "event"
             )
@@ -55,7 +55,7 @@ class AbiLoaderTest {
     fun `load throws exception for non-existent event name`() {
         try {
             AbiLoader.load(
-                abiFiles = listOf("test-abis/stringsAbis.json"),
+                basePath = "test-abis/stringsabi",
                 names = listOf("NonExistentEvent"),
                 typeFilter = "event"
             )
@@ -71,7 +71,7 @@ class AbiLoaderTest {
     fun `load should return only distinct events`() {
         val events =
             AbiLoader.load(
-                abiFiles = listOf("test-abis/stringsAbis.json", "test-abis/stringsAbis.json"),
+                basePath = "test-abis/duplicate",
                 names = emptyList(),
                 typeFilter = "event"
             )
@@ -85,7 +85,7 @@ class AbiLoaderTest {
     fun `load should return only distinct events 2`() {
         val events =
             AbiLoader.load(
-                abiFiles = listOf("test-abis/stringsAbis.json"),
+                basePath = "test-abis/stringsabi",
                 names = listOf("ABIChanged", "AddrChanged"),
                 typeFilter = "event"
             )
@@ -97,26 +97,10 @@ class AbiLoaderTest {
     }
 
     @Test
-    fun `load should throw and exception if file is not found`() {
-        try {
-            AbiLoader.load(
-                abiFiles = listOf("non-existent-file.json"),
-                names = emptyList(),
-                typeFilter = "event"
-            )
-            assert(false) { "Expected IllegalStateException for non-existent file" }
-        } catch (e: IllegalStateException) {
-            assert(e.message?.contains("non-existent-file.json") == true) {
-                "Unexpected exception message: ${e.message}"
-            }
-        }
-    }
-
-    @Test
     fun `load performs substitution with envParams`() {
         val events =
             AbiLoader.load(
-                abiFiles = listOf("test-abis/substitution-test.json"),
+                basePath = "test-abis/substitution",
                 names = emptyList(),
                 typeFilter = "event",
                 substitutionParams = mapOf("REPLACE_ME" to "Blah")
@@ -131,7 +115,7 @@ class AbiLoaderTest {
     fun `load will load a different type of ABI`() {
         val functions =
             AbiLoader.load(
-                abiFiles = listOf("test-abis/stringsAbis.json"),
+                basePath = "test-abis/stringsabi",
                 names = listOf("approve", "clearRecords"),
                 typeFilter = "function"
             )
@@ -146,7 +130,7 @@ class AbiLoaderTest {
     fun `loadEvents should return events`() {
         val events =
             AbiLoader.loadEvents(
-                abiFiles = listOf("test-abis/stringsAbis.json"),
+                basePath = "test-abis/stringsabi",
                 eventNames = listOf("ABIChanged", "AddrChanged")
             )
 
@@ -160,7 +144,7 @@ class AbiLoaderTest {
     fun `loadFunctions should return functions`() {
         val functions =
             AbiLoader.loadFunctions(
-                abiFiles = listOf("test-abis/stringsAbis.json"),
+                basePath = "test-abis/stringsabi",
                 functionNames = listOf("approve", "clearRecords")
             )
 

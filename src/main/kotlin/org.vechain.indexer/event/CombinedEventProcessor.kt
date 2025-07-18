@@ -13,24 +13,29 @@ protected constructor(
 
     companion object {
         fun create(
-            abiFiles: List<String>,
+            abiBasePath: String?,
             abiEventNames: List<String>,
             abiContracts: List<String>,
             includeVetTransfers: Boolean,
-            businessEventFiles: List<String>,
-            businessEventAbiFiles: List<String>,
+            businessEventPath: String?,
+            businessEventAbiBasePath: String?,
             businessEventNames: List<String>,
             businessEventContracts: List<String>,
             substitutionParams: Map<String, String>
         ): CombinedEventProcessor {
 
             val businessEventProcessor =
-                if (businessEventFiles.isNotEmpty()) {
+                if (businessEventPath != null) {
+                    if (businessEventAbiBasePath == null) {
+                        throw IllegalArgumentException(
+                            "Business event ABI path must be provided if business event path is set."
+                        )
+                    }
                     BusinessEventProcessor(
-                        businessEventFiles = businessEventFiles,
+                        businessEventBasePath = businessEventPath,
+                        abiBasePath = businessEventAbiBasePath,
                         businessEventNames = businessEventNames,
                         businessEventContracts = businessEventContracts,
-                        abiFiles = businessEventAbiFiles,
                         substitutionParams = substitutionParams
                     )
                 } else {
@@ -38,12 +43,16 @@ protected constructor(
                 }
 
             val abiEventProcessor =
-                AbiEventProcessor(
-                    abiFiles = abiFiles,
-                    eventNames = abiEventNames,
-                    contractAddresses = abiContracts,
-                    includeVetTransfers = includeVetTransfers
-                )
+                if (abiBasePath != null) {
+                    AbiEventProcessor(
+                        basePath = abiBasePath,
+                        eventNames = abiEventNames,
+                        contractAddresses = abiContracts,
+                        includeVetTransfers = includeVetTransfers
+                    )
+                } else {
+                    null
+                }
 
             return CombinedEventProcessor(
                 abiEventProcessor = abiEventProcessor,

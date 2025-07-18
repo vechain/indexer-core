@@ -14,7 +14,7 @@ plugins {
 
 group = "org.vechain"
 
-val projectVersion = System.getenv("PROJECT_VERSION") ?: "5.0.0-SNAPSHOT"
+val projectVersion = System.getenv("PROJECT_VERSION") ?: "5.0.26-SNAPSHOT"
 version = projectVersion
 
 repositories {

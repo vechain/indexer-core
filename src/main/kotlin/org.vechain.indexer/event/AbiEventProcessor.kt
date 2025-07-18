@@ -12,14 +12,15 @@ import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.DataUtils
 
 open class AbiEventProcessor(
-    abiFiles: List<String>,
+    basePath: String,
     eventNames: List<String>,
     private val contractAddresses: List<String>,
     private val includeVetTransfers: Boolean
 ) : EventProcessor {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
-    val eventAbis: List<AbiElement> = AbiLoader.loadEvents(abiFiles, eventNames)
+    val eventAbis: List<AbiElement> =
+        AbiLoader.loadEvents(basePath = basePath, eventNames = eventNames)
 
     override fun processEvents(block: Block): List<IndexedEvent> {
         val events = mutableListOf<IndexedEvent>()

@@ -14,23 +14,23 @@ import org.vechain.indexer.thor.model.TransferLog
  * business events.
  */
 class BusinessEventProcessor(
-    businessEventFiles: List<String>,
+    businessEventBasePath: String,
+    abiBasePath: String,
     businessEventNames: List<String>,
     businessEventContracts: List<String>,
-    abiFiles: List<String>,
     substitutionParams: Map<String, String>,
 ) : EventProcessor {
 
     // Load business events from the provided files and names.
     private val businessEvents: List<BusinessEventDefinition> =
         BusinessEventLoader.loadBusinessEvents(
-            eventFiles = businessEventFiles,
+            basePath = businessEventBasePath,
             eventNames = businessEventNames,
             envParams = substitutionParams
         )
     private val abiEventProcessor: AbiEventProcessor =
         AbiEventProcessor(
-            abiFiles = abiFiles,
+            basePath = abiBasePath,
             eventNames = extractAbiEventNames(businessEvents),
             contractAddresses = businessEventContracts,
             includeVetTransfers = false

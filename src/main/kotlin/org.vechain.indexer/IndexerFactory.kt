@@ -12,12 +12,12 @@ class IndexerFactory {
     private var thorClient: ThorClient? = null
     private var processor: IndexerProcessor? = null
     private var startBlock: Long = 0L
-    private var abiFiles: List<String> = emptyList()
+    private var abiBasePath: String? = null
     private var abiEventNames: List<String> = emptyList()
     private var abiContracts: List<String> = emptyList()
     private var includeVetTransfers: Boolean = true
-    private var businessEventFiles: List<String> = emptyList()
-    private var businessEventAbiFiles: List<String> = emptyList()
+    private var businessEventBasePath: String? = null
+    private var businessEventAbiBasePath: String? = null
     private var businessEventNames: List<String> = emptyList()
     private var businessEventContracts: List<String> = emptyList()
     private var substitutionParams: Map<String, String> = emptyMap()
@@ -36,12 +36,12 @@ class IndexerFactory {
 
         val eventProcessor =
             CombinedEventProcessor.create(
-                abiFiles = abiFiles,
+                abiBasePath = abiBasePath,
                 abiEventNames = abiEventNames,
                 abiContracts = abiContracts,
                 includeVetTransfers = includeVetTransfers,
-                businessEventFiles = businessEventFiles,
-                businessEventAbiFiles = businessEventAbiFiles,
+                businessEventPath = businessEventBasePath,
+                businessEventAbiBasePath = businessEventAbiBasePath,
                 businessEventNames = businessEventNames,
                 businessEventContracts = businessEventContracts,
                 substitutionParams = substitutionParams,
@@ -126,11 +126,13 @@ class IndexerFactory {
     fun startBlock(startBlock: Long) = apply { this.startBlock = startBlock }
 
     /**
-     * Sets the ABI files to be used for decoding event logs.
+     * Sets the base path for ABI files.
      *
-     * @param abiFiles List of ABI file paths.
+     * Will load all `json` files in this directory and one level deeper.
+     *
+     * @param basePath base path for ABI files.
      */
-    fun abiFiles(abiFiles: List<String>) = apply { this.abiFiles = abiFiles }
+    fun abiBasePath(basePath: String) = apply { this.abiBasePath = basePath }
 
     /**
      * Sets the event names to be used for filtering ABI events.
@@ -151,21 +153,27 @@ class IndexerFactory {
     fun abiContracts(abiContracts: List<String>) = apply { this.abiContracts = abiContracts }
 
     /**
-     * Sets the business event files to be used for processing business events.
+     * Sets the base path for business event files.
      *
-     * @param filesPaths List of business event file paths.
+     * Will load all `json` files in this directory and one level deeper.
+     *
+     * @param basePath base path for business event files.
      */
-    fun businessEventFiles(filesPaths: List<String>) = apply {
-        this.businessEventFiles = filesPaths
-    }
+    fun businessEventBasePath(basePath: String) = apply { this.businessEventBasePath = basePath }
 
     /**
-     * Set the ABIs to be used for processing business events.
+     * Sets the base path for business event ABI files.
      *
-     * @param filesPaths List of business event ABI file paths.
+     * Will load all `json` files in this directory and one level deeper.
+     *
+     * This is distinct from the `abiBasePath` which is used for loading abi events. This parameter
+     * allows you to define only the abis that are used by your business events. All abis referenced
+     * in your business events must be contained in these abi files or an error will be thrown.
+     *
+     * @param basePath base path for business event ABI files.
      */
-    fun businessEventAbiFiles(filesPaths: List<String>) = apply {
-        this.businessEventAbiFiles = filesPaths
+    fun businessEventAbiBasePath(basePath: String) = apply {
+        this.businessEventAbiBasePath = basePath
     }
 
     /**
