@@ -22,8 +22,9 @@ open class BlockIndexer(
     private val processor: IndexerProcessor,
     protected val startBlock: Long,
     private val syncLoggerInterval: Long,
-    private val pruner: Pruner?,
-    protected open val eventProcessor: CombinedEventProcessor?
+    protected open val eventProcessor: CombinedEventProcessor?,
+    override val pruner: Pruner?,
+    val prunerFrequency: Long = 10_000L, // Runs every 10,000 blocks by default
 ) : Indexer {
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
@@ -186,7 +187,7 @@ open class BlockIndexer(
 
     /**
      * Ensures that indexer is fully synced, recalculates the backoff period & increments the
-     * current block number
+     * current block number and runs the pruner service if available.
      *
      * @param block the block to undergo post-processing
      */
@@ -204,6 +205,11 @@ open class BlockIndexer(
             backoffPeriod = maxOf(0, INITIAL_BACKOFF_PERIOD - (timeSinceLastBlock)) + 100
 
             logger.debug("Success @ Block $currentBlockNumber ($timeSinceLastBlock ms since mine)")
+
+            // Run the pruner service if it is available.
+            pruner?.let {
+                if (currentBlockNumber % prunerFrequency == 0L) it.run(currentBlockNumber)
+            }
         }
 
         // Increment the current block.
@@ -259,8 +265,4 @@ open class BlockIndexer(
 
     override fun process(events: List<IndexedEvent>, block: Block?) =
         processor.process(events, block)
-
-    override fun runPruner(currentBlockNumber: Long) {
-        pruner?.runPruner(currentBlockNumber)
-    }
 }
