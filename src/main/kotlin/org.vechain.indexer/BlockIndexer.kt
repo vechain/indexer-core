@@ -24,7 +24,7 @@ open class BlockIndexer(
     private val syncLoggerInterval: Long,
     protected open val eventProcessor: CombinedEventProcessor?,
     override val pruner: Pruner?,
-    val prunerFrequency: Long = 10_000L, // Runs every 10,000 blocks by default
+    val prunerInterval: Long,
 ) : Indexer {
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
@@ -208,7 +208,7 @@ open class BlockIndexer(
 
             // Run the pruner service if it is available.
             pruner?.let {
-                if (currentBlockNumber % prunerFrequency == 0L) it.run(currentBlockNumber)
+                if (currentBlockNumber % prunerInterval == 0L) it.run(currentBlockNumber)
             }
         }
 

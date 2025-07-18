@@ -40,6 +40,7 @@ open class LogsIndexer(
     private var transferCriteriaSet: List<TransferCriteria>?,
     override val eventProcessor: CombinedEventProcessor?,
     pruner: Pruner?,
+    prunerInterval: Long,
 ) :
     BlockIndexer(
         name,
@@ -49,6 +50,7 @@ open class LogsIndexer(
         syncLoggerInterval,
         eventProcessor,
         pruner,
+        prunerInterval,
     ) {
 
     private val logClient = LogClient(thorClient)
