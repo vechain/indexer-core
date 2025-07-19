@@ -168,7 +168,8 @@ class IndexerFactory {
      *
      * All `json` files in the provided path will be loaded as business event definitions.
      *
-     * If a business event references an event that doesn't appear in the ABIs provided an exception will be thrown.
+     * If a business event references an event that doesn't appear in the ABIs provided an exception
+     * will be thrown.
      *
      * @param basePath base path for business event files.
      * @param abiBasePath base path for business event ABI files.
@@ -203,8 +204,8 @@ class IndexerFactory {
      *
      * This is used to substitute environment variables in the business event files.
      *
-     * If a business event file contains a variable like `${REPLACE_ME}`, you must provide a matching substitution
-     * parameter or an exception will be thrown.
+     * If a business event file contains a variable like `${REPLACE_ME}`, you must provide a
+     * matching substitution parameter or an exception will be thrown.
      *
      * @param substitutionParams map of environment variables to substitute in the business event
      *   files.
