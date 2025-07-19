@@ -29,6 +29,9 @@ open class BlockIndexer(
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
 
+    // A random number between 0 and `prunerInterval`. This makes it less like that all pruners will run at the same time.
+    private val prunerIntervalOffset = (0 until prunerInterval).random()
+
     /**
      * The Number of indexer iterations remaining in case a given number of iterations has been
      * specified
@@ -138,6 +141,7 @@ open class BlockIndexer(
             val events = eventProcessor?.processEvents(block) ?: emptyList()
             process(events, block)
             postProcessBlock(block)
+            runPruner()
         } catch (_: BlockNotFoundException) {
             logger.info("Block $currentBlockNumber not found. Indexer may be fully synchronised.")
             handleFullySynced()
@@ -187,7 +191,7 @@ open class BlockIndexer(
 
     /**
      * Ensures that indexer is fully synced, recalculates the backoff period & increments the
-     * current block number and runs the pruner service if available.
+     * current block number.
      *
      * @param block the block to undergo post-processing
      */
@@ -205,11 +209,6 @@ open class BlockIndexer(
             backoffPeriod = maxOf(0, INITIAL_BACKOFF_PERIOD - (timeSinceLastBlock)) + 100
 
             logger.debug("Success @ Block $currentBlockNumber ($timeSinceLastBlock ms since mine)")
-
-            // Run the pruner service if it is available.
-            pruner?.let {
-                if (currentBlockNumber % prunerInterval == 0L) it.run(currentBlockNumber)
-            }
         }
 
         // Increment the current block.
@@ -219,6 +218,21 @@ open class BlockIndexer(
         previousBlock = BlockIdentifier(number = block.number, id = block.id)
 
         timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
+    }
+
+
+    /**
+     * Runs the pruner service if the indexer is in a fully synced state and the current block.
+     * The pruner will run every `prunerInterval` blocks, offset by a random number between 0 and `prunerInterval` to
+     * ensure that not all indexers run the pruner at the same time.
+     */
+    private suspend fun runPruner() {
+        if (status == Status.FULLY_SYNCED) {
+            // Run the pruner service if it is available.
+            pruner?.let {
+                if (currentBlockNumber % prunerInterval == prunerIntervalOffset) it.run(currentBlockNumber)
+            }
+        }
     }
 
     /** Ensures that indexer is not behind on-chain best block when in fully synced state */
