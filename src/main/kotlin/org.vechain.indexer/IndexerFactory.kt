@@ -129,13 +129,17 @@ class IndexerFactory {
     fun startBlock(startBlock: Long) = apply { this.startBlock = startBlock }
 
     /**
-     * Sets the base path for ABI files.
+     * This function allows you to configure the ABI files for the indexer.
      *
-     * Will load all `json` files in this directory and one level deeper.
+     * Matching ABI events will appear in the events list in your `process` function.
+     *
+     * You must provide the base path for ABI files.
+     *
+     * All `json` files in the provided path will be loaded as ABI files.
      *
      * @param basePath base path for ABI files.
      */
-    fun abiBasePath(basePath: String) = apply { this.abiBasePath = basePath }
+    fun abi(basePath: String) = apply { this.abiBasePath = basePath }
 
     /**
      * Sets the event names to be used for filtering ABI events.
@@ -156,27 +160,22 @@ class IndexerFactory {
     fun abiContracts(abiContracts: List<String>) = apply { this.abiContracts = abiContracts }
 
     /**
-     * Sets the base path for business event files.
+     * This function allows you to configure business events for the indexer.
      *
-     * Will load all `json` files in this directory and one level deeper.
+     * Matching business events will appear in the events list in your `process` function.
+     *
+     * You must provide the base path for business event files and ABI files.
+     *
+     * All `json` files in the provided path will be loaded as business event definitions.
+     *
+     * If a business event references an event that doesn't appear in the ABIs provided an exception will be thrown.
      *
      * @param basePath base path for business event files.
+     * @param abiBasePath base path for business event ABI files.
      */
-    fun businessEventBasePath(basePath: String) = apply { this.businessEventBasePath = basePath }
-
-    /**
-     * Sets the base path for business event ABI files.
-     *
-     * Will load all `json` files in this directory and one level deeper.
-     *
-     * This is distinct from the `abiBasePath` which is used for loading abi events. This parameter
-     * allows you to define only the abis that are used by your business events. All abis referenced
-     * in your business events must be contained in these abi files or an error will be thrown.
-     *
-     * @param basePath base path for business event ABI files.
-     */
-    fun businessEventAbiBasePath(basePath: String) = apply {
-        this.businessEventAbiBasePath = basePath
+    fun businessEvents(basePath: String, abiBasePath: String) = apply {
+        this.businessEventBasePath = basePath
+        this.businessEventAbiBasePath = abiBasePath
     }
 
     /**
@@ -203,6 +202,9 @@ class IndexerFactory {
      * Business event substitution parameters.
      *
      * This is used to substitute environment variables in the business event files.
+     *
+     * If a business event file contains a variable like `${REPLACE_ME}`, you must provide a matching substitution
+     * parameter or an exception will be thrown.
      *
      * @param substitutionParams map of environment variables to substitute in the business event
      *   files.
