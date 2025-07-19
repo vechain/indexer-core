@@ -139,7 +139,7 @@ class IndexerFactory {
      *
      * @param basePath base path for ABI files.
      */
-    fun abi(basePath: String) = apply { this.abiBasePath = basePath }
+    fun abis(basePath: String) = apply { this.abiBasePath = basePath }
 
     /**
      * Sets the event names to be used for filtering ABI events.
