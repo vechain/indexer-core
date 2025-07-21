@@ -56,22 +56,6 @@ open class LogsIndexer(
     private val logClient = LogClient(thorClient)
 
     /**
-     * Initializes the indexer by setting the last synced block and updating status.
-     *
-     * @param blockNumber The block number to start from (defaults to last synced block).
-     */
-    private fun initialise(blockNumber: Long? = null) {
-        val lastSyncedBlockNumber = blockNumber ?: getLastSyncedBlock()?.number ?: startBlock
-
-        // To ensure data integrity roll back changes made in the last block
-        rollback(lastSyncedBlockNumber)
-
-        currentBlockNumber = lastSyncedBlockNumber
-        status = Status.SYNCING
-        logger.info("Initialized LogsIndexer at block: $lastSyncedBlockNumber")
-    }
-
-    /**
      * Starts the indexer and processes logs up to the latest finalized block.
      *
      * @param iterations The number of iterations to run (null for infinite).
@@ -87,7 +71,7 @@ open class LogsIndexer(
         }
 
         logger.info("Fast sync complete, switching to block indexer")
-        super.start(iterations) // Switch to normal block indexing
+        run()
     }
 
     /**
@@ -148,7 +132,9 @@ open class LogsIndexer(
                 currentBlockNumber = batchEndBlock + 1
                 timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
             } catch (e: Exception) {
-                logger.error("Error fetching logs at block $currentBlockNumber: ${e.message}")
+                logger.error(
+                    "Error fetching logs at block $currentBlockNumber: ${e.message} \n${e.stackTraceToString()}"
+                )
                 handleError()
             }
         }

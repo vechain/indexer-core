@@ -52,7 +52,7 @@ open class BlockIndexer(
     private var backoffPeriod = 0L
 
     /** Initialises the indexer processing */
-    private fun initialise(blockNumber: Long? = null) {
+    protected fun initialise(blockNumber: Long? = null) {
         // If no block number is provided, get the last synced block. If no block is found, start
         // from the beginning.
         val lastSyncedBlockNumber = blockNumber ?: getLastSyncedBlock()?.number ?: startBlock
@@ -92,7 +92,7 @@ open class BlockIndexer(
     override suspend fun start(iterations: Long?) {
         remainingIterations = iterations
 
-        if (this !is LogsIndexer) initialise()
+        initialise()
 
         logger.info("Starting @ Block: $currentBlockNumber")
         run()
@@ -111,7 +111,7 @@ open class BlockIndexer(
     }
 
     /** The core indexer logic */
-    private tailrec suspend fun run() {
+    protected tailrec suspend fun run() {
         try {
             if (hasNoRemainingIterations()) return
 

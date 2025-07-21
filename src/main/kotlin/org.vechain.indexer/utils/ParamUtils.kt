@@ -76,7 +76,7 @@ object ParamUtils {
             }
         }
 
-    /** Retrieves a value as a BigInterger from a parameter map. */
+    /** Retrieves a value as a BigInteger from a parameter map. */
     fun AbiEventParameters.getAsBigInteger(key: String): BigInteger? =
         this.params[key]?.let {
             when (it) {

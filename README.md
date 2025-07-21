@@ -26,8 +26,8 @@ open class Config() {
             .pruner(myPruner)
             .startBlock(startBlock)
             .syncLoggerInterval(syncLogInterval)
-            .abis(FileUtils.getJsonFilePaths("/abis"))
-            .businessEvents(FileUtils.getJsonFilePaths("/business-events"))
+            .abis("/abis")
+            .businessEvents("/business-events", "/abis")
             .excludeVetTransfers()
             .build()
 }
