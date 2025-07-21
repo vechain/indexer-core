@@ -83,7 +83,6 @@ open class LogsIndexer(
         while (currentBlockNumber < toBlock) {
             try {
                 if (hasNoRemainingIterations()) return
-                backoffDelay()
 
                 val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
 

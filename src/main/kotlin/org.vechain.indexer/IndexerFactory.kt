@@ -50,7 +50,7 @@ class IndexerFactory {
 
         // If `includeFullBlock` is true, return a `BlockIndexer`
         return if (includeFullBlock) {
-            BlockIndexer(
+            ChannelIndexer(
                 name = name!!,
                 thorClient = thorClient!!,
                 processor = processor!!,
