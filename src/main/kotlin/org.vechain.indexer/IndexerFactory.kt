@@ -29,6 +29,7 @@ class IndexerFactory {
     private var eventCriteriaSet: List<EventCriteria>? = null
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
+    private var channelBatchSize: Int = 100 // Default batch size for channel indexer
 
     fun build(): Indexer {
         requireNotNull(name)
@@ -59,6 +60,7 @@ class IndexerFactory {
                 pruner = pruner,
                 eventProcessor = eventProcessor,
                 prunerInterval = prunerInterval,
+                batchSize = channelBatchSize
             )
         } else {
             LogsIndexer(
@@ -280,6 +282,17 @@ class IndexerFactory {
      * @param limit The maximum number of logs to fetch per API call.
      */
     fun logFetchLimit(limit: Long) = apply { this.logFetchLimit = limit }
+
+    /**
+     * Sets the batch size for the channel indexer.
+     *
+     * This is used to control how many blocks are processed in a single batch.
+     *
+     * The default value is `100`.
+     *
+     * @param size The batch size for the channel indexer.
+     */
+    fun channelBatchSize(size: Int) = apply { this.channelBatchSize = size }
 
     /**
      * By default, the full block object is not returned to the `process` function. This allows us

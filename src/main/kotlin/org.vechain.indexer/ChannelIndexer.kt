@@ -4,6 +4,8 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.produce
 import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.thor.client.ThorClient
@@ -17,6 +19,7 @@ open class ChannelIndexer(
     override val eventProcessor: CombinedEventProcessor?,
     pruner: Pruner?,
     prunerInterval: Long,
+    private val batchSize: Int,
 ) :
     BlockIndexer(
         name,
@@ -75,9 +78,24 @@ open class ChannelIndexer(
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun loadBlocks(toBlock: Long) =
         GlobalScope.produce {
-            for (i in currentBlockNumber..toBlock) {
-                if (hasNoRemainingIterations()) return@produce
-                send(thorClient.getBlock(i))
+            var current = currentBlockNumber
+            while (current <= toBlock && !hasNoRemainingIterations()) {
+                val upper = minOf(current + batchSize - 1, toBlock)
+
+                // Parallel fetch the batch
+                val blocks =
+                    (current..upper)
+                        .map { i -> async { i to thorClient.getBlock(i) } }
+                        .awaitAll()
+                        .sortedBy { it.first } // Ensure order just in case
+                        .map { it.second }
+
+                for (block in blocks) {
+                    if (hasNoRemainingIterations()) return@produce
+                    send(block)
+                }
+
+                current = upper + 1
             }
         }
 }
