@@ -113,7 +113,11 @@ object BusinessEventUtils {
         businessEvents
             .flatMap { it.events.map { e -> e.name } }
             .distinct()
-            .filter { it.isNotEmpty() && !it.equals("VET_TRANSFER", ignoreCase = true) }
+            .filter { it.isNotEmpty() && !it.equals("VET_TRANSFER", ignoreCase = false) }
+
+    fun containsVetTransferEvent(
+        businessEvents: List<BusinessEventDefinition>,
+    ): Boolean = businessEvents.any { e -> e.name.equals("VET_TRANSFER", ignoreCase = false) }
 
     /** Validates conditions for a single event against a list of [conditions]. */
     private fun validateConditions(

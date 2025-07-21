@@ -47,7 +47,8 @@ open class AbiEventProcessor(
         transferLogs: List<TransferLog>
     ): List<IndexedEvent> {
         val abiEvents = decodeLogEvents(eventLogs)
-        val vetTransfers = decodeLogTransfers(transferLogs)
+        val vetTransfers =
+            if (includeVetTransfers) decodeLogTransfers(transferLogs) else emptyList()
         return abiEvents + vetTransfers
     }
 

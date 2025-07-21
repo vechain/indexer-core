@@ -4,6 +4,7 @@ import org.vechain.indexer.event.model.business.BusinessEventDefinition
 import org.vechain.indexer.event.model.generic.AbiEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.utils.BusinessEventUtils
+import org.vechain.indexer.event.utils.BusinessEventUtils.containsVetTransferEvent
 import org.vechain.indexer.event.utils.BusinessEventUtils.extractAbiEventNames
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.EventLog
@@ -28,12 +29,13 @@ class BusinessEventProcessor(
             eventNames = businessEventNames,
             envParams = substitutionParams
         )
+
     private val abiEventProcessor: AbiEventProcessor =
         AbiEventProcessor(
             basePath = abiBasePath,
             eventNames = extractAbiEventNames(businessEvents),
             contractAddresses = businessEventContracts,
-            includeVetTransfers = false
+            includeVetTransfers = containsVetTransferEvent(businessEvents)
         )
 
     override fun processEvents(block: Block): List<IndexedEvent> {
