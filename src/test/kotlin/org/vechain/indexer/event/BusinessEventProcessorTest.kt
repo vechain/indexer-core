@@ -5,6 +5,9 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_BASE_REWARD
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_STAKE
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_STAKE_AND_DELEGATE
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_UNSTAKE
 import org.vechain.indexer.fixtures.ContractAddresses.STARGATE_DELEGATION_CONTRACT
 import org.vechain.indexer.fixtures.ContractAddresses.STARGATE_NFT_CONTRACT
 import org.vechain.indexer.fixtures.ContractAddresses.VTHO_CONTRACT
@@ -51,6 +54,66 @@ class BusinessEventProcessorTest {
                         )
                 )
             val indexedEvents = eventProcessor.processEvents(BLOCK_STARGATE_BASE_REWARD)
+
+            expectThat(indexedEvents).isNotEmpty()
+        }
+
+        @Test
+        fun `should load STARGATE_STAKE events`() {
+            val eventProcessor =
+                BusinessEventProcessor(
+                    businessEventBasePath = "business-events/stargate",
+                    abiBasePath = "test-abis/stargate",
+                    businessEventNames = listOf("STARGATE_STAKE"),
+                    businessEventContracts =
+                        listOf(STARGATE_DELEGATION_CONTRACT, STARGATE_NFT_CONTRACT, VTHO_CONTRACT),
+                    substitutionParams =
+                        mapOf(
+                            "STARGATE_NFT_CONTRACT" to STARGATE_NFT_CONTRACT,
+                            "STARGATE_DELEGATION_CONTRACT" to STARGATE_DELEGATION_CONTRACT
+                        )
+                )
+            val indexedEvents = eventProcessor.processEvents(BLOCK_STARGATE_STAKE)
+
+            expectThat(indexedEvents).isNotEmpty()
+        }
+
+        @Test
+        fun `should load STARGATE_UNSTAKE events`() {
+            val eventProcessor =
+                BusinessEventProcessor(
+                    businessEventBasePath = "business-events/stargate",
+                    abiBasePath = "test-abis/stargate",
+                    businessEventNames = listOf("STARGATE_UNSTAKE"),
+                    businessEventContracts =
+                        listOf(STARGATE_DELEGATION_CONTRACT, STARGATE_NFT_CONTRACT, VTHO_CONTRACT),
+                    substitutionParams =
+                        mapOf(
+                            "STARGATE_NFT_CONTRACT" to STARGATE_NFT_CONTRACT,
+                            "STARGATE_DELEGATION_CONTRACT" to STARGATE_DELEGATION_CONTRACT
+                        )
+                )
+            val indexedEvents = eventProcessor.processEvents(BLOCK_STARGATE_UNSTAKE)
+
+            expectThat(indexedEvents).isNotEmpty()
+        }
+
+        @Test
+        fun `should process STARGATE_STAKE_AND_DELEGATE events`() {
+            val eventProcessor =
+                BusinessEventProcessor(
+                    businessEventBasePath = "business-events/stargate",
+                    abiBasePath = "test-abis/stargate",
+                    businessEventNames = listOf("STARGATE_STAKE_DELEGATE"),
+                    businessEventContracts =
+                        listOf(STARGATE_DELEGATION_CONTRACT, STARGATE_NFT_CONTRACT, VTHO_CONTRACT),
+                    substitutionParams =
+                        mapOf(
+                            "STARGATE_NFT_CONTRACT" to STARGATE_NFT_CONTRACT,
+                            "STARGATE_DELEGATION_CONTRACT" to STARGATE_DELEGATION_CONTRACT
+                        )
+                )
+            val indexedEvents = eventProcessor.processEvents(BLOCK_STARGATE_STAKE_AND_DELEGATE)
 
             expectThat(indexedEvents).isNotEmpty()
         }

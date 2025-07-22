@@ -7,7 +7,10 @@ import org.junit.jupiter.api.extension.ExtendWith
 import org.vechain.indexer.event.utils.EventUtils.generateEventId
 import org.vechain.indexer.fixtures.*
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_BASE_REWARD
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_STAKE
+import org.vechain.indexer.fixtures.ContractAddresses.STARGATE_DELEGATION_CONTRACT
 import org.vechain.indexer.fixtures.ContractAddresses.STARGATE_NFT_CONTRACT
+import org.vechain.indexer.fixtures.ContractAddresses.VTHO_CONTRACT
 import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_B3TR_ACTION
 import org.vechain.indexer.thor.model.*
 import strikt.api.expectThat
@@ -281,6 +284,24 @@ class AbiEventProcessorTest {
             expectThat(events).isNotEmpty()
             expectThat(events.size).isEqualTo(5)
             expectThat(events[0].eventType).isEqualTo("BaseVTHORewardsClaimed")
+        }
+
+        @Test
+        fun `should return VET_TRANSFER events`() {
+            val processor =
+                TestableAbiEventProcessor(
+                    basePath = "test-abis/stargate",
+                    eventNames = listOf("TokenMinted"),
+                    contractAddresses =
+                        listOf(STARGATE_DELEGATION_CONTRACT, STARGATE_NFT_CONTRACT, VTHO_CONTRACT),
+                    includeVetTransfers = true
+                )
+
+            val events = processor.processEvents(BLOCK_STARGATE_STAKE)
+            expectThat(events).isNotEmpty()
+            expectThat(events.size).isEqualTo(2)
+            expectThat(events[0].eventType).isEqualTo("TokenMinted")
+            expectThat(events[1].eventType).isEqualTo("VET_TRANSFER")
         }
     }
 

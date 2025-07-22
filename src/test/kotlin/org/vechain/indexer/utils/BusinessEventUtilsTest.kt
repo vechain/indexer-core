@@ -12,9 +12,9 @@ import strikt.assertions.isEmpty
 import strikt.assertions.isFalse
 import strikt.assertions.isTrue
 
-internal class BusinessEventUtils {
+internal class BusinessEventUtilsTest {
     @Nested
-    inner class ContainesVetTransferEvent {
+    inner class ContainsVetTransferEvent {
         @Test
         fun `should return false if empty list`() {
             // Test logic for empty list
@@ -24,10 +24,24 @@ internal class BusinessEventUtils {
         }
 
         @Test
-        fun `should return true if contains vet transfer event`() {
+        fun `should return false if name of business event is VET_TRANSFER`() {
             val vetBusinessEvent =
                 BusinessEventDefinition(
                     name = "VET_TRANSFER",
+                )
+
+            // Test logic for list containing VET_TRANSFER
+            val result = containsVetTransferEvent(listOf(vetBusinessEvent))
+
+            expectThat(result).isFalse()
+        }
+
+        @Test
+        fun `should return true if contains vet transfer event`() {
+            val vetBusinessEvent =
+                BusinessEventDefinition(
+                    name = "Anything",
+                    events = listOf(Event(name = "VET_TRANSFER"))
                 )
 
             // Test logic for list containing VET_TRANSFER
@@ -40,7 +54,8 @@ internal class BusinessEventUtils {
         fun `is case sensitive`() {
             val vetBusinessEvent =
                 BusinessEventDefinition(
-                    name = "vet_transfer",
+                    name = "Anything",
+                    events = listOf(Event(name = "vet_transfer"))
                 )
 
             // Test logic for list containing VET_TRANSFER in different case
@@ -53,7 +68,8 @@ internal class BusinessEventUtils {
         fun `should return false if does not contain vet transfer event`() {
             val otherBusinessEvent =
                 BusinessEventDefinition(
-                    name = "OTHER_EVENT",
+                    name = "Anything",
+                    events = listOf(Event(name = "OTHER_EVENT"))
                 )
 
             // Test logic for list not containing VET_TRANSFER
