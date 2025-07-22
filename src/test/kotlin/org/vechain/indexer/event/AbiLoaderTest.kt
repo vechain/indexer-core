@@ -1,7 +1,10 @@
 package org.vechain.indexer.event
 
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.vechain.indexer.event.model.abi.AbiElement
+import org.vechain.indexer.event.model.abi.InputOutput
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class AbiLoaderTest {
@@ -127,6 +130,21 @@ class AbiLoaderTest {
     }
 
     @Test
+    fun `should load events with the same name but different types`() {
+        val events =
+            AbiLoader.load(
+                basePath = "test-abis/tokens",
+                names = listOf("Transfer"),
+                typeFilter = "event"
+            )
+
+        // Should return only the specified events
+        assert(events.size == 2) { "Expected 2 events, but got ${events.size}" }
+        assert(events[0].name == "Transfer") { "First Transfer event failed to load" }
+        assert(events[1].name == "Transfer") { "Second Transfer event failed to load" }
+    }
+
+    @Test
     fun `loadEvents should return events`() {
         val events =
             AbiLoader.loadEvents(
@@ -152,5 +170,59 @@ class AbiLoaderTest {
         assert(functions.size == 2) { "Expected 2 functions, but got ${functions.size}" }
         assert(functions.any { it.name == "approve" }) { "approve function not found" }
         assert(functions.any { it.name == "clearRecords" }) { "clearRecords function not found" }
+    }
+
+    @Nested
+    inner class GenerateUniqueId {
+        @Test
+        fun `includes indexed and maintains input order`() {
+            val abi = AbiElement(
+                name = "Transfer",
+                type = "event",
+                inputs = listOf(
+                    InputOutput(indexed = true, type = "address", name = "from"),
+                    InputOutput(indexed = false, type = "address", name = "to"),
+                    InputOutput(indexed = true, type = "uint256", name = "value")
+                )
+            )
+
+            val uniqueId = AbiLoader.generateUniqueId(abi)
+
+            assert(uniqueId == "Transfer(indexed address,address,indexed uint256)") {
+                "Unexpected uniqueId: $uniqueId"
+            }
+        }
+
+        @Test
+        fun `throws if abi name is null`() {
+            val abi = AbiElement(
+                name = null,
+                type = "event",
+                inputs = listOf(
+                    InputOutput(indexed = true, type = "address", name = "from")
+                )
+            )
+
+            try {
+                AbiLoader.generateUniqueId(abi)
+                assert(false) { "Expected exception for null name" }
+            } catch (e: IllegalArgumentException) {
+                assert(e.message?.contains("must have a name") == true)
+            }
+        }
+
+        @Test
+        fun `works with empty inputs`() {
+            val abi = AbiElement(
+                name = "NoInputsEvent",
+                type = "event",
+                inputs = emptyList()
+            )
+
+            val uniqueId = AbiLoader.generateUniqueId(abi)
+
+            assert(uniqueId == "NoInputsEvent()") { "Unexpected uniqueId: $uniqueId" }
+        }
+
     }
 }

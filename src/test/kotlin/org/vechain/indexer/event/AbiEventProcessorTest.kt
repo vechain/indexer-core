@@ -150,27 +150,6 @@ class AbiEventProcessorTest {
 
             expectThat(result).isEmpty()
         }
-
-        //    @Test
-        //    fun `decodeLogEvents temp`() {
-        //        val processor =
-        //            TestableAbiEventProcessor(
-        //                abiFiles = listOf("test-abis/erc20.json"),
-        //                eventNames = listOf("Transfer"),
-        //                contractAddresses = emptyList(),
-        //                includeVetTransfers = false
-        //            )
-        //
-        ////        val logs = LOGS_MULTIPLE_EVENTS
-        ////        val result = processor.publicDecodeLogEvents(logs)
-        //        val result = processor.processEvents(BLOCK_TRANSFERS)
-        //
-        //        // Convert to json string for easier debugging
-        //        val objectMapper: ObjectMapper = ObjectMapper().registerKotlinModule()
-        //        val jsonResult = objectMapper.writeValueAsString(result)
-        //
-        //        expectThat(result).isNotEmpty()
-        //    }
     }
 
     @Nested
@@ -302,6 +281,23 @@ class AbiEventProcessorTest {
             expectThat(events.size).isEqualTo(2)
             expectThat(events[0].eventType).isEqualTo("TokenMinted")
             expectThat(events[1].eventType).isEqualTo("VET_TRANSFER")
+        }
+
+        @Test
+        fun `should return NFT transfer events`() {
+            val processor =
+                TestableAbiEventProcessor(
+                    basePath = "test-abis/tokens",
+                    eventNames = listOf("Transfer", "TransferSingle", "TransferBatch"),
+                    contractAddresses = emptyList(),
+                    includeVetTransfers = true
+                )
+
+            val events = processor.processEvents(BlockFixtures.BLOCK_NFT_TRANSFER)
+
+            expectThat(events).isNotEmpty()
+            expectThat(events.size).isEqualTo(1)
+            expectThat(events[0].eventType).isEqualTo("NFT")
         }
     }
 

@@ -39,7 +39,7 @@ object AbiLoader {
 
         val abiFiles = FileScanner.findFiles(basePath = basePath, suffix = "json")
 
-        val allAbisElements =
+        val allAbiElements =
             JsonLoader.loadAndFlatten(
                 abiFiles,
                 object : TypeReference<List<AbiElement>>() {},
@@ -48,14 +48,14 @@ object AbiLoader {
 
         val matchedEvents =
             if (names.isEmpty()) {
-                allAbisElements
+                allAbiElements
                     .filter { abi ->
                         (typeFilter == null || abi.type == typeFilter) && abi.name != null
                     }
-                    .distinctBy { it.name?.lowercase() }
+                    .distinctBy { generateUniqueId(it) }
             } else {
                 val matched =
-                    allAbisElements.filter { abi ->
+                    allAbiElements.filter { abi ->
                         (typeFilter == null || abi.type == typeFilter) &&
                             abi.name != null &&
                             names.any { it.equals(abi.name, ignoreCase = true) }
@@ -72,9 +72,54 @@ object AbiLoader {
                     )
                 }
 
-                matched.distinctBy { it.name?.lowercase() }
+                matched.distinctBy { generateUniqueId(it) }
             }
 
         return matchedEvents
+    }
+
+    /**
+     * Generate an ID to uniquely identify an ABI element.
+     *
+     * Given the abi:
+     * `json
+     * {
+     *     "anonymous": false,
+     *     "inputs": [
+     *       {
+     *         "indexed": true,
+     *         "internalType": "address",
+     *         "name": "from",
+     *         "type": "address"
+     *       },
+     *       {
+     *         "indexed": false,
+     *         "internalType": "address",
+     *         "name": "to",
+     *         "type": "address"
+     *       },
+     *       {
+     *         "indexed": true,
+     *         "internalType": "uint256",
+     *         "name": "value",
+     *         "type": "uint256"
+     *       }
+     *     ],
+     *     "name": "Transfer",
+     *     "type": "event"
+     *   }
+     *  '
+     *
+     *  the generated ID will be: `Transfer(indexed address,indexed address,uint256)`
+     */
+    fun generateUniqueId(abi: AbiElement): String {
+        val name = abi.name ?: throw IllegalArgumentException("ABI element must have a name")
+
+        val inputSignature = abi.inputs.joinToString(",") { input ->
+            val indexedPrefix = if (input.indexed) "indexed " else ""
+            "$indexedPrefix${input.type}"
+        }
+
+        return "$name($inputSignature)"
     }
 }
