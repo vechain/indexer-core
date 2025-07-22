@@ -297,7 +297,7 @@ class AbiEventProcessorTest {
 
             expectThat(events).isNotEmpty()
             expectThat(events.size).isEqualTo(1)
-            expectThat(events[0].eventType).isEqualTo("NFT")
+            expectThat(events[0].eventType).isEqualTo("Transfer")
         }
     }
 

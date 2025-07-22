@@ -176,15 +176,17 @@ class AbiLoaderTest {
     inner class GenerateUniqueId {
         @Test
         fun `includes indexed and maintains input order`() {
-            val abi = AbiElement(
-                name = "Transfer",
-                type = "event",
-                inputs = listOf(
-                    InputOutput(indexed = true, type = "address", name = "from"),
-                    InputOutput(indexed = false, type = "address", name = "to"),
-                    InputOutput(indexed = true, type = "uint256", name = "value")
+            val abi =
+                AbiElement(
+                    name = "Transfer",
+                    type = "event",
+                    inputs =
+                        listOf(
+                            InputOutput(indexed = true, type = "address", name = "from"),
+                            InputOutput(indexed = false, type = "address", name = "to"),
+                            InputOutput(indexed = true, type = "uint256", name = "value")
+                        )
                 )
-            )
 
             val uniqueId = AbiLoader.generateUniqueId(abi)
 
@@ -195,13 +197,12 @@ class AbiLoaderTest {
 
         @Test
         fun `throws if abi name is null`() {
-            val abi = AbiElement(
-                name = null,
-                type = "event",
-                inputs = listOf(
-                    InputOutput(indexed = true, type = "address", name = "from")
+            val abi =
+                AbiElement(
+                    name = null,
+                    type = "event",
+                    inputs = listOf(InputOutput(indexed = true, type = "address", name = "from"))
                 )
-            )
 
             try {
                 AbiLoader.generateUniqueId(abi)
@@ -213,16 +214,11 @@ class AbiLoaderTest {
 
         @Test
         fun `works with empty inputs`() {
-            val abi = AbiElement(
-                name = "NoInputsEvent",
-                type = "event",
-                inputs = emptyList()
-            )
+            val abi = AbiElement(name = "NoInputsEvent", type = "event", inputs = emptyList())
 
             val uniqueId = AbiLoader.generateUniqueId(abi)
 
             assert(uniqueId == "NoInputsEvent()") { "Unexpected uniqueId: $uniqueId" }
         }
-
     }
 }

@@ -81,44 +81,20 @@ object AbiLoader {
     /**
      * Generate an ID to uniquely identify an ABI element.
      *
-     * Given the abi:
-     * `json
-     * {
-     *     "anonymous": false,
-     *     "inputs": [
-     *       {
-     *         "indexed": true,
-     *         "internalType": "address",
-     *         "name": "from",
-     *         "type": "address"
-     *       },
-     *       {
-     *         "indexed": false,
-     *         "internalType": "address",
-     *         "name": "to",
-     *         "type": "address"
-     *       },
-     *       {
-     *         "indexed": true,
-     *         "internalType": "uint256",
-     *         "name": "value",
-     *         "type": "uint256"
-     *       }
-     *     ],
-     *     "name": "Transfer",
-     *     "type": "event"
-     *   }
-     *  '
+     * Given the abi: `json { "anonymous": false, "inputs":
+     * [ { "indexed": true, "internalType": "address", "name": "from", "type": "address" }, { "indexed": false, "internalType": "address", "name": "to", "type": "address" }, { "indexed": true, "internalType": "uint256", "name": "value", "type": "uint256" } ],
+     * "name": "Transfer", "type": "event" } '
      *
-     *  the generated ID will be: `Transfer(indexed address,indexed address,uint256)`
+     * the generated ID will be: `Transfer(indexed address,indexed address,uint256)`
      */
     fun generateUniqueId(abi: AbiElement): String {
         val name = abi.name ?: throw IllegalArgumentException("ABI element must have a name")
 
-        val inputSignature = abi.inputs.joinToString(",") { input ->
-            val indexedPrefix = if (input.indexed) "indexed " else ""
-            "$indexedPrefix${input.type}"
-        }
+        val inputSignature =
+            abi.inputs.joinToString(",") { input ->
+                val indexedPrefix = if (input.indexed) "indexed " else ""
+                "$indexedPrefix${input.type}"
+            }
 
         return "$name($inputSignature)"
     }
