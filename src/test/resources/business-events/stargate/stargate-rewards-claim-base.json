@@ -19,13 +19,27 @@
           "secondOperand": 0,
           "isSecondStatic": true,
           "operator": "GT"
+        },
+        {
+          "firstOperand": "address",
+          "isFirstStatic": false,
+          "secondOperand": "${STARGATE_NFT_CONTRACT}",
+          "isSecondStatic": true,
+          "operator": "EQ"
         }
       ]
     },
     {
-        "name": "Transfer",
+      "name": "Transfer",
       "alias": "vthoTransferNFT",
       "conditions": [
+        {
+          "firstOperand": "from",
+          "isFirstStatic": false,
+          "secondOperand": "${STARGATE_NFT_CONTRACT}",
+          "isSecondStatic": true,
+          "operator": "EQ"
+        },
         {
           "firstOperand": "value",
           "isFirstStatic": false,
