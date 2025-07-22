@@ -7,6 +7,7 @@ import org.junit.jupiter.api.extension.ExtendWith
 import org.vechain.indexer.event.utils.EventUtils.generateEventId
 import org.vechain.indexer.fixtures.*
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_BASE_REWARD
+import org.vechain.indexer.fixtures.ContractAddresses.STARGATE_NFT_CONTRACT
 import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_B3TR_ACTION
 import org.vechain.indexer.thor.model.*
 import strikt.api.expectThat
@@ -232,7 +233,7 @@ class AbiEventProcessorTest {
     }
 
     @Nested
-    inner class processBlockEvents {
+    inner class ProcessBlockEvents {
         @Test
         fun `should extract Transfer events stargate events`() {
             val processor =
@@ -255,6 +256,23 @@ class AbiEventProcessorTest {
                     basePath = "test-abis/stargate",
                     eventNames = listOf("BaseVTHORewardsClaimed"),
                     contractAddresses = emptyList(),
+                    includeVetTransfers = false
+                )
+
+            val events = processor.processEvents(BLOCK_STARGATE_BASE_REWARD)
+
+            expectThat(events).isNotEmpty()
+            expectThat(events.size).isEqualTo(5)
+            expectThat(events[0].eventType).isEqualTo("BaseVTHORewardsClaimed")
+        }
+
+        @Test
+        fun `should extract event when filtering by contract address`() {
+            val processor =
+                TestableAbiEventProcessor(
+                    basePath = "test-abis/stargate",
+                    eventNames = listOf("BaseVTHORewardsClaimed"),
+                    contractAddresses = listOf(STARGATE_NFT_CONTRACT),
                     includeVetTransfers = false
                 )
 

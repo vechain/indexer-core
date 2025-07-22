@@ -195,6 +195,12 @@ class IndexerFactory {
     /**
      * Sets the business event contracts to be used for filtering business events.
      *
+     * If you leave this empty, all business events will be processed.
+     *
+     * If you provide a list of contract addresses, only events from those contracts will be
+     * processed. Please ensure that if you include a list of contracts, that it is comprehensive
+     * enough to cover all business events you want to process.
+     *
      * @param contracts List of contract addresses to filter business events.
      */
     fun businessEventContracts(contracts: List<String>) = apply {
