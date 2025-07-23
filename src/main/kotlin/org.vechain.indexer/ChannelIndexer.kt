@@ -9,6 +9,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.coroutineScope
 import org.vechain.indexer.event.CombinedEventProcessor
+import org.vechain.indexer.exception.RestartIndexerException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 
@@ -23,7 +24,7 @@ open class ChannelIndexer(
     prunerInterval: Long,
     private val batchSize: Int,
 ) :
-    BlockIndexer(
+    PreSyncIndexer(
         name,
         thorClient,
         processor,
@@ -34,21 +35,7 @@ open class ChannelIndexer(
         prunerInterval,
     ) {
 
-    override suspend fun start(iterations: Long?) {
-        initialise()
-        val finalizedBlock = thorClient.getFinalizedBlock().number
-
-        remainingIterations = iterations
-
-        if (currentBlockNumber < finalizedBlock) {
-            sync(finalizedBlock)
-        }
-
-        logger.info("Fast sync complete, switching to block indexer")
-        run()
-    }
-
-    private suspend fun sync(toBlock: Long) {
+    override suspend fun sync(toBlock: Long) {
         coroutineScope {
             // Create a channel to load blocks up to the target block
             val blockReceiver = loadBlocks(toBlock)
@@ -56,6 +43,7 @@ open class ChannelIndexer(
             // Process blocks
             for (block in blockReceiver) {
                 try {
+
                     if (
                         logger.isTraceEnabled ||
                             status != Status.SYNCING ||
@@ -71,18 +59,18 @@ open class ChannelIndexer(
                     timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
                 } catch (e: Exception) {
                     logger.error(
-                        "Error fetching logs at block $currentBlockNumber: ${e.message} \n${e.stackTraceToString()}"
+                        "Restarting sync due to error syncing at block $currentBlockNumber: ${e.message}"
                     )
-                    handleError()
+                    throw RestartIndexerException()
                 }
             }
         }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private fun CoroutineScope.loadBlocks(toBlock: Long) = produce {
+    protected fun CoroutineScope.loadBlocks(toBlock: Long) = produce {
         var current = currentBlockNumber
-        while (current <= toBlock && !hasNoRemainingIterations()) {
+        while (current <= toBlock) {
             val upper = minOf(current + batchSize - 1, toBlock)
 
             // Parallel fetch the batch
@@ -94,7 +82,6 @@ open class ChannelIndexer(
                     .map { it.second }
 
             for (block in blocks) {
-                if (hasNoRemainingIterations()) return@produce
                 send(block)
             }
 

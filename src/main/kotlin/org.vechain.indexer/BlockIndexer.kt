@@ -21,23 +21,17 @@ open class BlockIndexer(
     protected open val thorClient: ThorClient,
     private val processor: IndexerProcessor,
     protected val startBlock: Long,
-    private val syncLoggerInterval: Long,
-    protected open val eventProcessor: CombinedEventProcessor?,
-    override val pruner: Pruner?,
-    val prunerInterval: Long,
+    private val syncLoggerInterval: Long = 1_000L,
+    protected open val eventProcessor: CombinedEventProcessor? = null,
+    override val pruner: Pruner? = null,
+    private val prunerInterval: Long = 10_000L,
 ) : Indexer {
     /** The last block that was successfully synchronised */
-    private var previousBlock: BlockIdentifier? = null
+    protected var previousBlock: BlockIdentifier? = null
 
     // A random number between 0 and `prunerInterval`. This makes it less like that all pruners will
     // run at the same time.
     private val prunerIntervalOffset = (0 until prunerInterval).random()
-
-    /**
-     * The Number of indexer iterations remaining in case a given number of iterations has been
-     * specified
-     */
-    internal var remainingIterations: Long? = null
 
     protected val logger: Logger = LoggerFactory.getLogger(name)
 
@@ -77,10 +71,10 @@ open class BlockIndexer(
     /**
      * Triggers the non-blocking suspendable start() function inside its required coroutine scope.
      */
-    override fun startInCoroutine(iterations: Long?) {
+    override fun startInCoroutine() {
         CoroutineScope(Dispatchers.Default).launch {
             try {
-                start(iterations)
+                start()
             } catch (e: Exception) {
                 logger.error("Error starting indexer ${this.javaClass.simpleName}: ", e)
                 throw Exception(e.message, e)
@@ -88,10 +82,8 @@ open class BlockIndexer(
         }
     }
 
-    /** Starts the indexer processing */
-    override suspend fun start(iterations: Long?) {
-        remainingIterations = iterations
-
+    /** Starts the indexer */
+    override suspend fun start() {
         initialise()
 
         logger.info("Starting @ Block: $currentBlockNumber")
@@ -99,7 +91,7 @@ open class BlockIndexer(
     }
 
     /** Restarts the processing based on the current indexer status */
-    private fun restart() {
+    protected open fun restart() {
         // Initialise the indexer
         when (status) {
             Status.ERROR -> initialise(currentBlockNumber)
@@ -111,15 +103,19 @@ open class BlockIndexer(
     }
 
     /** The core indexer logic */
-    protected tailrec suspend fun run() {
-        try {
-            if (hasNoRemainingIterations()) return
+    protected open suspend fun run() {
+        while (true) {
+            runOnce()
+        }
+    }
 
+    protected suspend fun runOnce() {
+        try {
             backoffDelay()
 
             if (status == Status.ERROR || status == Status.REORG) restart()
 
-            val block = getBlockFromChain(currentBlockNumber)
+            val block = thorClient.getBlock(currentBlockNumber)
 
             // Check for chain re-organization.
             if (
@@ -154,25 +150,6 @@ open class BlockIndexer(
             logger.error("Error while processing block $currentBlockNumber", e)
             handleError()
         }
-
-        run()
-    }
-
-    /**
-     * Checks whether there are remaining indexer iterations in case a given number of iterations
-     * has been specified
-     *
-     * @return whether the indexer has remaining iterations
-     */
-    internal fun hasNoRemainingIterations(): Boolean {
-        if (remainingIterations != null) {
-            if (remainingIterations!! <= 0) {
-                logger.info("Indexer finished at block $currentBlockNumber")
-                return true
-            }
-            remainingIterations = remainingIterations?.dec()
-        }
-        return false
     }
 
     private fun handleFullySynced() {
@@ -196,7 +173,15 @@ open class BlockIndexer(
      *
      * @param block the block to undergo post-processing
      */
-    private suspend fun postProcessBlock(block: Block) {
+    protected suspend fun postProcessBlock(block: Block) {
+
+        // If this block is not the block after currentBlockNumber, then we are in an invalid state.
+        if (block.number != currentBlockNumber) {
+            throw IllegalStateException(
+                "Block number mismatch: expected $currentBlockNumber, got ${block.number}",
+            )
+        }
+
         // Every 20 blocks, check if we are fully synced.
         if (status == Status.FULLY_SYNCED && currentBlockNumber % 20 == 0L) {
             ensureFullySynced()
@@ -212,8 +197,8 @@ open class BlockIndexer(
             logger.debug("Success @ Block $currentBlockNumber ($timeSinceLastBlock ms since mine)")
         }
 
-        // Increment the current block.
-        currentBlockNumber++
+        // Set the current block number to the next block.
+        currentBlockNumber = block.number + 1
 
         // Set the previous block id.
         previousBlock = BlockIdentifier(number = block.number, id = block.id)
@@ -226,20 +211,18 @@ open class BlockIndexer(
      * pruner will run every `prunerInterval` blocks, offset by a random number between 0 and
      * `prunerInterval` to ensure that not all indexers run the pruner at the same time.
      */
-    private suspend fun runPruner() {
-        if (status == Status.FULLY_SYNCED) {
-            // Run the pruner service if it is available.
-            pruner?.let {
-                if (currentBlockNumber % prunerInterval == prunerIntervalOffset)
-                    it.run(currentBlockNumber)
-            }
+    protected fun runPruner() {
+        if (status != Status.FULLY_SYNCED) return
+        pruner?.let {
+            if (currentBlockNumber % prunerInterval == prunerIntervalOffset)
+                it.run(currentBlockNumber)
         }
     }
 
     /** Ensures that indexer is not behind on-chain best block when in fully synced state */
-    private suspend fun ensureFullySynced() {
+    protected suspend fun ensureFullySynced() {
         if (status == Status.FULLY_SYNCED) {
-            val latestBlock = getBestBlockFromChain()
+            val latestBlock = thorClient.getBestBlock()
             if (latestBlock.number > currentBlockNumber) {
                 logger.info(
                     "$name - Changing status to SYNCING (indexerBlock=$currentBlockNumber, latestBlock=${latestBlock.number})",
@@ -255,29 +238,10 @@ open class BlockIndexer(
         }
     }
 
-    /**
-     * Returns the block identified by its number from the chain, or throw a BlockNotFoundException
-     * if it doesn't exist.
-     *
-     * @param blockNumber the block number
-     * @return the block corresponding to the number
-     * @throws BlockNotFoundException if no block is found with that number
-     */
-    private suspend fun getBlockFromChain(blockNumber: Long): Block =
-        thorClient.getBlock(blockNumber)
-
-    /**
-     * Returns the latest block from the chain
-     *
-     * @return the chain best block
-     * @throws BlockNotFoundException if not found
-     */
-    private suspend fun getBestBlockFromChain(): Block = thorClient.getBestBlock()
-
     override fun getLastSyncedBlock(): BlockIdentifier? = processor.getLastSyncedBlock()
 
     override fun rollback(blockNumber: Long) = processor.rollback(blockNumber)
 
-    override fun process(events: List<IndexedEvent>, block: Block?) =
-        processor.process(events, block)
+    override fun process(matchedEvents: List<IndexedEvent>, block: Block?) =
+        processor.process(matchedEvents, block)
 }

@@ -3,6 +3,7 @@ package org.vechain.indexer
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import org.vechain.indexer.event.CombinedEventProcessor
+import org.vechain.indexer.exception.RestartIndexerException
 import org.vechain.indexer.thor.client.LogClient
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.*
@@ -42,7 +43,7 @@ open class LogsIndexer(
     pruner: Pruner?,
     prunerInterval: Long,
 ) :
-    BlockIndexer(
+    PreSyncIndexer(
         name,
         thorClient,
         processor,
@@ -53,37 +54,16 @@ open class LogsIndexer(
         prunerInterval,
     ) {
 
-    private val logClient = LogClient(thorClient)
-
-    /**
-     * Starts the indexer and processes logs up to the latest finalized block.
-     *
-     * @param iterations The number of iterations to run (null for infinite).
-     */
-    override suspend fun start(iterations: Long?) {
-        initialise()
-        val finalizedBlock = thorClient.getFinalizedBlock().number
-
-        remainingIterations = iterations
-
-        if (currentBlockNumber < finalizedBlock) {
-            syncLogs(finalizedBlock)
-        }
-
-        logger.info("Fast sync complete, switching to block indexer")
-        run()
-    }
+    protected open val logClient = LogClient(thorClient)
 
     /**
      * Synchronizes logs from the current block to the target block.
      *
      * @param toBlock The block number to sync up to.
      */
-    private suspend fun syncLogs(toBlock: Long) {
+    override suspend fun sync(toBlock: Long) {
         while (currentBlockNumber < toBlock) {
             try {
-                if (hasNoRemainingIterations()) return
-
                 val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
 
                 // Log sync status
@@ -132,9 +112,9 @@ open class LogsIndexer(
                 timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
             } catch (e: Exception) {
                 logger.error(
-                    "Error fetching logs at block $currentBlockNumber: ${e.message} \n${e.stackTraceToString()}"
+                    "Restarting sync due to error syncing at block $currentBlockNumber: ${e.message}"
                 )
-                handleError()
+                throw RestartIndexerException()
             }
         }
     }

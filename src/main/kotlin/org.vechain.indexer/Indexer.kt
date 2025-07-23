@@ -26,9 +26,9 @@ interface Indexer : IndexerProcessor {
 
     val pruner: Pruner?
 
-    fun startInCoroutine(iterations: Long? = null)
+    fun startInCoroutine()
 
-    suspend fun start(iterations: Long? = null)
+    suspend fun start()
 }
 
 interface IndexerProcessor {
@@ -36,7 +36,7 @@ interface IndexerProcessor {
 
     fun rollback(blockNumber: Long)
 
-    fun process(events: List<IndexedEvent>, block: Block? = null)
+    fun process(matchedEvents: List<IndexedEvent>, block: Block? = null)
 }
 
 interface Pruner {
