@@ -213,16 +213,30 @@ enum class Types {
             startPosition: Int,
             components: List<InputOutput>?,
         ): DecodedValue<T> {
+            val isFixedArray = name.matches(Regex(".+\\[\\d+\\]"))
             val elementType =
                 when {
                     name.endsWith("[]") -> name.removeSuffix("[]")
-                    name.matches(Regex(".+\\[\\d+\\]")) -> name.substringBeforeLast("[")
+                    isFixedArray -> name.substringBeforeLast("[")
                     else -> throw IllegalArgumentException("Invalid array type: $name")
                 }
 
-            val decodedElements = decodeArray(elementType, fullData ?: encoded, startPosition)
+            val fixedLength =
+                if (isFixedArray) {
+                    name.substringAfter("[").substringBefore("]").toInt()
+                } else {
+                    0
+                }
 
-            // Convert the list to a JSON-like string representation
+            val decodedElements =
+                decodeArray(
+                    elementType = elementType,
+                    fullData = fullData ?: encoded,
+                    startPosition = startPosition,
+                    isFixedArray = isFixedArray,
+                    fixedLength = fixedLength,
+                )
+
             val stringRepresentation =
                 decodedElements.joinToString(prefix = "[", postfix = "]") { it.toString() }
 
@@ -289,43 +303,32 @@ enum class Types {
             elementType: String,
             fullData: String,
             startPosition: Int,
+            isFixedArray: Boolean = false,
+            fixedLength: Int = 0,
         ): List<Any> {
             val inputData = DataUtils.removePrefix(fullData)
-
-            val arrayOffsetHex = inputData.substring(startPosition, (startPosition + 64))
-            val arrayOffset =
-                DataUtils.decodeQuantity(DataUtils.addPrefix(arrayOffsetHex)).toInt() * 2
-
-            val arrayLengthHex = inputData.substring(arrayOffset, arrayOffset + 64)
-            val arrayLength = DataUtils.decodeQuantity(DataUtils.addPrefix(arrayLengthHex)).toInt()
-
             val decodedArray = mutableListOf<Any>()
-            var currentOffset = arrayOffset + 64
-            var arrayData: String? = null
-            if (elementType == "bytes" || elementType == "string") {
-                arrayData = inputData.substring(arrayOffset + 64)
-                currentOffset = 0 // Reset offset for dynamic types
+
+            var currentOffset: Int
+            var arrayLength: Int
+
+            if (isFixedArray) {
+                arrayLength = fixedLength
+                currentOffset = startPosition
+            } else {
+                val arrayOffsetHex = inputData.substring(startPosition, startPosition + 64)
+                val arrayOffset = DataUtils.decodeQuantity("0x$arrayOffsetHex").toInt() * 2
+
+                val arrayLengthHex = inputData.substring(arrayOffset, arrayOffset + 64)
+                arrayLength = DataUtils.decodeQuantity("0x$arrayLengthHex").toInt()
+
+                currentOffset = arrayOffset + 64
             }
+
             for (i in 0 until arrayLength) {
                 val elementData = inputData.substring(currentOffset, currentOffset + 64)
-                try {
-                    val prefixedElementData =
-                        DataUtils.addPrefix(elementData) // Ensure the `0x` prefix is added
-                    val element =
-                        decodeBasicType<Any>(
-                            elementType,
-                            prefixedElementData,
-                            fullData = arrayData,
-                            startPosition = currentOffset, // Start position for the element
-                        ) // Decode individual elements
-                    decodedArray.add(element.actualValue)
-                } catch (e: Exception) {
-                    logger.error(
-                        "Error decoding element $i of type $elementType at offset $currentOffset: ${e.message}",
-                    )
-                    throw e
-                }
-
+                val element = decodeBasicType<Any>(elementType, "0x$elementData")
+                decodedArray.add(element.actualValue)
                 currentOffset += 64
             }
 
