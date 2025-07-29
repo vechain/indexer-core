@@ -235,6 +235,7 @@ enum class Types {
                     startPosition = startPosition,
                     isFixedArray = isFixedArray,
                     fixedLength = fixedLength,
+                    components = components,
                 )
 
             val stringRepresentation =
@@ -305,29 +306,44 @@ enum class Types {
             startPosition: Int,
             isFixedArray: Boolean = false,
             fixedLength: Int = 0,
+            components: List<InputOutput>? = null,
         ): List<Any> {
             val inputData = DataUtils.removePrefix(fullData)
             val decodedArray = mutableListOf<Any>()
 
             var currentOffset: Int
             var arrayLength: Int
+            var arrayData: String? = null
 
             if (isFixedArray) {
                 arrayLength = fixedLength
                 currentOffset = startPosition
             } else {
-                val arrayOffsetHex = inputData.substring(startPosition, startPosition + 64)
-                val arrayOffset = DataUtils.decodeQuantity("0x$arrayOffsetHex").toInt() * 2
+                val arrayOffsetHex = inputData.substring(startPosition, (startPosition + 64))
+                val arrayOffset =
+                    DataUtils.decodeQuantity(DataUtils.addPrefix(arrayOffsetHex)).toInt() * 2
 
                 val arrayLengthHex = inputData.substring(arrayOffset, arrayOffset + 64)
-                arrayLength = DataUtils.decodeQuantity("0x$arrayLengthHex").toInt()
+                arrayLength = DataUtils.decodeQuantity(DataUtils.addPrefix(arrayLengthHex)).toInt()
 
+                val decodedArray = mutableListOf<Any>()
                 currentOffset = arrayOffset + 64
+                if (elementType == "bytes" || elementType == "string" || elementType == "tuple") {
+                    arrayData = inputData.substring(arrayOffset + 64)
+                    currentOffset = 0 // Reset offset for dynamic types
+                }
             }
 
             for (i in 0 until arrayLength) {
                 val elementData = inputData.substring(currentOffset, currentOffset + 64)
-                val element = decodeBasicType<Any>(elementType, "0x$elementData")
+                val element =
+                    decodeBasicType<Any>(
+                        elementType,
+                        DataUtils.addPrefix(elementData),
+                        fullData = arrayData,
+                        startPosition = currentOffset, // Start position for the element
+                        components = components,
+                    )
                 decodedArray.add(element.actualValue)
                 currentOffset += 64
             }
@@ -354,6 +370,7 @@ enum class Types {
             encoded: String,
             fullData: String? = null,
             startPosition: Int = 0,
+            components: List<InputOutput>? = null,
         ): DecodedValue<T> =
             Types.values()
                 .firstOrNull { it.isType(typeName) }
@@ -363,6 +380,7 @@ enum class Types {
                     typeName,
                     fullData,
                     startPosition,
+                    components,
                 ) // Pass correct type to decode
             ?: throw IllegalArgumentException("Unsupported type: $typeName")
     }
