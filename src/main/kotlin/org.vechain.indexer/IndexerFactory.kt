@@ -29,7 +29,7 @@ class IndexerFactory {
     private var eventCriteriaSet: List<EventCriteria>? = null
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
-    private var channelBatchSize: Int = 10 // Default batch size for channel indexer
+    private var channelBatchSize: Int = 2 // Default batch size for channel indexer
 
     fun build(): Indexer {
         requireNotNull(name)
