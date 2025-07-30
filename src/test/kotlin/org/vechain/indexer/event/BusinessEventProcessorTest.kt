@@ -4,6 +4,13 @@ import io.mockk.junit5.MockKExtension
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
+import org.vechain.indexer.EventMockFactory.createIndexedEvent
+import org.vechain.indexer.event.model.business.BusinessEventDefinition
+import org.vechain.indexer.event.model.business.Condition
+import org.vechain.indexer.event.model.business.Event
+import org.vechain.indexer.event.model.enums.Operator
+import org.vechain.indexer.event.model.generic.AbiEventParameters
+import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_BASE_REWARD
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_STAKE
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_STAKE_AND_DELEGATE
@@ -162,6 +169,261 @@ class BusinessEventProcessorTest {
             val indexedEvents = eventProcessor.processEvents(BLOCK_STARGATE_STAKE_AND_DELEGATE)
 
             expectThat(indexedEvents).isNotEmpty()
+        }
+
+        @Test
+        fun `should find all BE with available events`() {
+            var event1 =
+                createIndexedEvent(
+                    address = "0x",
+                    clauseIndex = 0,
+                    params =
+                        AbiEventParameters(
+                            returnValues =
+                                mapOf(
+                                    "from" to "0xa52b171d88be72f2550f2ffcd166b4825656a9d7",
+                                    "to" to "0x035daf5d3ab419d60d753faa5cb3b8876a97846d",
+                                    "tokenId" to 45,
+                                ),
+                            eventType = "Transfer",
+                        ),
+                    id = "id1",
+                )
+
+            var event2 =
+                createIndexedEvent(
+                    address = "0x",
+                    clauseIndex = 0,
+                    params =
+                        AbiEventParameters(
+                            returnValues =
+                                mapOf(
+                                    "from" to "0xa52b171d88be72f2550f2ffcd166b4825656a9d7",
+                                    "to" to "0x035daf5d3ab419d60d753faa5cb3b8876a97846d",
+                                    "tokenId" to 46,
+                                ),
+                            eventType = "Transfer",
+                        ),
+                    id = "id2",
+                )
+
+            val definition1 =
+                BusinessEventDefinition(
+                    name = "TRANSFER_1",
+                    sameClause = true,
+                    events =
+                        listOf(
+                            Event(
+                                name = "Transfer",
+                                alias = "test",
+                                conditions =
+                                    listOf(
+                                        Condition("tokenId", false, "45", true, Operator.EQ),
+                                    ),
+                            ),
+                        ),
+                    rules = listOf(),
+                    paramsDefinition = listOf(),
+                )
+
+            val definition2 =
+                BusinessEventDefinition(
+                    name = "TRANSFER_2",
+                    sameClause = true,
+                    events =
+                        listOf(
+                            Event(
+                                name = "Transfer",
+                                alias = "test",
+                                conditions =
+                                    listOf(
+                                        Condition("tokenId", false, "46", true, Operator.EQ),
+                                    ),
+                            ),
+                            Event(
+                                name = "Transfer",
+                                alias = "test",
+                                conditions =
+                                    listOf(
+                                        Condition("tokenId", false, "47", true, Operator.EQ),
+                                    ),
+                            ),
+                        ),
+                    rules = listOf(),
+                    paramsDefinition = listOf(),
+                )
+
+            val definition3 =
+                BusinessEventDefinition(
+                    name = "TRANSFER_3",
+                    sameClause = true,
+                    events =
+                        listOf(
+                            Event(
+                                name = "Transfer",
+                                alias = "test",
+                                conditions =
+                                    listOf(
+                                        Condition("tokenId", false, "46", true, Operator.EQ),
+                                    ),
+                            ),
+                        ),
+                    rules = listOf(),
+                    paramsDefinition = listOf(),
+                )
+
+            val processor =
+                createProcessorWithDefinition(listOf(definition1, definition2, definition3))
+            val result = processor.testProcessTx(listOf(event1, event2))
+
+            expectThat(result).hasSize(2)
+            expectThat(result[0].eventType).isEqualTo("TRANSFER_1")
+            expectThat(result[1].eventType).isEqualTo("TRANSFER_3")
+        }
+
+        @Test
+        fun `should return no business events if conditions do not match`() {
+            val event =
+                createIndexedEvent(
+                    address = "0x",
+                    clauseIndex = 0,
+                    params =
+                        AbiEventParameters(
+                            returnValues = mapOf("tokenId" to 99),
+                            eventType = "Transfer",
+                        ),
+                    id = "id1",
+                )
+
+            val definition =
+                BusinessEventDefinition(
+                    name = "NO_MATCH",
+                    sameClause = true,
+                    events =
+                        listOf(
+                            Event(
+                                name = "Transfer",
+                                alias = "test",
+                                conditions = listOf(Condition("tokenId", false, "42", true, Operator.EQ)),
+                            ),
+                        ),
+                    rules = listOf(),
+                    paramsDefinition = listOf(),
+                )
+
+            val processor = createProcessorWithDefinition(listOf(definition))
+            val result = processor.testProcessTx(listOf(event))
+
+            expectThat(result).hasSize(0)
+        }
+
+        @Test
+        fun `should match only the first business event when same event is reused`() {
+            val event =
+                createIndexedEvent(
+                    address = "0x",
+                    clauseIndex = 0,
+                    params =
+                        AbiEventParameters(
+                            returnValues = mapOf("tokenId" to 123),
+                            eventType = "Transfer",
+                        ),
+                    id = "id1",
+                )
+
+            val def1 =
+                BusinessEventDefinition(
+                    name = "FIRST_MATCH",
+                    sameClause = true,
+                    events =
+                        listOf(
+                            Event("Transfer", "e", listOf(Condition("tokenId", false, "123", true, Operator.EQ))),
+                        ),
+                    rules = listOf(),
+                    paramsDefinition = listOf(),
+                )
+
+            val def2 =
+                BusinessEventDefinition(
+                    name = "SECOND_MATCH",
+                    sameClause = true,
+                    events =
+                        listOf(
+                            Event("Transfer", "e", listOf(Condition("tokenId", false, "123", true, Operator.EQ))),
+                        ),
+                    rules = listOf(),
+                    paramsDefinition = listOf(),
+                )
+
+            val processor = createProcessorWithDefinition(listOf(def1, def2))
+            val result = processor.testProcessTx(listOf(event))
+
+            expectThat(result).hasSize(1)
+            expectThat(result[0].eventType).isEqualTo("FIRST_MATCH")
+        }
+
+        @Test
+        fun `should match only if both events in group match`() {
+            val event1 =
+                createIndexedEvent(
+                    address = "0x",
+                    clauseIndex = 0,
+                    params = AbiEventParameters(mapOf("tokenId" to 1), "Transfer"),
+                    id = "id1",
+                )
+            val event2 =
+                createIndexedEvent(
+                    address = "0x",
+                    clauseIndex = 0,
+                    params = AbiEventParameters(mapOf("tokenId" to 2), "Transfer"),
+                    id = "id2",
+                )
+
+            val def =
+                BusinessEventDefinition(
+                    name = "BOTH_MATCH",
+                    sameClause = true,
+                    events =
+                        listOf(
+                            Event("Transfer", "e1", listOf(Condition("tokenId", false, "1", true, Operator.EQ))),
+                            Event("Transfer", "e2", listOf(Condition("tokenId", false, "2", true, Operator.EQ))),
+                        ),
+                    rules = listOf(),
+                    paramsDefinition = listOf(),
+                )
+
+            val processor = createProcessorWithDefinition(listOf(def))
+            val result = processor.testProcessTx(listOf(event1, event2))
+
+            expectThat(result).hasSize(1)
+            expectThat(result[0].eventType).isEqualTo("BOTH_MATCH")
+        }
+    }
+
+    fun createProcessorWithDefinition(def: List<BusinessEventDefinition>): TestableBusinessEventProcessor =
+        TestableBusinessEventProcessor(def)
+
+    class TestableBusinessEventProcessor(
+        private val injectedDefs: List<BusinessEventDefinition>,
+    ) : BusinessEventProcessor(
+            businessEventBasePath = "unused",
+            abiBasePath = "unused",
+            businessEventNames = emptyList(),
+            businessEventContracts = emptyList(),
+            substitutionParams = emptyMap(),
+        ) {
+        fun testProcessTx(events: List<IndexedEvent>): List<IndexedEvent> {
+            val method =
+                BusinessEventProcessor::class
+                    .java
+                    .getDeclaredMethod("processTransactionForBusinessEvents", List::class.java)
+            method.isAccessible = true
+
+            val defsField = BusinessEventProcessor::class.java.getDeclaredField("businessEvents")
+            defsField.isAccessible = true
+            defsField.set(this, injectedDefs)
+
+            return method.invoke(this, events) as List<IndexedEvent>
         }
     }
 }

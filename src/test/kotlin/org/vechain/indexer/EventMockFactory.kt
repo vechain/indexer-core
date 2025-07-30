@@ -191,28 +191,28 @@ object EventMockFactory {
                         name = "voter",
                         type = "address",
                         indexed = true,
-                        components = null
+                        components = null,
                     ),
                     InputOutput(
                         internalType = "uint256",
                         name = "roundId",
                         type = "uint256",
                         indexed = true,
-                        components = null
+                        components = null,
                     ),
                     InputOutput(
                         internalType = "bytes32[]",
                         name = "appsIds",
                         type = "bytes32[]",
                         indexed = false,
-                        components = null
+                        components = null,
                     ),
                     InputOutput(
                         internalType = "uint256[]",
                         name = "voteWeights",
                         type = "uint256[]",
                         indexed = false,
-                        components = null
+                        components = null,
                     ),
                 ),
             outputs = listOf(),
@@ -666,9 +666,10 @@ object EventMockFactory {
         address: String,
         clauseIndex: Long,
         params: AbiEventParameters,
+        id: String = "0xid",
     ) =
         IndexedEvent(
-            id = "0xid",
+            id = id,
             blockId = "0xblockId",
             blockNumber = 20554260,
             blockTimestamp = 1736071230,

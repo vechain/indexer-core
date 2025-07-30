@@ -16,7 +16,7 @@ import org.vechain.indexer.thor.model.TransferLog
  * Processes events based on predefined business rules. Identifies and maps raw events to meaningful
  * business events.
  */
-class BusinessEventProcessor(
+open class BusinessEventProcessor(
     businessEventBasePath: String,
     abiBasePath: String,
     businessEventNames: List<String>,
