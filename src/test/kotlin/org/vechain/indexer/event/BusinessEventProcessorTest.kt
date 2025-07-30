@@ -304,7 +304,8 @@ class BusinessEventProcessorTest {
                             Event(
                                 name = "Transfer",
                                 alias = "test",
-                                conditions = listOf(Condition("tokenId", false, "42", true, Operator.EQ)),
+                                conditions =
+                                    listOf(Condition("tokenId", false, "42", true, Operator.EQ)),
                             ),
                         ),
                     rules = listOf(),
@@ -337,7 +338,11 @@ class BusinessEventProcessorTest {
                     sameClause = true,
                     events =
                         listOf(
-                            Event("Transfer", "e", listOf(Condition("tokenId", false, "123", true, Operator.EQ))),
+                            Event(
+                                "Transfer",
+                                "e",
+                                listOf(Condition("tokenId", false, "123", true, Operator.EQ))
+                            ),
                         ),
                     rules = listOf(),
                     paramsDefinition = listOf(),
@@ -349,7 +354,11 @@ class BusinessEventProcessorTest {
                     sameClause = true,
                     events =
                         listOf(
-                            Event("Transfer", "e", listOf(Condition("tokenId", false, "123", true, Operator.EQ))),
+                            Event(
+                                "Transfer",
+                                "e",
+                                listOf(Condition("tokenId", false, "123", true, Operator.EQ))
+                            ),
                         ),
                     rules = listOf(),
                     paramsDefinition = listOf(),
@@ -385,8 +394,16 @@ class BusinessEventProcessorTest {
                     sameClause = true,
                     events =
                         listOf(
-                            Event("Transfer", "e1", listOf(Condition("tokenId", false, "1", true, Operator.EQ))),
-                            Event("Transfer", "e2", listOf(Condition("tokenId", false, "2", true, Operator.EQ))),
+                            Event(
+                                "Transfer",
+                                "e1",
+                                listOf(Condition("tokenId", false, "1", true, Operator.EQ))
+                            ),
+                            Event(
+                                "Transfer",
+                                "e2",
+                                listOf(Condition("tokenId", false, "2", true, Operator.EQ))
+                            ),
                         ),
                     rules = listOf(),
                     paramsDefinition = listOf(),
@@ -400,12 +417,14 @@ class BusinessEventProcessorTest {
         }
     }
 
-    fun createProcessorWithDefinition(def: List<BusinessEventDefinition>): TestableBusinessEventProcessor =
-        TestableBusinessEventProcessor(def)
+    fun createProcessorWithDefinition(
+        def: List<BusinessEventDefinition>
+    ): TestableBusinessEventProcessor = TestableBusinessEventProcessor(def)
 
     class TestableBusinessEventProcessor(
         private val injectedDefs: List<BusinessEventDefinition>,
-    ) : BusinessEventProcessor(
+    ) :
+        BusinessEventProcessor(
             businessEventBasePath = "unused",
             abiBasePath = "unused",
             businessEventNames = emptyList(),
