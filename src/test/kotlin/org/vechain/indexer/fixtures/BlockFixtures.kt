@@ -18,6 +18,7 @@ object BlockFixtures {
     val BLOCK_STARGATE_STAKE_AND_DELEGATE =
         buildBlockFixture("blocks/stargate_stake_and_delegate.json")
     val BLOCK_NFT_TRANSFER = buildBlockFixture("blocks/nft_transfer.json")
+    val BLOCK_STARGATE_STAKE_DELEGATE = buildBlockFixture("blocks/stargate_stake_delegate.json")
 
     private fun buildBlockFixture(name: String): Block {
         val resource =
