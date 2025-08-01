@@ -16,6 +16,7 @@ import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_STAKE
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_STAKE_AND_DELEGATE
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_STAKE_DELEGATE
 import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_UNSTAKE
+import org.vechain.indexer.fixtures.BlockFixtures.BLOCK_STARGATE_VTHO_REFUND
 import org.vechain.indexer.fixtures.ContractAddresses.STARGATE_DELEGATION_CONTRACT
 import org.vechain.indexer.fixtures.ContractAddresses.STARGATE_NFT_CONTRACT
 import org.vechain.indexer.fixtures.ContractAddresses.VTHO_CONTRACT
@@ -169,6 +170,34 @@ class BusinessEventProcessorTest {
             val indexedEvents = eventProcessor.processEvents(BLOCK_STARGATE_STAKE_AND_DELEGATE)
 
             expectThat(indexedEvents).isNotEmpty()
+        }
+
+        @Test
+        fun `should process all stargate VTHO refund events in same clause`() {
+            val eventProcessor =
+                BusinessEventProcessor(
+                    businessEventBasePath = "business-events/stargate",
+                    abiBasePath = "test-abis/stargate",
+                    businessEventNames = listOf("STARGATE_CLAIM_REWARDS_DELEGATE"),
+                    businessEventContracts =
+                        listOf(STARGATE_DELEGATION_CONTRACT, STARGATE_NFT_CONTRACT, VTHO_CONTRACT),
+                    substitutionParams =
+                        mapOf(
+                            "STARGATE_NFT_CONTRACT" to STARGATE_NFT_CONTRACT,
+                            "STARGATE_DELEGATION_CONTRACT" to STARGATE_DELEGATION_CONTRACT,
+                        ),
+                )
+            val indexedEvents = eventProcessor.processEvents(BLOCK_STARGATE_VTHO_REFUND)
+
+            expectThat(indexedEvents).hasSize(6)
+            expect {
+                that(indexedEvents[0].eventType).isEqualTo("STARGATE_CLAIM_REWARDS_DELEGATE")
+                that(indexedEvents[1].eventType).isEqualTo("STARGATE_CLAIM_REWARDS_DELEGATE")
+                that(indexedEvents[2].eventType).isEqualTo("STARGATE_CLAIM_REWARDS_DELEGATE")
+                that(indexedEvents[3].eventType).isEqualTo("STARGATE_CLAIM_REWARDS_DELEGATE")
+                that(indexedEvents[4].eventType).isEqualTo("STARGATE_CLAIM_REWARDS_DELEGATE")
+                that(indexedEvents[5].eventType).isEqualTo("STARGATE_CLAIM_REWARDS_DELEGATE")
+            }
         }
 
         @Test
@@ -341,7 +370,7 @@ class BusinessEventProcessorTest {
                             Event(
                                 "Transfer",
                                 "e",
-                                listOf(Condition("tokenId", false, "123", true, Operator.EQ))
+                                listOf(Condition("tokenId", false, "123", true, Operator.EQ)),
                             ),
                         ),
                     rules = listOf(),
@@ -357,7 +386,7 @@ class BusinessEventProcessorTest {
                             Event(
                                 "Transfer",
                                 "e",
-                                listOf(Condition("tokenId", false, "123", true, Operator.EQ))
+                                listOf(Condition("tokenId", false, "123", true, Operator.EQ)),
                             ),
                         ),
                     rules = listOf(),
@@ -397,12 +426,12 @@ class BusinessEventProcessorTest {
                             Event(
                                 "Transfer",
                                 "e1",
-                                listOf(Condition("tokenId", false, "1", true, Operator.EQ))
+                                listOf(Condition("tokenId", false, "1", true, Operator.EQ)),
                             ),
                             Event(
                                 "Transfer",
                                 "e2",
-                                listOf(Condition("tokenId", false, "2", true, Operator.EQ))
+                                listOf(Condition("tokenId", false, "2", true, Operator.EQ)),
                             ),
                         ),
                     rules = listOf(),
