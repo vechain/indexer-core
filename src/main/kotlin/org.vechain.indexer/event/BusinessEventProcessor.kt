@@ -79,9 +79,8 @@ open class BusinessEventProcessor(
         val matchedBusinessEvents = mutableListOf<IndexedEvent>()
 
         for (definition in businessEvents) {
-            if (remainingEvents.isEmpty()) break // No more events left to process
+            if (remainingEvents.isEmpty()) break
 
-            // Group events by clause index if required
             val groupedEvents =
                 if (definition.sameClause == true) {
                     remainingEvents.groupBy { it.clauseIndex.toInt() }
@@ -92,26 +91,35 @@ open class BusinessEventProcessor(
             for ((_, group) in groupedEvents) {
                 if (group.isEmpty()) continue
 
-                // Decide whether to use exhaustive search or basic mapping
-                val eventsForAlias =
-                    if (definition.checkAllCombinations == true) {
-                        checkAllCombinations(group, definition)
-                    } else {
-                        BusinessEventUtils.mapEventsToAliases(group, definition.events)
+                // Make a local copy of group to remove matched events iteratively
+                val localGroup = group.toMutableList()
+
+                var foundMatch: Boolean
+                do {
+                    foundMatch = false
+
+                    val eventsForAlias =
+                        if (definition.checkAllCombinations == true) {
+                            checkAllCombinations(localGroup, definition)
+                        } else {
+                            BusinessEventUtils.mapEventsToAliases(localGroup, definition.events)
+                        }
+
+                    if (
+                        eventsForAlias.isNotEmpty() &&
+                            BusinessEventUtils.validateRules(definition.rules, eventsForAlias)
+                    ) {
+                        val matchedEventIds = eventsForAlias.values.map { it.id }.toSet()
+
+                        // Remove from both local group and global remainingEvents
+                        localGroup.removeIf { it.id in matchedEventIds }
+                        remainingEvents.removeIf { it.id in matchedEventIds }
+
+                        matchedBusinessEvents.add(createBusinessEvent(eventsForAlias, definition))
+
+                        foundMatch = true
                     }
-
-                if (
-                    eventsForAlias.isNotEmpty() &&
-                        BusinessEventUtils.validateRules(definition.rules, eventsForAlias)
-                ) {
-                    val matchedEventIds = eventsForAlias.values.map { it.id }.toSet()
-
-                    // Remove matched events from the remaining list
-                    remainingEvents.removeIf { it.id in matchedEventIds }
-
-                    // Add the new business event
-                    matchedBusinessEvents.add(createBusinessEvent(eventsForAlias, definition))
-                }
+                } while (foundMatch && localGroup.isNotEmpty())
             }
         }
 
