@@ -17,6 +17,8 @@ group = "org.vechain"
 val projectVersion = System.getenv("PROJECT_VERSION") ?: "5.0.0"
 version = projectVersion
 
+val isSnapshot = version.toString().endsWith("SNAPSHOT")
+
 repositories {
     mavenCentral()
     // local .m2 repo
@@ -160,12 +162,14 @@ dependencies {
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.9.3")
 }
 
-nexusPublishing {
-    repositories {
-        sonatype {
-            nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
-            username.set(findProperty("ossrhUsername") as String?)
-            password.set(findProperty("ossrhPassword") as String?)
+if (!isSnapshot) {
+    nexusPublishing {
+        repositories {
+            sonatype {
+                nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
+                username.set(findProperty("ossrhUsername") as String?)
+                password.set(findProperty("ossrhPassword") as String?)
+            }
         }
     }
 }
