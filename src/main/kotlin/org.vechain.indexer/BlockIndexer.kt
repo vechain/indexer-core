@@ -71,8 +71,8 @@ open class BlockIndexer(
     /**
      * Triggers the non-blocking suspendable start() function inside its required coroutine scope.
      */
-    override fun startInCoroutine() {
-        CoroutineScope(Dispatchers.Default).launch {
+    override fun startInCoroutine(scope: CoroutineScope) {
+        scope.launch {
             try {
                 start()
             } catch (e: Exception) {

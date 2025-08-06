@@ -1,5 +1,6 @@
 package org.vechain.indexer
 
+import kotlinx.coroutines.CoroutineScope
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
@@ -26,7 +27,7 @@ interface Indexer : IndexerProcessor {
 
     val pruner: Pruner?
 
-    fun startInCoroutine()
+    fun startInCoroutine(scope: CoroutineScope)
 
     suspend fun start()
 }
