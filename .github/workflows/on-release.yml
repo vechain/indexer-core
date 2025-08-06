@@ -46,14 +46,17 @@ jobs:
       - name: Build the artifact
         run: ./gradlew build
 
-      - name: Publish to Maven Central
+      - name: Publish to Maven Central (Snapshot or Release)
         run: |
-          ./gradlew \
-            publishToSonatype \
-            closeAndReleaseSonatypeStagingRepository \
-            --info --stacktrace
+            if [[ "${PROJECT_VERSION}" == *"-SNAPSHOT" ]]; then
+              echo "Publishing SNAPSHOT version: ${PROJECT_VERSION}"
+              ./gradlew publish --info --stacktrace
+            else
+              echo "Publishing RELEASE version: ${PROJECT_VERSION}"
+              ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository --info --stacktrace
+            fi
         env:
-          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SECRET_KEY }}
-          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
-          ORG_GRADLE_PROJECT_ossrhUsername: ${{ secrets.OSSRH_USERNAME }}
-          ORG_GRADLE_PROJECT_ossrhPassword: ${{ secrets.OSSRH_PASSWORD }}
+            ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SECRET_KEY }}
+            ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
+            ORG_GRADLE_PROJECT_ossrhUsername: ${{ secrets.OSSRH_USERNAME }}
+            ORG_GRADLE_PROJECT_ossrhPassword: ${{ secrets.OSSRH_PASSWORD }}
