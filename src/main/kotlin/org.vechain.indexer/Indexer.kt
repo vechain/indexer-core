@@ -1,5 +1,7 @@
 package org.vechain.indexer
 
+import kotlinx.coroutines.CoroutineScope
+import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
 
@@ -18,16 +20,26 @@ enum class Status {
     ERROR,
 }
 
-interface Indexer {
+interface Indexer : IndexerProcessor {
+    val name: String
+
     var status: Status
 
-    fun startInCoroutine(iterations: Long? = null)
+    val pruner: Pruner?
 
-    suspend fun start(iterations: Long? = null)
+    fun startInCoroutine(scope: CoroutineScope)
 
+    suspend fun start()
+}
+
+interface IndexerProcessor {
     fun getLastSyncedBlock(): BlockIdentifier?
 
     fun rollback(blockNumber: Long)
 
-    fun processBlock(block: Block)
+    fun process(matchedEvents: List<IndexedEvent>, block: Block? = null)
+}
+
+interface Pruner {
+    fun run(currentBlockNumber: Long)
 }

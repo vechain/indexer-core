@@ -1,0 +1,20 @@
+[
+  {
+    "type": "event",
+    "name": "${REPLACE_ME}",
+    "signature": "Event1(address,uint256)",
+    "inputs": [
+      { "name": "from", "type": "address", "indexed": true },
+      { "name": "value", "type": "uint256", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "Event2",
+    "signature": "Event2(address,uint256)",
+    "inputs": [
+      { "name": "to", "type": "address", "indexed": true },
+      { "name": "amount", "type": "uint256", "indexed": false }
+    ]
+  }
+]

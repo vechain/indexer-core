@@ -3,139 +3,123 @@ package org.vechain.indexer.event
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.business.BusinessEventDefinition
-import org.vechain.indexer.event.model.generic.GenericEventParameters
+import org.vechain.indexer.event.model.generic.AbiEventParameters
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.utils.BusinessEventUtils
+import org.vechain.indexer.event.utils.BusinessEventUtils.containsVetTransferEvent
+import org.vechain.indexer.event.utils.BusinessEventUtils.extractAbiEventNames
+import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.EventLog
+import org.vechain.indexer.thor.model.TransferLog
 
 /**
  * Processes events based on predefined business rules. Identifies and maps raw events to meaningful
  * business events.
  */
-class BusinessEventProcessor(
-    private val businessEventManager: BusinessEventManager,
-) {
+open class BusinessEventProcessor(
+    businessEventBasePath: String,
+    abiBasePath: String,
+    businessEventNames: List<String>,
+    businessEventContracts: List<String>,
+    substitutionParams: Map<String, String>,
+) : EventProcessor {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
-    /**
-     * Processes a list of raw events, separating them into remaining events and business events.
-     */
-    fun processEvents(
-        events: List<IndexedEvent>,
-        businessEventNames: List<String>,
-        removeDuplicates: Boolean = true,
-        groupByBlock: Boolean = true,
+    // Load business events from the provided files and names.
+    private val businessEvents: List<BusinessEventDefinition> =
+        BusinessEventLoader.loadBusinessEvents(
+            basePath = businessEventBasePath,
+            eventNames = businessEventNames,
+            envParams = substitutionParams,
+        )
+
+    private val abiEventProcessor: AbiEventProcessor =
+        AbiEventProcessor(
+            basePath = abiBasePath,
+            eventNames = extractAbiEventNames(businessEvents),
+            contractAddresses = businessEventContracts,
+            includeVetTransfers = containsVetTransferEvent(businessEvents),
+        )
+
+    override fun processEvents(block: Block): List<IndexedEvent> {
+        val events = abiEventProcessor.processEvents(block)
+        return processBusinessEvents(events)
+    }
+
+    override fun processEvents(
+        eventLogs: List<EventLog>,
+        transferLogs: List<TransferLog>,
     ): List<IndexedEvent> {
-        val businessEvents = mutableListOf<IndexedEvent>()
-        val remainingEvents = mutableListOf<IndexedEvent>()
-
-        val groupedEvents =
-            if (groupByBlock) {
-                events.groupBy { it.blockNumber } // Group by block number first
-            } else {
-                mapOf(0L to events) // Treat all events as a single group
-            }
-
-        groupedEvents.forEach { (blockNumber, blockEvents) ->
-            try {
-                blockEvents
-                    .groupBy { it.txId }
-                    .forEach { (_, transactionEvents) ->
-                        val matchedEvents =
-                            processTransactionForBusinessEvents(
-                                transactionEvents,
-                                businessEventNames
-                            )
-                        businessEvents.addAll(matchedEvents)
-
-                        if (!removeDuplicates || matchedEvents.isEmpty()) {
-                            remainingEvents.addAll(transactionEvents)
-                        }
-                    }
-            } catch (e: Exception) {
-                logger.error("Failed to process events in block $blockNumber: $blockEvents", e)
-                remainingEvents.addAll(blockEvents)
-            }
-        }
-
-        return remainingEvents + businessEvents
+        val events = abiEventProcessor.processEvents(eventLogs, transferLogs)
+        return processBusinessEvents(events)
     }
 
     /**
      * Filters and returns only business events from a list of raw events.
      *
      * @param events The list of indexed events and their parameters.
-     * @param businessEventNames The names of business events to filter.
-     * @param groupByBlock If true, events will be grouped by block before processing.
      * @return A list of only business events.
      */
-    fun getOnlyBusinessEvents(
-        events: List<IndexedEvent>,
-        businessEventNames: List<String>,
-        groupByBlock: Boolean = true,
-    ): List<IndexedEvent> {
-        val groupedEvents =
-            if (groupByBlock) {
-                events.groupBy { it.blockNumber }
-            } else {
-                mapOf(0L to events)
+    private fun processBusinessEvents(events: List<IndexedEvent>): List<IndexedEvent> =
+        events
+            .groupBy { it.blockNumber }
+            .flatMap { (_, blockEvents) ->
+                blockEvents
+                    .groupBy { it.txId }
+                    .flatMap { (_, transactionEvents) ->
+                        processTransactionForBusinessEvents(transactionEvents)
+                    }
             }
-
-        return groupedEvents.flatMap { (_, blockEvents) ->
-            blockEvents
-                .groupBy { it.txId }
-                .flatMap { (_, transactionEvents) ->
-                    processTransactionForBusinessEvents(transactionEvents, businessEventNames)
-                }
-        }
-    }
 
     /** Processes events within a single transaction to determine if they match business events. */
     private fun processTransactionForBusinessEvents(
-        txEvents: List<IndexedEvent>,
-        businessEventNames: List<String>,
+        txEvents: List<IndexedEvent>
     ): List<IndexedEvent> {
-        // Fetch business events based on the provided names
-        val businessEvents =
-            if (businessEventNames.isEmpty()) {
-                businessEventManager.getAllBusinessEvents()
-            } else {
-                businessEventManager.getBusinessEventsByNames(businessEventNames)
-            }
-
+        val remainingEvents = txEvents.toMutableList()
         val matchedBusinessEvents = mutableListOf<IndexedEvent>()
 
-        for ((_, definition) in businessEvents) {
-            // Group events by clause index if required
+        for (definition in businessEvents) {
+            if (remainingEvents.isEmpty()) break
+
             val groupedEvents =
                 if (definition.sameClause == true) {
-                    txEvents.groupBy { it.clauseIndex.toInt() }
+                    remainingEvents.groupBy { it.clauseIndex.toInt() }
                 } else {
-                    mapOf(0 to txEvents) // Treat all events in the transaction as a single group
+                    mapOf(0 to remainingEvents)
                 }
-
-            var definitionMatched = false
 
             for ((_, group) in groupedEvents) {
-                // Decide whether to use exhaustive search or basic mapping
-                val eventsForAlias =
-                    if (definition.checkAllCombinations == true) {
-                        checkAllCombinations(group, definition)
-                    } else {
-                        BusinessEventUtils.mapEventsToAliases(group, definition.events)
+                if (group.isEmpty()) continue
+
+                // Make a local copy of group to remove matched events iteratively
+                val localGroup = group.toMutableList()
+
+                var foundMatch: Boolean
+                do {
+                    foundMatch = false
+
+                    val eventsForAlias =
+                        if (definition.checkAllCombinations == true) {
+                            checkAllCombinations(localGroup, definition)
+                        } else {
+                            BusinessEventUtils.mapEventsToAliases(localGroup, definition.events)
+                        }
+
+                    if (
+                        eventsForAlias.isNotEmpty() &&
+                            BusinessEventUtils.validateRules(definition.rules, eventsForAlias)
+                    ) {
+                        val matchedEventIds = eventsForAlias.values.map { it.id }.toSet()
+
+                        // Remove from both local group and global remainingEvents
+                        localGroup.removeIf { it.id in matchedEventIds }
+                        remainingEvents.removeIf { it.id in matchedEventIds }
+
+                        matchedBusinessEvents.add(createBusinessEvent(eventsForAlias, definition))
+
+                        foundMatch = true
                     }
-
-                // Validate and process matched events
-                if (
-                    eventsForAlias.isNotEmpty() &&
-                        BusinessEventUtils.validateRules(definition.rules, eventsForAlias)
-                ) {
-                    matchedBusinessEvents.add(createBusinessEvent(eventsForAlias, definition))
-                    definitionMatched = true
-                }
-            }
-
-            if (definitionMatched) {
-                break // Break if a definition is matched
+                } while (foundMatch && localGroup.isNotEmpty())
             }
         }
 
@@ -151,7 +135,7 @@ class BusinessEventProcessor(
             BusinessEventUtils.generateAllValidCombinations(
                 group,
                 definition.events,
-                definition.maxAttempts ?: 10
+                definition.maxAttempts ?: 10,
             )
 
         for (eventsForAlias in eventCombinations) {
@@ -183,7 +167,7 @@ class BusinessEventProcessor(
             paid = firstEvent.paid,
             gasUsed = firstEvent.gasUsed,
             gasPayer = firstEvent.gasPayer,
-            params = GenericEventParameters(params, definition.name),
+            params = AbiEventParameters(params, definition.name),
             eventType = definition.name,
             clauseIndex = firstEvent.clauseIndex,
         )

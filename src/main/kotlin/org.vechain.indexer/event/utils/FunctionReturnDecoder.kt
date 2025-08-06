@@ -18,7 +18,6 @@ object FunctionReturnDecoder {
             }
 
         val fullData = inputData
-        println("Decoding input data: $inputData")
         var offset = 0
 
         outputs.forEach { output ->

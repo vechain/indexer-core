@@ -5,11 +5,7 @@ import java.time.ZoneOffset
 import kotlinx.coroutines.*
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.vechain.indexer.event.AbiManager
-import org.vechain.indexer.event.BusinessEventManager
-import org.vechain.indexer.event.BusinessEventProcessor
-import org.vechain.indexer.event.GenericEventIndexer
-import org.vechain.indexer.event.model.generic.FilterCriteria
+import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.ReorgException
@@ -20,27 +16,24 @@ import org.vechain.indexer.thor.model.BlockIdentifier
 /** Initial processing backoff duration */
 const val INITIAL_BACKOFF_PERIOD = 10_000L
 
-abstract class BlockIndexer(
+open class BlockIndexer(
+    override val name: String,
     protected open val thorClient: ThorClient,
-    protected val startBlock: Long = 0L,
+    private val processor: IndexerProcessor,
+    protected val startBlock: Long,
     private val syncLoggerInterval: Long = 1_000L,
-    protected open val abiManager: AbiManager? = null, // Optional AbiManager
-    protected open val businessEventManager: BusinessEventManager? =
-        null, // Optional BusinessEventManager
+    protected open val eventProcessor: CombinedEventProcessor? = null,
+    override val pruner: Pruner? = null,
+    private val prunerInterval: Long = 10_000L,
 ) : Indexer {
     /** The last block that was successfully synchronised */
-    private var previousBlock: BlockIdentifier? = null
+    protected var previousBlock: BlockIdentifier? = null
 
-    /**
-     * The Number of indexer iterations remaining in case a given number of iterations has been
-     * specified
-     */
-    internal var remainingIterations: Long? = null
+    // A random number between 0 and `prunerInterval`. This makes it less like that all pruners will
+    // run at the same time.
+    private val prunerIntervalOffset = (0 until prunerInterval).random()
 
-    val name: String
-        get() = this.javaClass.simpleName
-
-    protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
+    protected val logger: Logger = LoggerFactory.getLogger(name)
 
     override var status = Status.SYNCING
 
@@ -53,7 +46,7 @@ abstract class BlockIndexer(
     private var backoffPeriod = 0L
 
     /** Initialises the indexer processing */
-    private fun initialise(blockNumber: Long? = null) {
+    protected fun initialise(blockNumber: Long? = null) {
         // If no block number is provided, get the last synced block. If no block is found, start
         // from the beginning.
         val lastSyncedBlockNumber = blockNumber ?: getLastSyncedBlock()?.number ?: startBlock
@@ -78,10 +71,10 @@ abstract class BlockIndexer(
     /**
      * Triggers the non-blocking suspendable start() function inside its required coroutine scope.
      */
-    override fun startInCoroutine(iterations: Long?) {
-        CoroutineScope(Dispatchers.Default).launch {
+    override fun startInCoroutine(scope: CoroutineScope) {
+        scope.launch {
             try {
-                start(iterations)
+                start()
             } catch (e: Exception) {
                 logger.error("Error starting indexer ${this.javaClass.simpleName}: ", e)
                 throw Exception(e.message, e)
@@ -89,18 +82,16 @@ abstract class BlockIndexer(
         }
     }
 
-    /** Starts the indexer processing */
-    override suspend fun start(iterations: Long?) {
-        remainingIterations = iterations
-
-        if (this !is LogsIndexer) initialise()
+    /** Starts the indexer */
+    override suspend fun start() {
+        initialise()
 
         logger.info("Starting @ Block: $currentBlockNumber")
         run()
     }
 
     /** Restarts the processing based on the current indexer status */
-    private fun restart() {
+    protected open fun restart() {
         // Initialise the indexer
         when (status) {
             Status.ERROR -> initialise(currentBlockNumber)
@@ -112,15 +103,19 @@ abstract class BlockIndexer(
     }
 
     /** The core indexer logic */
-    private tailrec suspend fun run() {
-        try {
-            if (hasNoRemainingIterations()) return
+    protected open suspend fun run() {
+        while (true) {
+            runOnce()
+        }
+    }
 
+    protected suspend fun runOnce() {
+        try {
             backoffDelay()
 
             if (status == Status.ERROR || status == Status.REORG) restart()
 
-            val block = getBlockFromChain(currentBlockNumber)
+            val block = thorClient.getBlock(currentBlockNumber)
 
             // Check for chain re-organization.
             if (
@@ -132,14 +127,18 @@ abstract class BlockIndexer(
                 )
             }
 
-            if (logger.isTraceEnabled) {
-                logger.trace("Processing @ Block $currentBlockNumber ($status)")
-            } else if (status != Status.SYNCING || currentBlockNumber % syncLoggerInterval == 0L) {
-                logger.info("Processing @ Block $currentBlockNumber ($status)")
+            if (
+                logger.isTraceEnabled ||
+                    status != Status.SYNCING ||
+                    currentBlockNumber % syncLoggerInterval == 0L
+            ) {
+                logger.info("($status) Processing Block  $currentBlockNumber")
             }
 
-            processBlock(block)
+            val events = eventProcessor?.processEvents(block) ?: emptyList()
+            process(events, block)
             postProcessBlock(block)
+            runPruner()
         } catch (_: BlockNotFoundException) {
             logger.info("Block $currentBlockNumber not found. Indexer may be fully synchronised.")
             handleFullySynced()
@@ -151,25 +150,6 @@ abstract class BlockIndexer(
             logger.error("Error while processing block $currentBlockNumber", e)
             handleError()
         }
-
-        run()
-    }
-
-    /**
-     * Checks whether there are remaining indexer iterations in case a given number of iterations
-     * has been specified
-     *
-     * @return whether the indexer has remaining iterations
-     */
-    internal fun hasNoRemainingIterations(): Boolean {
-        if (remainingIterations != null) {
-            if (remainingIterations!! <= 0) {
-                logger.info("Indexer finished at block $currentBlockNumber")
-                return true
-            }
-            remainingIterations = remainingIterations?.dec()
-        }
-        return false
     }
 
     private fun handleFullySynced() {
@@ -189,11 +169,19 @@ abstract class BlockIndexer(
 
     /**
      * Ensures that indexer is fully synced, recalculates the backoff period & increments the
-     * current block number
+     * current block number.
      *
      * @param block the block to undergo post-processing
      */
-    private suspend fun postProcessBlock(block: Block) {
+    protected suspend fun postProcessBlock(block: Block) {
+
+        // If this block is not the block after currentBlockNumber, then we are in an invalid state.
+        if (block.number != currentBlockNumber) {
+            throw IllegalStateException(
+                "Block number mismatch: expected $currentBlockNumber, got ${block.number}",
+            )
+        }
+
         // Every 20 blocks, check if we are fully synced.
         if (status == Status.FULLY_SYNCED && currentBlockNumber % 20 == 0L) {
             ensureFullySynced()
@@ -206,11 +194,11 @@ abstract class BlockIndexer(
             val timeSinceLastBlock = maxOf(currentEpoch - block.timestamp.times(1000), 0)
             backoffPeriod = maxOf(0, INITIAL_BACKOFF_PERIOD - (timeSinceLastBlock)) + 100
 
-            logger.info("Success @ Block $currentBlockNumber ($timeSinceLastBlock ms since mine)")
+            logger.debug("Success @ Block $currentBlockNumber ($timeSinceLastBlock ms since mine)")
         }
 
-        // Increment the current block.
-        currentBlockNumber++
+        // Set the current block number to the next block.
+        currentBlockNumber = block.number + 1
 
         // Set the previous block id.
         previousBlock = BlockIdentifier(number = block.number, id = block.id)
@@ -218,10 +206,23 @@ abstract class BlockIndexer(
         timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
     }
 
+    /**
+     * Runs the pruner service if the indexer is in a fully synced state and the current block. The
+     * pruner will run every `prunerInterval` blocks, offset by a random number between 0 and
+     * `prunerInterval` to ensure that not all indexers run the pruner at the same time.
+     */
+    protected fun runPruner() {
+        if (status != Status.FULLY_SYNCED) return
+        pruner?.let {
+            if (currentBlockNumber % prunerInterval == prunerIntervalOffset)
+                it.run(currentBlockNumber)
+        }
+    }
+
     /** Ensures that indexer is not behind on-chain best block when in fully synced state */
-    private suspend fun ensureFullySynced() {
+    protected suspend fun ensureFullySynced() {
         if (status == Status.FULLY_SYNCED) {
-            val latestBlock = getBestBlockFromChain()
+            val latestBlock = thorClient.getBestBlock()
             if (latestBlock.number > currentBlockNumber) {
                 logger.info(
                     "$name - Changing status to SYNCING (indexerBlock=$currentBlockNumber, latestBlock=${latestBlock.number})",
@@ -237,124 +238,10 @@ abstract class BlockIndexer(
         }
     }
 
-    /**
-     * Returns the block identified by its number from the chain, or throw a BlockNotFoundException
-     * if it doesn't exist.
-     *
-     * @param blockNumber the block number
-     * @return the block corresponding to the number
-     * @throws BlockNotFoundException if no block is found with that number
-     */
-    private suspend fun getBlockFromChain(blockNumber: Long): Block =
-        thorClient.getBlock(blockNumber)
+    override fun getLastSyncedBlock(): BlockIdentifier? = processor.getLastSyncedBlock()
 
-    /**
-     * Returns the latest block from the chain
-     *
-     * @return the chain best block
-     * @throws BlockNotFoundException if not found
-     */
-    private suspend fun getBestBlockFromChain(): Block = thorClient.getBestBlock()
+    override fun rollback(blockNumber: Long) = processor.rollback(blockNumber)
 
-    /**
-     * @param block The block containing events to process.
-     * @param criteria Filtering criteria to determine which events to process.
-     * @return A list of decoded events and their associated parameters.
-     * @notice Processes all events (generic and business) in a block based on the provided
-     *   criteria.
-     * @dev Updates the filter criteria with business event names if applicable. Decodes and
-     *   processes both generic and business events.
-     */
-    protected open fun processAllEvents(
-        block: Block,
-        criteria: FilterCriteria = FilterCriteria(),
-    ): List<IndexedEvent> {
-        val updatedCriteria =
-            businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria
-        val decodedEvents = processBlockGenericEvents(block, updatedCriteria)
-        return processBusinessEvents(
-            decodedEvents,
-            updatedCriteria.businessEventNames,
-            updatedCriteria.removeDuplicates
-        )
-    }
-
-    /**
-     * @param block The block containing events to process.
-     * @param criteria Filtering criteria to determine which generic events to process.
-     * @return A list of decoded generic events and their associated parameters.
-     * @notice Processes generic events in a block based on the provided criteria.
-     * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and
-     *   returns an empty list.
-     */
-    protected open fun processBlockGenericEvents(
-        block: Block,
-        criteria: FilterCriteria = FilterCriteria(),
-    ): List<IndexedEvent> {
-        if (abiManager == null) {
-            logger.warn("ABI Manager is not configured. Skipping generic event processing.")
-            return emptyList()
-        }
-
-        val eventIndexer = GenericEventIndexer(abiManager!!)
-        return eventIndexer.getBlockEventsByFilters(
-            block = block,
-            filterCriteria = criteria,
-        )
-    }
-
-    /**
-     * @param decodedEvents The list of previously decoded generic events and their parameters.
-     * @param criteria Filtering criteria to determine which business events to process.
-     * @return A list of processed business events and their associated parameters.
-     * @notice Processes only business events in a block based on the provided decoded generic
-     *   events.
-     * @dev Requires the `BusinessEventManager` to decode and process business events.
-     */
-    protected open fun processBlockBusinessEvents(
-        decodedEvents: List<IndexedEvent>,
-        criteria: FilterCriteria = FilterCriteria(),
-    ): List<IndexedEvent> {
-        if (businessEventManager == null) {
-            logger.warn(
-                "Business Event Manager is not configured. Skipping business event processing."
-            )
-            return emptyList()
-        }
-
-        // Process business events
-        val processor = BusinessEventProcessor(businessEventManager!!)
-        return processor.getOnlyBusinessEvents(
-            decodedEvents,
-            criteria.businessEventNames,
-            this is LogsIndexer
-        )
-    }
-
-    /**
-     * @param decodedEvents A list of decoded generic events and their associated parameters.
-     * @param businessEventNames A list of business event names to process.
-     * @return A list of processed business events and their associated parameters.
-     * @notice Processes business events from a list of decoded events.
-     * @dev Utilizes the `BusinessEventProcessor` to process events if the `BusinessEventManager` is
-     *   configured. Logs a debug message if the `BusinessEventManager` is not present.
-     */
-    internal fun processBusinessEvents(
-        decodedEvents: List<IndexedEvent>,
-        businessEventNames: List<String>,
-        removeDuplicates: Boolean? = true,
-    ): List<IndexedEvent> {
-        if (businessEventManager != null) {
-            val processor = BusinessEventProcessor(businessEventManager!!)
-            val logsIndexer = this is LogsIndexer
-            return processor.processEvents(
-                decodedEvents,
-                businessEventNames,
-                removeDuplicates ?: true,
-                logsIndexer
-            )
-        }
-        logger.debug("Skipping business event processing as manager is missing.")
-        return decodedEvents
-    }
+    override fun process(matchedEvents: List<IndexedEvent>, block: Block?) =
+        processor.process(matchedEvents, block)
 }
