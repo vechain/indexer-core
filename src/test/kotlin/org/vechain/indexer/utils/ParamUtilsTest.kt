@@ -28,7 +28,7 @@ internal class ParamUtilsTest {
             )
         val params = AbiEventParameters(paramMap)
         expectThat(params.getAsString("str")).isEqualTo("hello")
-        expectThat(params.getAsString("empty")).isNull()
+        expectThat(params.getAsString("empty")).isEqualTo("")
         expectThat(params.getAsString("int")).isEqualTo("42")
         expectThat(params.getAsString("bigDecimal")).isEqualTo("123.45")
         expectThat(params.getAsString("bigInteger")).isEqualTo("123456")

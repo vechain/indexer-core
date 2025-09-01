@@ -3,8 +3,6 @@ package org.vechain.indexer.utils
 import java.math.BigDecimal
 import java.math.BigInteger
 import kotlin.let
-import kotlin.takeIf
-import kotlin.text.isNotBlank
 import kotlin.text.toBigDecimalOrNull
 import kotlin.text.toBigIntegerOrNull
 import kotlin.text.toBoolean
@@ -23,7 +21,7 @@ object ParamUtils {
     fun AbiEventParameters.getAsString(key: String): String? =
         this.params[key]?.let {
             when (it) {
-                is String -> it.takeIf { it.isNotBlank() }
+                is String -> it
                 is BigDecimal -> it.toPlainString()
                 is BigInteger,
                 is Number -> it.toString()
