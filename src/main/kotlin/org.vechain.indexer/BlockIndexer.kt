@@ -123,7 +123,7 @@ open class BlockIndexer(
                     previousBlock?.id?.let { it != block.parentID } == true
             ) {
                 val message =
-                    "REORG @ Block $currentBlockNumber previousBlock=${previousBlock?.id ?: "null"} parentID=${block.parentID}"
+                    "REORG @ Block $currentBlockNumber previousBlock=(id=${previousBlock?.id ?: "null"} number=${previousBlock?.number ?: "null"})  parentID=${block.parentID}"
                 logger.error(message)
                 throw ReorgException(message = message)
             }
