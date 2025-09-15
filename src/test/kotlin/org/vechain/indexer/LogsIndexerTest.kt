@@ -76,6 +76,31 @@ class LogsIndexerTest {
         expectThrows<RestartIndexerException> { indexer.testSync(toBlock) }
     }
 
+    @Test
+    fun `correct currBlockNumber should be set after sync`() = runTest {
+        val eventLogs = listOf(buildEventLog("0x1"), buildEventLog("0x2"))
+        val transferLogs = listOf(buildTransferLog("0x3"), buildTransferLog("0x4"))
+
+        coEvery { eventProcessor.hasAbis() } returns true
+        coEvery { logClient.fetchEventLogs(0L, 5L, any(), any()) } returns eventLogs
+        coEvery { logClient.fetchTransfers(0L, 5L, any(), any()) } returns transferLogs
+        every { eventProcessor.processEvents(eventLogs, transferLogs) } returns
+                eventLogs.map { create(it.address) }
+        every { processor.process(any()) } just runs
+
+        val indexer = TestableLogsIndexer(thorClient, logClient, processor, eventProcessor)
+        indexer.testSync(5L)
+
+        assert(indexer.currentBlockNumber == 6L)
+
+        coEvery { logClient.fetchEventLogs(6L, 10L, any(), any()) } returns eventLogs
+        coEvery { logClient.fetchTransfers(6L, 10L, any(), any()) } returns transferLogs
+
+        indexer.testSync(10L)
+
+        assert(indexer.currentBlockNumber == 11L)
+    }
+
     private fun buildEventLog(address: String): EventLog =
         EventLog(
             address = address,
