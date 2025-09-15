@@ -122,9 +122,10 @@ open class BlockIndexer(
                 currentBlockNumber > startBlock &&
                     previousBlock?.id?.let { it != block.parentID } == true
             ) {
-                throw ReorgException(
-                    "Chain re-organization detected @ Block $currentBlockNumber with parent block ID ${block.parentID}",
-                )
+                val message =
+                    "REORG @ Block $currentBlockNumber previousBlock=${previousBlock?.id ?: "null"} parentID=${block.parentID}"
+                logger.error(message)
+                throw ReorgException(message = message)
             }
 
             if (
@@ -144,7 +145,6 @@ open class BlockIndexer(
             handleFullySynced()
             ensureFullySynced()
         } catch (_: ReorgException) {
-            logger.error("REORG @ Block $currentBlockNumber")
             handleReorg()
         } catch (e: Exception) {
             logger.error("Error while processing block $currentBlockNumber", e)
