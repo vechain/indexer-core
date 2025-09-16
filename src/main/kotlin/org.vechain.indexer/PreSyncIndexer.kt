@@ -34,6 +34,8 @@ abstract class PreSyncIndexer(
         }
 
         logger.info("Fast sync complete, switching to block indexer")
+        // Before running reset the previousBlock
+        previousBlock = null
         run()
     }
 

@@ -85,7 +85,7 @@ class LogsIndexerTest {
         coEvery { logClient.fetchEventLogs(0L, 5L, any(), any()) } returns eventLogs
         coEvery { logClient.fetchTransfers(0L, 5L, any(), any()) } returns transferLogs
         every { eventProcessor.processEvents(eventLogs, transferLogs) } returns
-                eventLogs.map { create(it.address) }
+            eventLogs.map { create(it.address) }
         every { processor.process(any()) } just runs
 
         val indexer = TestableLogsIndexer(thorClient, logClient, processor, eventProcessor)
