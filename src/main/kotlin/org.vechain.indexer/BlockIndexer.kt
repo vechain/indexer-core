@@ -215,8 +215,11 @@ open class BlockIndexer(
     protected fun runPruner() {
         if (status != Status.FULLY_SYNCED) return
         pruner?.let {
-            if (currentBlockNumber % prunerInterval == prunerIntervalOffset)
+            if (currentBlockNumber % prunerInterval == prunerIntervalOffset) {
+                status = Status.PRUNING
                 it.run(currentBlockNumber)
+                status = Status.FULLY_SYNCED
+            }
         }
     }
 
