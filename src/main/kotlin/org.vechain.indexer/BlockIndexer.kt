@@ -92,6 +92,7 @@ open class BlockIndexer(
 
     /** Restarts the processing based on the current indexer status */
     protected open fun restart() {
+        logger.info("⚠️ Restarting @ Block: $currentBlockNumber with status $status")
         // Initialise the indexer
         when (status) {
             Status.ERROR -> initialise(currentBlockNumber)
@@ -99,7 +100,7 @@ open class BlockIndexer(
             else -> initialise()
         }
 
-        logger.info("Restarting indexer @ Block: $currentBlockNumber")
+        logger.info("✅ Successfully Restarted @ Block: $currentBlockNumber with status $status")
     }
 
     /** The core indexer logic */
