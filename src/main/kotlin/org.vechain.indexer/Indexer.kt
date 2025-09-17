@@ -18,6 +18,9 @@ enum class Status {
 
     /** Indexer encountered an unknown exception during processing */
     ERROR,
+
+    /** Indexer is pruning old data. Records will not be processed while in this state */
+    PRUNING,
 }
 
 interface Indexer : IndexerProcessor {

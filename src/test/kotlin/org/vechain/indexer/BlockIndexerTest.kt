@@ -799,6 +799,37 @@ internal class BlockIndexerTest {
                 that(indexer.status).isEqualTo(Status.FULLY_SYNCED)
             }
         }
+
+        @Test
+        fun `pruner sets status to PRUNING while pruning and then back the FULLY_SYNCED`() {
+            val prunerInterval = 1L
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    startBlock = 0L,
+                    status = Status.FULLY_SYNCED,
+                    thorClient = thorClient,
+                    processor = processor,
+                    pruner = pruner,
+                    prunerInterval = prunerInterval
+                )
+
+            every { pruner.run(any()) } answers
+                {
+                    // During pruning, status should be PRUNING
+                    expectThat(indexer.status).isEqualTo(Status.PRUNING)
+                }
+
+            // Call publicRunPruner to trigger pruning
+            indexer.publicRunPruner()
+
+            expect {
+                // Verify that the pruner was called once
+                verify(exactly = 1) { pruner.run(any()) }
+                // After pruning, status should revert back to FULLY_SYNCED
+                that(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+            }
+        }
     }
 
     @Nested
