@@ -90,7 +90,7 @@ open class BlockIndexer(
     /** Starts the indexer */
     override suspend fun start() {
         initialise()
-        waitForDependenciesIfRequired()
+        waitForDependencies()
 
         logger.info("Starting @ Block: $currentBlockNumber")
         run()
@@ -118,7 +118,7 @@ open class BlockIndexer(
 
     protected suspend fun runOnce() {
         try {
-            waitForDependenciesIfRequired()
+            waitForDependencies()
             backoffDelay()
 
             if (status == Status.ERROR || status == Status.REORG) restart()
@@ -256,7 +256,7 @@ open class BlockIndexer(
     override fun process(matchedEvents: List<IndexedEvent>, block: Block?) =
         processor.process(matchedEvents, block)
 
-    protected open suspend fun waitForDependenciesIfRequired() {
+    protected open suspend fun waitForDependencies() {
         if (dependsOn.isEmpty()) {
             dependencyResumeStatus = null
             return

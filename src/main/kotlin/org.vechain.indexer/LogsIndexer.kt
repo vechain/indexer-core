@@ -65,7 +65,7 @@ open class LogsIndexer(
      */
     override suspend fun sync(toBlock: Long) {
         while (currentBlockNumber < toBlock) {
-            waitForDependenciesIfRequired()
+            waitForDependencies()
             try {
                 val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
 
