@@ -6,9 +6,13 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
 import io.mockk.just
+import io.mockk.mockk
 import io.mockk.runs
 import kotlin.collections.emptyList
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -19,7 +23,9 @@ import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.exception.RestartIndexerException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
+import strikt.api.expectThat
 import strikt.api.expectThrows
+import strikt.assertions.isEqualTo
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @ExtendWith(MockKExtension::class)
@@ -41,7 +47,8 @@ internal class ChannelIndexerTest {
     private class TestableChannelIndexer(
         thorClient: ThorClient,
         processor: IndexerProcessor,
-        eventProcessor: CombinedEventProcessor
+        eventProcessor: CombinedEventProcessor,
+        dependsOn: Set<Indexer> = emptySet()
     ) :
         ChannelIndexer(
             name = "test",
@@ -53,7 +60,15 @@ internal class ChannelIndexerTest {
             pruner = null,
             prunerInterval = 10_000L,
             batchSize = 2,
+            dependsOn = dependsOn
         ) {
+        var iterations: Long? = null
+
+        suspend fun start(iterations: Long) {
+            this.iterations = iterations
+            super.start()
+        }
+
         suspend fun testSync(toBlock: Long) {
             sync(toBlock)
         }
@@ -160,6 +175,98 @@ internal class ChannelIndexerTest {
             assert(capturedBlocks.size == 1) {
                 "Expected processEvents to be called once, but was called ${capturedBlocks.size} times"
             }
+        }
+    }
+
+    @Nested
+    inner class DependencyTest {
+        @Test
+        fun `should wait for dependencies to be fully synced before starting`() = runBlocking {
+            val dependencyIndexer = mockk<Indexer>()
+            every { dependencyIndexer.status } returns Status.SYNCING
+
+            val indexer =
+                TestableChannelIndexer(
+                    thorClient,
+                    processor,
+                    eventProcessor,
+                    dependsOn = setOf(dependencyIndexer)
+                )
+
+            val job = launch { indexer.start(1L) }
+
+            // Give some time to ensure start() is waiting
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
+
+            // Change dependency status to FULLY_SYNCED and verify indexer starts
+            every { dependencyIndexer.status } returns Status.FULLY_SYNCED
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.SYNCING)
+
+            job.cancel()
+        }
+
+        @Test
+        fun `if already fully synced, should wait for dependencies if they are no longer fully synced`() =
+            runBlocking {
+                val dependencyIndexer = mockk<Indexer>()
+                every { dependencyIndexer.status } returns Status.FULLY_SYNCED
+
+                val indexer =
+                    TestableChannelIndexer(
+                        thorClient,
+                        processor,
+                        eventProcessor,
+                        dependsOn = setOf(dependencyIndexer)
+                    )
+
+                val job = launch { indexer.start(1L) }
+
+                // Give some time to ensure start() proceeds
+                delay(100L)
+                expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+
+                // Change dependency status to SYNCING and verify indexer waits
+                every { dependencyIndexer.status } returns Status.SYNCING
+                delay(100L)
+                expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
+
+                // Change dependency status back to FULLY_SYNCED and verify indexer resumes
+                every { dependencyIndexer.status } returns Status.FULLY_SYNCED
+                delay(100L)
+                expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+
+                job.cancel()
+            }
+
+        @Test
+        fun `should handle multiple dependencies with different statuses`() = runBlocking {
+            val dependency1 = mockk<Indexer>()
+            val dependency2 = mockk<Indexer>()
+            every { dependency1.status } returns Status.FULLY_SYNCED
+            every { dependency2.status } returns Status.SYNCING
+
+            val indexer =
+                TestableChannelIndexer(
+                    thorClient,
+                    processor,
+                    eventProcessor,
+                    dependsOn = setOf(dependency1, dependency2)
+                )
+
+            val job = launch { indexer.start(1L) }
+
+            // Give some time to ensure start() is waiting
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
+
+            // Change second dependency status to FULLY_SYNCED and verify indexer starts
+            every { dependency2.status } returns Status.FULLY_SYNCED
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.SYNCING)
+
+            job.cancel()
         }
     }
 }

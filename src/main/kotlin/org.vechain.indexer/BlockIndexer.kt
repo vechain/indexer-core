@@ -21,10 +21,11 @@ open class BlockIndexer(
     protected open val thorClient: ThorClient,
     private val processor: IndexerProcessor,
     protected val startBlock: Long,
-    private val syncLoggerInterval: Long = 1_000L,
-    protected open val eventProcessor: CombinedEventProcessor? = null,
+    private val syncLoggerInterval: Long,
+    protected open val eventProcessor: CombinedEventProcessor?,
     override val pruner: Pruner? = null,
-    private val prunerInterval: Long = 10_000L,
+    private val prunerInterval: Long,
+    override val dependsOn: Set<Indexer>,
 ) : Indexer {
     /** The last block that was successfully synchronised */
     protected var previousBlock: BlockIdentifier? = null

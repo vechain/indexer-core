@@ -12,6 +12,7 @@ abstract class PreSyncIndexer(
     eventProcessor: CombinedEventProcessor?,
     pruner: Pruner?,
     prunerInterval: Long,
+    dependsOn: Set<Indexer>
 ) :
     BlockIndexer(
         name,
@@ -21,7 +22,8 @@ abstract class PreSyncIndexer(
         syncLoggerInterval,
         eventProcessor,
         pruner,
-        prunerInterval
+        prunerInterval,
+        dependsOn
     ) {
 
     /** Starts the indexer */

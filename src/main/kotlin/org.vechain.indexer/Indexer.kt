@@ -21,6 +21,9 @@ enum class Status {
 
     /** Indexer is pruning old data. Records will not be processed while in this state */
     PRUNING,
+
+    /** Indexer is waiting for one or more dependent indexers to reach a synced state */
+    PENDING_DEPENDENCY
 }
 
 interface Indexer : IndexerProcessor {
@@ -33,6 +36,8 @@ interface Indexer : IndexerProcessor {
     fun startInCoroutine(scope: CoroutineScope)
 
     suspend fun start()
+
+    val dependsOn: Set<Indexer>
 }
 
 interface IndexerProcessor {

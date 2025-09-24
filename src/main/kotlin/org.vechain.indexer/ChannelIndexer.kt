@@ -23,6 +23,7 @@ open class ChannelIndexer(
     pruner: Pruner?,
     prunerInterval: Long,
     private val batchSize: Int,
+    dependsOn: Set<Indexer>
 ) :
     PreSyncIndexer(
         name,
@@ -33,6 +34,7 @@ open class ChannelIndexer(
         eventProcessor,
         pruner,
         prunerInterval,
+        dependsOn
     ) {
 
     override suspend fun sync(toBlock: Long) {

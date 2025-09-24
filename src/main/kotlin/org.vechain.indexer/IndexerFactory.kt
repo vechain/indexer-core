@@ -30,6 +30,7 @@ class IndexerFactory {
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
     private var channelBatchSize: Int = 2 // Default batch size for channel indexer
+    private var dependsOn = emptySet<Indexer>()
 
     fun build(): Indexer {
         requireNotNull(name)
@@ -60,7 +61,8 @@ class IndexerFactory {
                 pruner = pruner,
                 eventProcessor = eventProcessor,
                 prunerInterval = prunerInterval,
-                batchSize = channelBatchSize
+                batchSize = channelBatchSize,
+                dependsOn = dependsOn,
             )
         } else {
             LogsIndexer(
@@ -77,6 +79,7 @@ class IndexerFactory {
                 eventProcessor = eventProcessor,
                 pruner = pruner,
                 prunerInterval = prunerInterval,
+                dependsOn = dependsOn,
             )
         }
     }
@@ -310,4 +313,16 @@ class IndexerFactory {
      * When enabled reverted transactions will be included in the `IndexedEvent` list.
      */
     fun includeFullBlock() = apply { this.includeFullBlock = true }
+
+    /**
+     * Allows users to build a dependency graph of indexers.
+     *
+     * Indexers listed in `dependsOn` will be fully synced before this indexer starts syncing.
+     *
+     * If an indexer in `dependsOn` falls behind, this indexer will pause syncing until the
+     * dependent indexer is fully synced again.
+     *
+     * @param dependsOn Set of indexers that this indexer depends on.
+     */
+    fun dependsOn(dependsOn: Set<Indexer>) = apply { this.dependsOn = dependsOn }
 }

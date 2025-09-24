@@ -1115,6 +1115,107 @@ internal class BlockIndexerTest {
             }
         }
     }
+
+    @Nested
+    inner class DependencyTest {
+        @Test
+        fun `should wait for dependencies to be fully synced before starting`() = runBlocking {
+            val dependencyIndexer = mockk<Indexer>()
+            every { dependencyIndexer.status } returns Status.SYNCING
+
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    status = Status.SYNCING,
+                    thorClient = thorClient,
+                    processor = processor,
+                    pruner = pruner,
+                    prunerInterval = 1L,
+                    dependsOn = setOf(dependencyIndexer)
+                )
+
+            val job = launch { indexer.start(1L) }
+
+            // Give some time to ensure start() is waiting
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
+
+            // Change dependency status to FULLY_SYNCED and verify indexer starts
+            every { dependencyIndexer.status } returns Status.FULLY_SYNCED
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.SYNCING)
+
+            job.cancel()
+        }
+
+        @Test
+        fun `if already fully synced, should wait for dependencies if they are no longer fully synced`() =
+            runBlocking {
+                val dependencyIndexer = mockk<Indexer>()
+                every { dependencyIndexer.status } returns Status.FULLY_SYNCED
+
+                val indexer =
+                    TestableBlockIndexer(
+                        name = "TestBlockIndexer",
+                        status = Status.FULLY_SYNCED,
+                        thorClient = thorClient,
+                        processor = processor,
+                        pruner = pruner,
+                        prunerInterval = 1L,
+                        dependsOn = setOf(dependencyIndexer)
+                    )
+
+                val job = launch { indexer.start(1L) }
+
+                // Give some time to ensure start() proceeds
+                delay(100L)
+                expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+
+                // Change dependency status to SYNCING and verify indexer waits
+                every { dependencyIndexer.status } returns Status.SYNCING
+                delay(100L)
+                expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
+
+                // Change dependency status back to FULLY_SYNCED and verify indexer resumes
+                every { dependencyIndexer.status } returns Status.FULLY_SYNCED
+                delay(100L)
+                expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+
+                job.cancel()
+            }
+
+        @Test
+        fun `should handle multiple dependencies with different statuses`() = runBlocking {
+            val dependency1 = mockk<Indexer>()
+            val dependency2 = mockk<Indexer>()
+            every { dependency1.status } returns Status.FULLY_SYNCED
+            every { dependency2.status } returns Status.SYNCING
+
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    status = Status.SYNCING,
+                    thorClient = thorClient,
+                    processor = processor,
+                    pruner = pruner,
+                    prunerInterval = 1L,
+                    dependsOn = setOf(dependency1, dependency2)
+                )
+
+            val job = launch { indexer.start(1L) }
+
+            // Give some time to ensure start() is waiting
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
+
+            // Change second dependency status to FULLY_SYNCED and verify indexer starts
+            every { dependency2.status } returns Status.FULLY_SYNCED
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.SYNCING)
+
+            job.cancel()
+        }
+    }
 }
 
 class TestableBlockIndexer(
@@ -1127,6 +1228,7 @@ class TestableBlockIndexer(
     pruner: Pruner? = null,
     prunerInterval: Long = 1L,
     syncLoggerInterval: Long = 100L,
+    dependsOn: Set<Indexer> = emptySet()
 ) :
     BlockIndexer(
         name = name,
@@ -1137,6 +1239,7 @@ class TestableBlockIndexer(
         pruner = pruner,
         prunerInterval = prunerInterval,
         syncLoggerInterval = syncLoggerInterval,
+        dependsOn = dependsOn
     ) {
 
     var iterations: Long? = null
