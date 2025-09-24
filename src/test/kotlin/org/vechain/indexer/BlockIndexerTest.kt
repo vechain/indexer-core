@@ -1122,11 +1122,16 @@ internal class BlockIndexerTest {
         fun `should wait for dependencies to be fully synced before starting`() = runBlocking {
             val dependencyIndexer = mockk<Indexer>()
             every { dependencyIndexer.status } returns Status.SYNCING
+            every { processor.getLastSyncedBlock() } answers
+                {
+                    BlockIdentifier(number = 100L, id = "0x100")
+                }
+            coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
+            every { processor.process(any(), any()) } just Runs
 
             val indexer =
                 TestableBlockIndexer(
                     name = "TestBlockIndexer",
-                    status = Status.SYNCING,
                     thorClient = thorClient,
                     processor = processor,
                     pruner = pruner,
@@ -1153,11 +1158,22 @@ internal class BlockIndexerTest {
             runBlocking {
                 val dependencyIndexer = mockk<Indexer>()
                 every { dependencyIndexer.status } returns Status.FULLY_SYNCED
+                every { processor.getLastSyncedBlock() } answers
+                    {
+                        BlockIdentifier(number = 100L, id = "0x100")
+                    }
+                every { processor.process(any(), any()) } just Runs
+
+                coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(99L) }
+                // Throw  BlockNotFoundException here so the indexer starts in FULLY_SYNCED status
+                coEvery { thorClient.getBlock(any()) } coAnswers
+                    {
+                        throw BlockNotFoundException("Block not found")
+                    }
 
                 val indexer =
                     TestableBlockIndexer(
                         name = "TestBlockIndexer",
-                        status = Status.FULLY_SYNCED,
                         thorClient = thorClient,
                         processor = processor,
                         pruner = pruner,
@@ -1165,23 +1181,28 @@ internal class BlockIndexerTest {
                         dependsOn = setOf(dependencyIndexer)
                     )
 
-                val job = launch { indexer.start(1L) }
+                val job1 = launch { indexer.start(1L) }
 
-                // Give some time to ensure start() proceeds
+                // Indexer should start and be in FULLY_SYNCED status
                 delay(100L)
                 expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
 
                 // Change dependency status to SYNCING and verify indexer waits
                 every { dependencyIndexer.status } returns Status.SYNCING
+
+                val job2 = launch { indexer.start(1L) }
                 delay(100L)
                 expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
 
                 // Change dependency status back to FULLY_SYNCED and verify indexer resumes
                 every { dependencyIndexer.status } returns Status.FULLY_SYNCED
+                val job3 = launch { indexer.start(1L) }
                 delay(100L)
                 expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
 
-                job.cancel()
+                job1.cancel()
+                job2.cancel()
+                job3.cancel()
             }
 
         @Test
@@ -1191,10 +1212,16 @@ internal class BlockIndexerTest {
             every { dependency1.status } returns Status.FULLY_SYNCED
             every { dependency2.status } returns Status.SYNCING
 
+            every { processor.getLastSyncedBlock() } answers
+                {
+                    BlockIdentifier(number = 100L, id = "0x100")
+                }
+            coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
+            every { processor.process(any(), any()) } just Runs
+
             val indexer =
                 TestableBlockIndexer(
                     name = "TestBlockIndexer",
-                    status = Status.SYNCING,
                     thorClient = thorClient,
                     processor = processor,
                     pruner = pruner,

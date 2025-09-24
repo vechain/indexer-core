@@ -44,6 +44,7 @@ open class ChannelIndexer(
 
             // Process blocks
             for (block in blockReceiver) {
+                waitForDependenciesIfRequired()
                 try {
 
                     if (
