@@ -263,24 +263,26 @@ open class BlockIndexer(
         }
 
         if (dependenciesReady()) {
-            if (status == Status.PENDING_DEPENDENCY) {
-                status = dependencyResumeStatus ?: Status.SYNCING
-            }
-            dependencyResumeStatus = null
+            resumeAfterDependencies()
             return
         }
 
         if (status != Status.PENDING_DEPENDENCY) {
             dependencyResumeStatus = status
+            status = Status.PENDING_DEPENDENCY
         }
 
-        status = Status.PENDING_DEPENDENCY
-
-        while (!dependenciesReady()) {
+        do {
             delay(DEPENDENCY_CHECK_INTERVAL_MS)
-        }
+        } while (!dependenciesReady())
 
-        status = dependencyResumeStatus ?: Status.SYNCING
+        resumeAfterDependencies()
+    }
+
+    private fun resumeAfterDependencies() {
+        if (status == Status.PENDING_DEPENDENCY) {
+            status = dependencyResumeStatus ?: Status.SYNCING
+        }
         dependencyResumeStatus = null
     }
 
