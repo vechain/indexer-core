@@ -4,6 +4,9 @@ import io.mockk.*
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
 import kotlinx.coroutines.*
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -1117,6 +1120,89 @@ internal class BlockIndexerTest {
     }
 
     @Nested
+    inner class WaitForDependenciesTests {
+        @Test
+        fun `returns immediately when there are no dependencies`() = runTest {
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    status = Status.FULLY_SYNCED,
+                )
+
+            indexer.publicWaitForDependencies()
+
+            expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+        }
+
+        @Test
+        fun `ready dependencies do not alter current status`() = runTest {
+            val dependency = mockk<Indexer>()
+            every { dependency.status } returns Status.FULLY_SYNCED
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    status = Status.FULLY_SYNCED,
+                    dependsOn = setOf(dependency),
+                )
+
+            indexer.publicWaitForDependencies()
+
+            expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+        }
+
+        @Test
+        fun `pending status resumes to syncing when no previous status is stored`() = runTest {
+            val dependency = mockk<Indexer>()
+            every { dependency.status } returns Status.FULLY_SYNCED
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    status = Status.PENDING_DEPENDENCY,
+                    dependsOn = setOf(dependency),
+                )
+
+            indexer.publicWaitForDependencies()
+
+            expectThat(indexer.status).isEqualTo(Status.SYNCING)
+        }
+
+        @OptIn(ExperimentalCoroutinesApi::class)
+        @Test
+        fun `waits for dependencies to become ready and restores previous status`() = runTest {
+            val dependency = mockk<Indexer>()
+            every { dependency.status } returns Status.SYNCING
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    status = Status.FULLY_SYNCED,
+                    dependsOn = setOf(dependency),
+                )
+
+            val job = launch { indexer.publicWaitForDependencies() }
+
+            runCurrent()
+            expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
+
+            every { dependency.status } returns Status.FULLY_SYNCED
+            advanceUntilIdle()
+            job.join()
+
+            expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+
+            indexer.publicWaitForDependencies()
+            expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+        }
+    }
+
+    @Nested
     inner class DependencyTest {
         @Test
         fun `should wait for dependencies to be fully synced before starting`() = runBlocking {
@@ -1317,5 +1403,9 @@ class TestableBlockIndexer(
     // Expose ensureFullySynced for testing
     suspend fun publicEnsureFullySynced() {
         super.ensureFullySynced()
+    }
+
+    suspend fun publicWaitForDependencies() {
+        super.waitForDependencies()
     }
 }
