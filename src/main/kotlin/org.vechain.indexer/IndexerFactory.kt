@@ -323,6 +323,10 @@ class IndexerFactory {
      * dependent indexer is fully synced again.
      *
      * @param dependsOn Set of indexers that this indexer depends on.
+     *
+     * **Note for developers:** Use this functionality with caution. Where possible, avoid building
+     * strong interdependencies between indexers, as this can lead to complex sync issues and
+     * reduced system resilience.
      */
     fun dependsOn(dependsOn: Set<Indexer>) = apply { this.dependsOn = dependsOn }
 }
