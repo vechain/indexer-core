@@ -42,6 +42,7 @@ open class LogsIndexer(
     override val eventProcessor: CombinedEventProcessor?,
     pruner: Pruner?,
     prunerInterval: Long,
+    dependsOn: Set<Indexer>,
 ) :
     PreSyncIndexer(
         name,
@@ -52,6 +53,7 @@ open class LogsIndexer(
         eventProcessor,
         pruner,
         prunerInterval,
+        dependsOn
     ) {
 
     protected open val logClient = LogClient(thorClient)
@@ -63,6 +65,7 @@ open class LogsIndexer(
      */
     override suspend fun sync(toBlock: Long) {
         while (currentBlockNumber < toBlock) {
+            waitForDependencies()
             try {
                 val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
 
