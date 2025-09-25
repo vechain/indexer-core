@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
+import org.vechain.indexer.thor.model.InspectionResult
 
 /** The possible states the indexer can be */
 enum class Status {
@@ -35,12 +36,18 @@ interface Indexer : IndexerProcessor {
     suspend fun start()
 }
 
+sealed class BlockEvent {
+    data class Normal(val block: Block, val events: List<IndexedEvent>) : BlockEvent()
+    data class EventsOnly(val events: List<IndexedEvent>) : BlockEvent()
+    data class WithCallData(val block: Block, val callResults: List<InspectionResult>) : BlockEvent()
+}
+
 interface IndexerProcessor {
     fun getLastSyncedBlock(): BlockIdentifier?
 
     fun rollback(blockNumber: Long)
 
-    fun process(matchedEvents: List<IndexedEvent>, block: Block? = null)
+    fun process(event: BlockEvent)
 }
 
 interface Pruner {

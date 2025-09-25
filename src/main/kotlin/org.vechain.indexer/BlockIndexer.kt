@@ -6,12 +6,12 @@ import kotlinx.coroutines.*
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.CombinedEventProcessor
-import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
+import org.vechain.indexer.thor.model.Clause
 
 /** Initial processing backoff duration */
 const val INITIAL_BACKOFF_PERIOD = 10_000L
@@ -22,10 +22,17 @@ open class BlockIndexer(
     private val processor: IndexerProcessor,
     protected val startBlock: Long,
     private val syncLoggerInterval: Long = 1_000L,
-    protected open val eventProcessor: CombinedEventProcessor? = null,
+    protected val eventProcessor: CombinedEventProcessor? = null,
+    protected val inspectionClauses: List<Clause>? = null,
     override val pruner: Pruner? = null,
     private val prunerInterval: Long = 10_000L,
 ) : Indexer {
+    init {
+        if (inspectionClauses != null && eventProcessor != null) {
+            throw IllegalArgumentException("Cannot set both inspectionClauses and eventProcessor")
+        }
+    }
+
     /** The last block that was successfully synchronised */
     protected var previousBlock: BlockIdentifier? = null
 
@@ -137,8 +144,16 @@ open class BlockIndexer(
                 logger.info("($status) Processing Block  $currentBlockNumber")
             }
 
-            val events = eventProcessor?.processEvents(block) ?: emptyList()
-            process(events, block)
+            val event = if (eventProcessor != null) {
+                BlockEvent.Normal(block, eventProcessor.processEvents(block))
+            } else if (inspectionClauses != null) {
+                val inspections = thorClient.inspectClauses(inspectionClauses, block.id)
+                BlockEvent.WithCallData(block, inspections)
+            } else {
+                BlockEvent.Normal(block, emptyList())
+            }
+
+            process(event)
             postProcessBlock(block)
             runPruner()
         } catch (_: BlockNotFoundException) {
@@ -246,6 +261,5 @@ open class BlockIndexer(
 
     override fun rollback(blockNumber: Long) = processor.rollback(blockNumber)
 
-    override fun process(matchedEvents: List<IndexedEvent>, block: Block?) =
-        processor.process(matchedEvents, block)
+    override fun process(event: BlockEvent) = processor.process(event)
 }

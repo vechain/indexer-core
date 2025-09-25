@@ -2,6 +2,7 @@ package org.vechain.indexer
 
 import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.thor.client.ThorClient
+import org.vechain.indexer.thor.model.Clause
 
 abstract class PreSyncIndexer(
     name: String,
@@ -10,6 +11,7 @@ abstract class PreSyncIndexer(
     startBlock: Long,
     syncLoggerInterval: Long,
     eventProcessor: CombinedEventProcessor?,
+    inspectionClauses: List<Clause>?,
     pruner: Pruner?,
     prunerInterval: Long,
 ) :
@@ -20,6 +22,7 @@ abstract class PreSyncIndexer(
         startBlock,
         syncLoggerInterval,
         eventProcessor,
+        inspectionClauses,
         pruner,
         prunerInterval
     ) {

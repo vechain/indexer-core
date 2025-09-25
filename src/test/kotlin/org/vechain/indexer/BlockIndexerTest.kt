@@ -68,7 +68,7 @@ internal class BlockIndexerTest {
             every { processor.getLastSyncedBlock() } returns
                 BlockIdentifier(number = 100L, id = "0x100") andThen
                 BlockIdentifier(number = 99L, id = "0x99")
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
             val job = launch { indexer.start(indexerIterationsNumber) }
             job.join()
@@ -91,7 +91,7 @@ internal class BlockIndexerTest {
                         buildBlock(getBlockNumberSlot.captured)
                     }
                 every { processor.getLastSyncedBlock() } returns null
-                every { processor.process(any(), any()) } just Runs
+                every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
                 val job = launch { indexer.start(indexerIterationsNumber) }
                 job.join()
@@ -111,7 +111,7 @@ internal class BlockIndexerTest {
 
             coEvery { thorClient.getBlock(0L) } coAnswers { block }
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(emptyList(), block) } just Runs
+            every { processor.process(BlockEvent.Normal(block, emptyList())) } just Runs
 
             val job = launch { indexer.start(indexerIterationsNumber) }
             job.join()
@@ -121,7 +121,7 @@ internal class BlockIndexerTest {
                 that(indexer.status).isEqualTo(Status.SYNCING)
                 // Verify the correct number of processing of blocks
                 verify(exactly = 1) { processor.rollback(0L) }
-                verify(exactly = 1) { processor.process(emptyList(), block) }
+                verify(exactly = 1) { processor.process(BlockEvent.Normal(block, emptyList())) }
             }
         }
 
@@ -134,7 +134,7 @@ internal class BlockIndexerTest {
                     buildBlock(getBlockNumberSlot.captured)
                 }
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
             val job = launch { indexer.start(indexerIterationsNumber) }
             job.join()
@@ -144,7 +144,7 @@ internal class BlockIndexerTest {
                 that(indexer.status).isEqualTo(Status.SYNCING)
                 // Verify the correct number of processing of blocks
                 verify(exactly = indexerIterationsNumber.toInt()) {
-                    processor.process(any(), any())
+                    processor.process(BlockEvent.Normal(any(), any()))
                 }
             }
         }
@@ -158,7 +158,7 @@ internal class BlockIndexerTest {
                     buildBlock(getBlockNumberSlot.captured)
                 }
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
             val job = launch { indexer.start(indexerIterationsNumber) }
             job.join()
@@ -196,7 +196,7 @@ internal class BlockIndexerTest {
                     buildBlock(getBlockNumberSlot.captured)
                 }
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
             val job = launch { indexer.start(indexerIterationsNumber) }
             job.join()
@@ -205,7 +205,7 @@ internal class BlockIndexerTest {
                 // Verify the status is SYNCING
                 that(indexer.status).isEqualTo(Status.SYNCING)
                 // Verify the correct number of processing of blocks
-                verify(exactly = 1) { processor.process(any(), any()) }
+                verify(exactly = 1) { processor.process(BlockEvent.Normal(any(), any())) }
             }
         }
     }
@@ -240,7 +240,7 @@ internal class BlockIndexerTest {
                     null andThen
                     finalBlock
                 var calledAlready = false
-                every { processor.process(any(), capture(processBlockSlot)) } answers
+                every { processor.process(BlockEvent.Normal(capture(processBlockSlot), any()), ) } answers
                     {
                         if (
                             !calledAlready && processBlockSlot.captured.number == errorBlockNumber
@@ -288,7 +288,7 @@ internal class BlockIndexerTest {
                     null andThen
                     finalBlock
 
-                every { processor.process(any(), any()) } just Runs
+                every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
                 // Run the indexer for another two iterations after the rate limited block number
                 val job = launch { indexer.start(tooManyRequestsBlockNumber + 2) }
@@ -327,7 +327,7 @@ internal class BlockIndexerTest {
                     null andThen
                     null andThen
                     finalBlock
-                every { processor.process(any(), any()) } just Runs
+                every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
                 // Run indexer for a few iterations more after re-organization detected
                 val job = launch { indexer.start(reorgBlockNumber + 2) }
@@ -372,7 +372,7 @@ internal class BlockIndexerTest {
                     buildBlock(getBlockNumberSlot.captured)
                 }
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
             val job = launch { indexer.start(iterations) }
             job.join()
@@ -386,7 +386,7 @@ internal class BlockIndexerTest {
                 verify(exactly = 1) { processor.rollback(0L) }
                 // Number of processed blocks should correspond to current block number
                 verify(exactly = indexer.currentBlockNumber.toInt()) {
-                    processor.process(any(), any())
+                    processor.process(BlockEvent.Normal(any(), any()))
                 }
             }
         }
@@ -404,7 +404,7 @@ internal class BlockIndexerTest {
                 }
             coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(blockNotFound.number) }
             every { processor.getLastSyncedBlock() } returns null andThen null andThen blockNotFound
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
             val job = launch { indexer.start(blockNotFound.number + 1) }
             job.join()
@@ -439,7 +439,7 @@ internal class BlockIndexerTest {
                     null andThen
                     null andThen
                     blockNotFound
-                every { processor.process(any(), any()) } just Runs
+                every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
                 // Iterations + (1 iteration) where block is not found to trigger the FULLY_SYNCED
                 // status
@@ -478,7 +478,7 @@ internal class BlockIndexerTest {
                 null andThen
                 null andThen
                 lastSyncedBlock
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
             val job = launch { indexer.start(reorgBlock + 1) }
             job.join()
@@ -500,7 +500,7 @@ internal class BlockIndexerTest {
                 }
 
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
             val job = launch { indexer.start(1L) }
             job.join()
@@ -527,7 +527,7 @@ internal class BlockIndexerTest {
                 null andThen
                 lastSyncedBlock
             // Exception is thrown when processing block unknownExceptionBlock
-            every { processor.process(any(), capture(processBlockSlot)) } answers
+            every { processor.process(BlockEvent.Normal( capture(processBlockSlot),any())) } answers
                 {
                     if (processBlockSlot.captured.number == unknownExceptionBlock) {
                         throw Exception("Unknown exception")
@@ -565,7 +565,7 @@ internal class BlockIndexerTest {
                     null andThen
                     null andThen
                     lastSyncedBlock
-                every { processor.process(any(), capture(processBlockSlot)) } just Runs
+                every { processor.process(BlockEvent.Normal(capture(processBlockSlot), any())) } just Runs
 
                 val job = launch { indexer.start(tooManyRequestsBlockNumber + 1) }
                 job.join()
@@ -599,7 +599,7 @@ internal class BlockIndexerTest {
                 coEvery { thorClient.getBlock(0L) } coAnswers { block }
                 every { processor.getLastSyncedBlock() } returns null
                 every { eventProcessor.processEvents(block) } returns matchedEvents
-                every { processor.process(matchedEvents, block) } just Runs
+                every { processor.process(BlockEvent.Normal(block, matchedEvents)) } just Runs
 
                 val job = launch { indexer.start(1) }
                 job.join()
@@ -610,7 +610,7 @@ internal class BlockIndexerTest {
                     // Verify processEvents was called with the correct block
                     verify(exactly = 1) { eventProcessor.processEvents(block) }
                     // Verify processor.process was called with the matched events and block
-                    verify(exactly = 1) { processor.process(matchedEvents, block) }
+                    verify(exactly = 1) { processor.process(BlockEvent.Normal(block, matchedEvents)) }
                 }
             }
 
@@ -670,7 +670,7 @@ internal class BlockIndexerTest {
             coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(1L) }
             every { pruner.run(any()) } just Runs
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(BlockEvent.Normal(any(), any())) } just Runs
 
             val job = launch { indexer.start(6) }
             job.join()

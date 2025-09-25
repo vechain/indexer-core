@@ -9,6 +9,8 @@ import io.mockk.just
 import io.mockk.runs
 import kotlin.collections.emptyList
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -17,8 +19,11 @@ import org.junit.jupiter.api.extension.ExtendWith
 import org.vechain.indexer.BlockTestBuilder.Companion.buildBlock
 import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.exception.RestartIndexerException
+import org.vechain.indexer.thor.client.DefaultThorClient
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.BlockIdentifier
+import org.vechain.indexer.thor.model.Clause
 import strikt.api.expectThrows
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -74,7 +79,7 @@ internal class ChannelIndexerTest {
                 }
 
             // Mock processor and eventProcessor
-            every { processor.process(any(), any()) } just runs
+            every { processor.process(BlockEvent.Normal(any(), any())) } just runs
             every { eventProcessor.processEvents(capture(capturedBlocks)) } returns emptyList()
 
             // Run the sync
@@ -116,7 +121,7 @@ internal class ChannelIndexerTest {
                     }
 
                 // Mock processor and eventProcessor
-                every { processor.process(any(), any()) } just runs
+                every { processor.process(BlockEvent.Normal(any(), any())) } just runs
                 every { eventProcessor.processEvents(capture(capturedBlocks)) } returns emptyList()
 
                 // Run the sync
@@ -146,7 +151,7 @@ internal class ChannelIndexerTest {
                 }
 
             // Mock processor and eventProcessor
-            every { processor.process(any(), any()) } just runs
+            every { processor.process(BlockEvent.Normal(any(), any())) } just runs
             every { eventProcessor.processEvents(capture(capturedBlocks)) } throws
                 RuntimeException("Simulated error")
 
@@ -161,5 +166,58 @@ internal class ChannelIndexerTest {
                 "Expected processEvents to be called once, but was called ${capturedBlocks.size} times"
             }
         }
+    }
+
+    @Nested
+    inner class CallDataTests {
+
+
+        @Test
+        fun `should return calldata with every block`() = runTest {
+            val client = DefaultThorClient("https://hayabusa.live.dev.node.vechain.org")
+            val indexer =
+                ChannelIndexer(
+                    name = "test",
+                    thorClient = client,
+                    processor = CallDataProcessor(),
+                    startBlock = 1000L,
+                    syncLoggerInterval = 100L,
+                    eventProcessor = null,
+                    inspectionClauses = listOf(
+                        // Call to staker contract to get VTHO issuance for the given block
+                        Clause(
+                            to = "0x00000000000000000000000000005374616b6572",
+                            data = "0x863623bb",
+                            value = "0x0",
+                        )
+                    ),
+                    pruner = null,
+                    prunerInterval = 10_000L,
+                    batchSize = 100,
+                )
+
+            indexer.start()
+        }
+    }
+}
+
+class CallDataProcessor : IndexerProcessor {
+
+    var processedBlock = 0L
+
+    override fun getLastSyncedBlock(): BlockIdentifier? {
+        return null
+    }
+
+    override fun rollback(blockNumber: Long) {}
+
+    override fun process(event: BlockEvent) {
+        if (event !is BlockEvent.WithCallData) {
+            throw IllegalStateException("Expected WithCallData event")
+        }
+        val output = event.callResults[0].data
+        val result = output.substring(2).toBigInteger(16)
+        println("VTHO issuance @ block ${event.block.number}: $result")
+        processedBlock = event.block.number
     }
 }

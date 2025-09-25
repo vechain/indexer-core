@@ -20,4 +20,6 @@ interface ThorClient {
     suspend fun getEventLogs(req: EventLogsRequest): List<EventLog>
 
     suspend fun getVetTransfers(req: TransferLogsRequest): List<TransferLog>
+
+    suspend fun inspectClauses(clauses: List<Clause>, blockID: String): List<InspectionResult>
 }
