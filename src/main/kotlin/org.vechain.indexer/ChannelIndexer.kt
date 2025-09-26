@@ -24,6 +24,7 @@ open class ChannelIndexer(
     pruner: Pruner?,
     prunerInterval: Long,
     private val batchSize: Int,
+    dependsOn: Set<Indexer>
 ) :
     PreSyncIndexer(
         name,
@@ -35,6 +36,7 @@ open class ChannelIndexer(
         inspectionClauses,
         pruner,
         prunerInterval,
+        dependsOn
     ) {
 
     override suspend fun sync(toBlock: Long) {
@@ -44,6 +46,7 @@ open class ChannelIndexer(
 
             // Process blocks
             for (event in blockReceiver) {
+                waitForDependencies()
                 try {
                     val block = event.latestBlockNumber()
 
@@ -92,7 +95,7 @@ open class ChannelIndexer(
     }
 
     // Fetch a block with retry logic and logging
-    private suspend fun getBlock(i: Long): BlockEvent {
+    private suspend fun getBlock(i: Long): IndexingResult {
         var currentDelay = 1000L
         var attempt = 0
         while (true) {

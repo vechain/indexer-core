@@ -22,6 +22,9 @@ enum class Status {
 
     /** Indexer is pruning old data. Records will not be processed while in this state */
     PRUNING,
+
+    /** Indexer is waiting for one or more dependent indexers to reach a synced state */
+    PENDING_DEPENDENCY
 }
 
 interface Indexer : IndexerProcessor {
@@ -34,21 +37,25 @@ interface Indexer : IndexerProcessor {
     fun startInCoroutine(scope: CoroutineScope)
 
     suspend fun start()
+
+    val dependsOn: Set<Indexer>
 }
 
-sealed class BlockEvent {
-    /** Represents a full block of data including all events and call results */
+sealed class IndexingResult {
+    /**
+     *  Represents a full block of data including all events and call results
+     **/
     data class Normal(
         val block: Block,
         val events: List<IndexedEvent>,
         val callResults: List<InspectionResult>
-    ) : BlockEvent()
+    ) : IndexingResult()
 
     /**
      * Represents a batch of events without the full block data. This is used when indexing via
      * smart contract events using a [LogsIndexer]
      */
-    data class EventsOnly(val endBlock: Long, val events: List<IndexedEvent>) : BlockEvent()
+    data class EventsOnly(val endBlock: Long, val events: List<IndexedEvent>) : IndexingResult()
 
     fun latestBlockNumber(): Long =
         when (this) {
@@ -74,7 +81,7 @@ interface IndexerProcessor {
 
     fun rollback(blockNumber: Long)
 
-    fun process(event: BlockEvent)
+    fun process(entry: IndexingResult)
 }
 
 interface Pruner {

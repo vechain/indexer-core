@@ -16,16 +16,19 @@ import org.vechain.indexer.thor.model.Clause
 /** Initial processing backoff duration */
 const val INITIAL_BACKOFF_PERIOD = 10_000L
 
+private const val DEPENDENCY_CHECK_INTERVAL_MS = 50L
+
 open class BlockIndexer(
     override val name: String,
     protected open val thorClient: ThorClient,
     private val processor: IndexerProcessor,
     protected val startBlock: Long,
-    private val syncLoggerInterval: Long = 1_000L,
-    protected val eventProcessor: CombinedEventProcessor? = null,
+    private val syncLoggerInterval: Long,
+    protected val eventProcessor: CombinedEventProcessor?,
     protected val inspectionClauses: List<Clause>? = null,
     override val pruner: Pruner? = null,
-    private val prunerInterval: Long = 10_000L,
+    private val prunerInterval: Long,
+    override val dependsOn: Set<Indexer>,
 ) : Indexer {
     /** The last block that was successfully synchronised */
     protected var previousBlock: BlockIdentifier? = null
@@ -37,6 +40,8 @@ open class BlockIndexer(
     protected val logger: Logger = LoggerFactory.getLogger(name)
 
     override var status = Status.SYNCING
+
+    private var dependencyResumeStatus: Status? = null
 
     var currentBlockNumber: Long = 0
         protected set
@@ -86,6 +91,7 @@ open class BlockIndexer(
     /** Starts the indexer */
     override suspend fun start() {
         initialise()
+        waitForDependencies()
 
         logger.info("Starting @ Block: $currentBlockNumber")
         run()
@@ -113,6 +119,7 @@ open class BlockIndexer(
 
     protected suspend fun runOnce() {
         try {
+            waitForDependencies()
             backoffDelay()
 
             if (status == Status.ERROR || status == Status.REORG) restart()
@@ -153,12 +160,12 @@ open class BlockIndexer(
         }
     }
 
-    protected suspend fun blockToEvent(block: Block): BlockEvent {
+    protected suspend fun blockToEvent(block: Block): IndexingResult {
         val callResults =
             inspectionClauses?.let { thorClient.inspectClauses(it, block.id) } ?: emptyList()
         val events = eventProcessor?.processEvents(block) ?: emptyList()
 
-        return BlockEvent.Normal(block, events, callResults)
+        return IndexingResult.Normal(block, events, callResults)
     }
 
     private fun handleFullySynced() {
@@ -254,5 +261,37 @@ open class BlockIndexer(
 
     override fun rollback(blockNumber: Long) = processor.rollback(blockNumber)
 
-    override fun process(event: BlockEvent) = processor.process(event)
+    override fun process(event: IndexingResult) = processor.process(event)
+
+    protected open suspend fun waitForDependencies() {
+        if (dependsOn.isEmpty()) {
+            dependencyResumeStatus = null
+            return
+        }
+
+        if (dependenciesReady()) {
+            resumeAfterDependencies()
+            return
+        }
+
+        if (status != Status.PENDING_DEPENDENCY) {
+            dependencyResumeStatus = status
+            status = Status.PENDING_DEPENDENCY
+        }
+
+        do {
+            delay(DEPENDENCY_CHECK_INTERVAL_MS)
+        } while (!dependenciesReady())
+
+        resumeAfterDependencies()
+    }
+
+    private fun resumeAfterDependencies() {
+        if (status == Status.PENDING_DEPENDENCY) {
+            status = dependencyResumeStatus ?: Status.SYNCING
+        }
+        dependencyResumeStatus = null
+    }
+
+    private fun dependenciesReady(): Boolean = dependsOn.all { it.status == Status.FULLY_SYNCED }
 }

@@ -14,6 +14,7 @@ abstract class PreSyncIndexer(
     inspectionClauses: List<Clause>?,
     pruner: Pruner?,
     prunerInterval: Long,
+    dependsOn: Set<Indexer>
 ) :
     BlockIndexer(
         name,
@@ -24,16 +25,19 @@ abstract class PreSyncIndexer(
         eventProcessor,
         inspectionClauses,
         pruner,
-        prunerInterval
+        prunerInterval,
+        dependsOn
     ) {
 
     /** Starts the indexer */
     override suspend fun start() {
         initialise()
+        waitForDependencies()
         val finalizedBlock = thorClient.getFinalizedBlock().number
 
         if (currentBlockNumber < finalizedBlock) {
             sync(finalizedBlock)
+            waitForDependencies()
         }
 
         logger.info("Fast sync complete, switching to block indexer")

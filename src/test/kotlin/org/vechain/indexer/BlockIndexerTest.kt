@@ -4,6 +4,9 @@ import io.mockk.*
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
 import kotlinx.coroutines.*
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -68,7 +71,7 @@ internal class BlockIndexerTest {
             every { processor.getLastSyncedBlock() } returns
                 BlockIdentifier(number = 100L, id = "0x100") andThen
                 BlockIdentifier(number = 99L, id = "0x99")
-            every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
             val job = launch { indexer.start(indexerIterationsNumber) }
             job.join()
@@ -91,7 +94,7 @@ internal class BlockIndexerTest {
                         buildBlock(getBlockNumberSlot.captured)
                     }
                 every { processor.getLastSyncedBlock() } returns null
-                every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+                every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
                 val job = launch { indexer.start(indexerIterationsNumber) }
                 job.join()
@@ -111,7 +114,7 @@ internal class BlockIndexerTest {
 
             coEvery { thorClient.getBlock(0L) } coAnswers { block }
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(BlockEvent.Normal(block, emptyList(), emptyList())) } just
+            every { processor.process(IndexingResult.Normal(block, emptyList(), emptyList())) } just
                 Runs
 
             val job = launch { indexer.start(indexerIterationsNumber) }
@@ -123,7 +126,7 @@ internal class BlockIndexerTest {
                 // Verify the correct number of processing of blocks
                 verify(exactly = 1) { processor.rollback(0L) }
                 verify(exactly = 1) {
-                    processor.process(BlockEvent.Normal(block, emptyList(), emptyList()))
+                    processor.process(IndexingResult.Normal(block, emptyList(), emptyList()))
                 }
             }
         }
@@ -137,7 +140,7 @@ internal class BlockIndexerTest {
                     buildBlock(getBlockNumberSlot.captured)
                 }
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
             val job = launch { indexer.start(indexerIterationsNumber) }
             job.join()
@@ -147,7 +150,7 @@ internal class BlockIndexerTest {
                 that(indexer.status).isEqualTo(Status.SYNCING)
                 // Verify the correct number of processing of blocks
                 verify(exactly = indexerIterationsNumber.toInt()) {
-                    processor.process(BlockEvent.Normal(any(), any(), any()))
+                    processor.process(IndexingResult.Normal(any(), any(), any()))
                 }
             }
         }
@@ -161,7 +164,7 @@ internal class BlockIndexerTest {
                     buildBlock(getBlockNumberSlot.captured)
                 }
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
             val job = launch { indexer.start(indexerIterationsNumber) }
             job.join()
@@ -199,7 +202,7 @@ internal class BlockIndexerTest {
                     buildBlock(getBlockNumberSlot.captured)
                 }
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
             val job = launch { indexer.start(indexerIterationsNumber) }
             job.join()
@@ -208,7 +211,7 @@ internal class BlockIndexerTest {
                 // Verify the status is SYNCING
                 that(indexer.status).isEqualTo(Status.SYNCING)
                 // Verify the correct number of processing of blocks
-                verify(exactly = 1) { processor.process(BlockEvent.Normal(any(), any(), any())) }
+                verify(exactly = 1) { processor.process(IndexingResult.Normal(any(), any(), any())) }
             }
         }
     }
@@ -245,7 +248,7 @@ internal class BlockIndexerTest {
                 var calledAlready = false
                 every {
                     processor.process(
-                        BlockEvent.Normal(capture(processBlockSlot), any(), any()),
+                        IndexingResult.Normal(capture(processBlockSlot), any(), any()),
                     )
                 } answers
                     {
@@ -295,7 +298,7 @@ internal class BlockIndexerTest {
                     null andThen
                     finalBlock
 
-                every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+                every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
                 // Run the indexer for another two iterations after the rate limited block number
                 val job = launch { indexer.start(tooManyRequestsBlockNumber + 2) }
@@ -334,7 +337,7 @@ internal class BlockIndexerTest {
                     null andThen
                     null andThen
                     finalBlock
-                every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+                every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
                 // Run indexer for a few iterations more after re-organization detected
                 val job = launch { indexer.start(reorgBlockNumber + 2) }
@@ -379,7 +382,7 @@ internal class BlockIndexerTest {
                     buildBlock(getBlockNumberSlot.captured)
                 }
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
             val job = launch { indexer.start(iterations) }
             job.join()
@@ -393,7 +396,7 @@ internal class BlockIndexerTest {
                 verify(exactly = 1) { processor.rollback(0L) }
                 // Number of processed blocks should correspond to current block number
                 verify(exactly = indexer.currentBlockNumber.toInt()) {
-                    processor.process(BlockEvent.Normal(any(), any(), any()))
+                    processor.process(IndexingResult.Normal(any(), any(), any()))
                 }
             }
         }
@@ -411,7 +414,7 @@ internal class BlockIndexerTest {
                 }
             coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(blockNotFound.number) }
             every { processor.getLastSyncedBlock() } returns null andThen null andThen blockNotFound
-            every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
             val job = launch { indexer.start(blockNotFound.number + 1) }
             job.join()
@@ -446,7 +449,7 @@ internal class BlockIndexerTest {
                     null andThen
                     null andThen
                     blockNotFound
-                every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+                every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
                 // Iterations + (1 iteration) where block is not found to trigger the FULLY_SYNCED
                 // status
@@ -485,7 +488,7 @@ internal class BlockIndexerTest {
                 null andThen
                 null andThen
                 lastSyncedBlock
-            every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
             val job = launch { indexer.start(reorgBlock + 1) }
             job.join()
@@ -507,7 +510,7 @@ internal class BlockIndexerTest {
                 }
 
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
             val job = launch { indexer.start(1L) }
             job.join()
@@ -535,7 +538,7 @@ internal class BlockIndexerTest {
                 lastSyncedBlock
             // Exception is thrown when processing block unknownExceptionBlock
             every {
-                processor.process(BlockEvent.Normal(capture(processBlockSlot), any(), emptyList()))
+                processor.process(IndexingResult.Normal(capture(processBlockSlot), any(), emptyList()))
             } answers
                 {
                     if (processBlockSlot.captured.number == unknownExceptionBlock) {
@@ -576,7 +579,7 @@ internal class BlockIndexerTest {
                     lastSyncedBlock
                 every {
                     processor.process(
-                        BlockEvent.Normal(capture(processBlockSlot), any(), emptyList())
+                        IndexingResult.Normal(capture(processBlockSlot), any(), emptyList())
                     )
                 } just Runs
 
@@ -613,7 +616,7 @@ internal class BlockIndexerTest {
                 every { processor.getLastSyncedBlock() } returns null
                 every { eventProcessor.processEvents(block) } returns matchedEvents
                 every {
-                    processor.process(BlockEvent.Normal(block, matchedEvents, emptyList()))
+                    processor.process(IndexingResult.Normal(block, matchedEvents, emptyList()))
                 } just Runs
 
                 val job = launch { indexer.start(1) }
@@ -626,7 +629,7 @@ internal class BlockIndexerTest {
                     verify(exactly = 1) { eventProcessor.processEvents(block) }
                     // Verify processor.process was called with the matched events and block
                     verify(exactly = 1) {
-                        processor.process(BlockEvent.Normal(block, matchedEvents, emptyList()))
+                        processor.process(IndexingResult.Normal(block, matchedEvents, emptyList()))
                     }
                 }
             }
@@ -687,7 +690,7 @@ internal class BlockIndexerTest {
             coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(1L) }
             every { pruner.run(any()) } just Runs
             every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(BlockEvent.Normal(any(), any(), any())) } just Runs
+            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
 
             val job = launch { indexer.start(6) }
             job.join()
@@ -1132,6 +1135,217 @@ internal class BlockIndexerTest {
             }
         }
     }
+
+    @Nested
+    inner class WaitForDependenciesTests {
+        @Test
+        fun `returns immediately when there are no dependencies`() = runTest {
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    status = Status.FULLY_SYNCED,
+                )
+
+            indexer.publicWaitForDependencies()
+
+            expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+        }
+
+        @Test
+        fun `ready dependencies do not alter current status`() = runTest {
+            val dependency = mockk<Indexer>()
+            every { dependency.status } returns Status.FULLY_SYNCED
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    status = Status.FULLY_SYNCED,
+                    dependsOn = setOf(dependency),
+                )
+
+            indexer.publicWaitForDependencies()
+
+            expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+        }
+
+        @Test
+        fun `pending status resumes to syncing when no previous status is stored`() = runTest {
+            val dependency = mockk<Indexer>()
+            every { dependency.status } returns Status.FULLY_SYNCED
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    status = Status.PENDING_DEPENDENCY,
+                    dependsOn = setOf(dependency),
+                )
+
+            indexer.publicWaitForDependencies()
+
+            expectThat(indexer.status).isEqualTo(Status.SYNCING)
+        }
+
+        @OptIn(ExperimentalCoroutinesApi::class)
+        @Test
+        fun `waits for dependencies to become ready and restores previous status`() = runTest {
+            val dependency = mockk<Indexer>()
+            every { dependency.status } returns Status.SYNCING
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    status = Status.FULLY_SYNCED,
+                    dependsOn = setOf(dependency),
+                )
+
+            val job = launch { indexer.publicWaitForDependencies() }
+
+            runCurrent()
+            expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
+
+            every { dependency.status } returns Status.FULLY_SYNCED
+            advanceUntilIdle()
+            job.join()
+
+            expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+
+            indexer.publicWaitForDependencies()
+            expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+        }
+    }
+
+    @Nested
+    inner class DependencyTest {
+        @Test
+        fun `should wait for dependencies to be fully synced before starting`() = runBlocking {
+            val dependencyIndexer = mockk<Indexer>()
+            every { dependencyIndexer.status } returns Status.SYNCING
+            every { processor.getLastSyncedBlock() } answers
+                {
+                    BlockIdentifier(number = 100L, id = "0x100")
+                }
+            coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
+            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
+
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    pruner = pruner,
+                    prunerInterval = 1L,
+                    dependsOn = setOf(dependencyIndexer)
+                )
+
+            val job = launch { indexer.start(1L) }
+
+            // Give some time to ensure start() is waiting
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
+
+            // Change dependency status to FULLY_SYNCED and verify indexer starts
+            every { dependencyIndexer.status } returns Status.FULLY_SYNCED
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.SYNCING)
+
+            job.cancel()
+        }
+
+        @Test
+        fun `if already fully synced, should wait for dependencies if they are no longer fully synced`() =
+            runBlocking {
+                val dependencyIndexer = mockk<Indexer>()
+                every { dependencyIndexer.status } returns Status.FULLY_SYNCED
+                every { processor.getLastSyncedBlock() } answers
+                    {
+                        BlockIdentifier(number = 100L, id = "0x100")
+                    }
+                every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
+
+                coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(99L) }
+                // Throw  BlockNotFoundException here so the indexer starts in FULLY_SYNCED status
+                coEvery { thorClient.getBlock(any()) } coAnswers
+                    {
+                        throw BlockNotFoundException("Block not found")
+                    }
+
+                val indexer =
+                    TestableBlockIndexer(
+                        name = "TestBlockIndexer",
+                        thorClient = thorClient,
+                        processor = processor,
+                        pruner = pruner,
+                        prunerInterval = 1L,
+                        dependsOn = setOf(dependencyIndexer)
+                    )
+
+                val job1 = launch { indexer.start(1L) }
+
+                // Indexer should start and be in FULLY_SYNCED status
+                delay(100L)
+                expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+
+                // Change dependency status to SYNCING and verify indexer waits
+                every { dependencyIndexer.status } returns Status.SYNCING
+
+                val job2 = launch { indexer.start(1L) }
+                delay(100L)
+                expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
+
+                // Change dependency status back to FULLY_SYNCED and verify indexer resumes
+                every { dependencyIndexer.status } returns Status.FULLY_SYNCED
+                val job3 = launch { indexer.start(1L) }
+                delay(100L)
+                expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+
+                job1.cancel()
+                job2.cancel()
+                job3.cancel()
+            }
+
+        @Test
+        fun `should handle multiple dependencies with different statuses`() = runBlocking {
+            val dependency1 = mockk<Indexer>()
+            val dependency2 = mockk<Indexer>()
+            every { dependency1.status } returns Status.FULLY_SYNCED
+            every { dependency2.status } returns Status.SYNCING
+
+            every { processor.getLastSyncedBlock() } answers
+                {
+                    BlockIdentifier(number = 100L, id = "0x100")
+                }
+            coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
+            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
+
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    pruner = pruner,
+                    prunerInterval = 1L,
+                    dependsOn = setOf(dependency1, dependency2)
+                )
+
+            val job = launch { indexer.start(1L) }
+
+            // Give some time to ensure start() is waiting
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
+
+            // Change second dependency status to FULLY_SYNCED and verify indexer starts
+            every { dependency2.status } returns Status.FULLY_SYNCED
+            delay(100L)
+            expectThat(indexer.status).isEqualTo(Status.SYNCING)
+
+            job.cancel()
+        }
+    }
 }
 
 class TestableBlockIndexer(
@@ -1144,6 +1358,7 @@ class TestableBlockIndexer(
     pruner: Pruner? = null,
     prunerInterval: Long = 1L,
     syncLoggerInterval: Long = 100L,
+    dependsOn: Set<Indexer> = emptySet()
 ) :
     BlockIndexer(
         name = name,
@@ -1154,6 +1369,7 @@ class TestableBlockIndexer(
         pruner = pruner,
         prunerInterval = prunerInterval,
         syncLoggerInterval = syncLoggerInterval,
+        dependsOn = dependsOn
     ) {
 
     var iterations: Long? = null
@@ -1204,5 +1420,9 @@ class TestableBlockIndexer(
     // Expose ensureFullySynced for testing
     suspend fun publicEnsureFullySynced() {
         super.ensureFullySynced()
+    }
+
+    suspend fun publicWaitForDependencies() {
+        super.waitForDependencies()
     }
 }
