@@ -11,7 +11,7 @@ import kotlinx.coroutines.coroutineScope
 import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.exception.RestartIndexerException
 import org.vechain.indexer.thor.client.ThorClient
-import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.Clause
 
 open class ChannelIndexer(
     name: String,
@@ -19,7 +19,8 @@ open class ChannelIndexer(
     processor: IndexerProcessor,
     startBlock: Long,
     private val syncLoggerInterval: Long,
-    override val eventProcessor: CombinedEventProcessor?,
+    eventProcessor: CombinedEventProcessor?,
+    inspectionClauses: List<Clause>? = null,
     pruner: Pruner?,
     prunerInterval: Long,
     private val batchSize: Int,
@@ -32,6 +33,7 @@ open class ChannelIndexer(
         startBlock,
         syncLoggerInterval,
         eventProcessor,
+        inspectionClauses,
         pruner,
         prunerInterval,
         dependsOn
@@ -43,22 +45,22 @@ open class ChannelIndexer(
             val blockReceiver = loadBlocks(toBlock)
 
             // Process blocks
-            for (block in blockReceiver) {
+            for (event in blockReceiver) {
                 waitForDependencies()
                 try {
+                    val block = event.latestBlockNumber()
 
                     if (
                         logger.isTraceEnabled ||
                             status != Status.SYNCING ||
-                            currentBlockNumber % syncLoggerInterval == 0L
+                            block % syncLoggerInterval == 0L
                     ) {
-                        logger.info("($status) Processing Block  ${block.number}")
+                        logger.info("($status) Processing Block  $block")
                     }
 
-                    val events = eventProcessor?.processEvents(block) ?: emptyList()
-                    process(events, block)
+                    process(event)
 
-                    currentBlockNumber = block.number + 1
+                    currentBlockNumber = block + 1
                     timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
                 } catch (e: Exception) {
                     logger.error(
@@ -93,12 +95,13 @@ open class ChannelIndexer(
     }
 
     // Fetch a block with retry logic and logging
-    private suspend fun getBlock(i: Long): Block {
+    private suspend fun getBlock(i: Long): IndexingResult {
         var currentDelay = 1000L
         var attempt = 0
         while (true) {
             try {
-                return thorClient.getBlock(i)
+                val block = thorClient.getBlock(i)
+                return blockToEvent(block)
             } catch (e: Exception) {
                 attempt++
                 logger.warn("Failed to fetch block $i (attempt $attempt): ${e.message}")

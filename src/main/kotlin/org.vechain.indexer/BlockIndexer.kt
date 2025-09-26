@@ -6,12 +6,12 @@ import kotlinx.coroutines.*
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.CombinedEventProcessor
-import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
+import org.vechain.indexer.thor.model.Clause
 
 /** Initial processing backoff duration */
 const val INITIAL_BACKOFF_PERIOD = 10_000L
@@ -24,7 +24,8 @@ open class BlockIndexer(
     private val processor: IndexerProcessor,
     protected val startBlock: Long,
     private val syncLoggerInterval: Long,
-    protected open val eventProcessor: CombinedEventProcessor?,
+    protected val eventProcessor: CombinedEventProcessor?,
+    protected val inspectionClauses: List<Clause>? = null,
     override val pruner: Pruner? = null,
     private val prunerInterval: Long,
     override val dependsOn: Set<Indexer>,
@@ -144,8 +145,7 @@ open class BlockIndexer(
                 logger.info("($status) Processing Block  $currentBlockNumber")
             }
 
-            val events = eventProcessor?.processEvents(block) ?: emptyList()
-            process(events, block)
+            process(blockToEvent(block))
             postProcessBlock(block)
             runPruner()
         } catch (_: BlockNotFoundException) {
@@ -158,6 +158,14 @@ open class BlockIndexer(
             logger.error("Error while processing block $currentBlockNumber", e)
             handleError()
         }
+    }
+
+    protected suspend fun blockToEvent(block: Block): IndexingResult {
+        val callResults =
+            inspectionClauses?.let { thorClient.inspectClauses(it, block.id) } ?: emptyList()
+        val events = eventProcessor?.processEvents(block) ?: emptyList()
+
+        return IndexingResult.Normal(block, events, callResults)
     }
 
     private fun handleFullySynced() {
@@ -253,8 +261,7 @@ open class BlockIndexer(
 
     override fun rollback(blockNumber: Long) = processor.rollback(blockNumber)
 
-    override fun process(matchedEvents: List<IndexedEvent>, block: Block?) =
-        processor.process(matchedEvents, block)
+    override fun process(event: IndexingResult) = processor.process(event)
 
     protected open suspend fun waitForDependencies() {
         if (dependsOn.isEmpty()) {

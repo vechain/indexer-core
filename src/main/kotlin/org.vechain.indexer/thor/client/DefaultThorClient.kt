@@ -121,4 +121,33 @@ class DefaultThorClient(
                 object : TypeReference<List<TransferLog>>() {}
             )
         }
+
+    override suspend fun inspectClauses(
+        clauses: List<Clause>,
+        blockID: String
+    ): List<InspectionResult> {
+        return withContext(Dispatchers.IO) {
+            val req = InspectionRequest(clauses)
+            val body = JsonUtils.mapper.writeValueAsBytes(req)
+            val (_, _, result) =
+                Fuel.post("$baseUrl/accounts/*?revision=$blockID")
+                    .body(body)
+                    .appendHeader(*headers)
+                    .response()
+
+            val responseBody =
+                when (result) {
+                    is Result.Success -> result.get().toString(Charsets.UTF_8)
+                    is Result.Failure ->
+                        throw Exception(
+                            "Inspect clauses request failed with error: ${result.error}"
+                        )
+                }
+
+            return@withContext objectMapper.readValue(
+                responseBody,
+                object : TypeReference<List<InspectionResult>>() {}
+            )
+        }
+    }
 }

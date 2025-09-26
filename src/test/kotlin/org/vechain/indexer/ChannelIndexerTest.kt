@@ -102,7 +102,7 @@ internal class ChannelIndexerTest {
                 }
 
             // Mock processor and eventProcessor
-            every { processor.process(any(), any()) } just runs
+            every { processor.process(any()) } just runs
             every { eventProcessor.processEvents(capture(capturedBlocks)) } returns emptyList()
 
             // Run the sync
@@ -144,7 +144,7 @@ internal class ChannelIndexerTest {
                     }
 
                 // Mock processor and eventProcessor
-                every { processor.process(any(), any()) } just runs
+                every { processor.process(any()) } just runs
                 every { eventProcessor.processEvents(capture(capturedBlocks)) } returns emptyList()
 
                 // Run the sync
@@ -165,7 +165,7 @@ internal class ChannelIndexerTest {
         @Test
         fun `If an error is thrown, a restart should be triggered`() = runTest {
             val maxBlock = 10L
-            val capturedBlocks = mutableListOf<Block>()
+            val captureResults = mutableListOf<IndexingResult>()
 
             // Mock block fetching to return synthetic blocks
             coEvery { thorClient.getBlock(any()) } answers
@@ -174,8 +174,8 @@ internal class ChannelIndexerTest {
                 }
 
             // Mock processor and eventProcessor
-            every { processor.process(any(), any()) } just runs
-            every { eventProcessor.processEvents(capture(capturedBlocks)) } throws
+            every { eventProcessor.processEvents(any<Block>()) } returns emptyList()
+            every { processor.process(capture(captureResults)) } throws
                 RuntimeException("Simulated error")
 
             // Run the sync
@@ -185,8 +185,8 @@ internal class ChannelIndexerTest {
             expectThrows<RestartIndexerException> { indexer.testSync(maxBlock) }
 
             // Assert that no blocks were processed due to the error
-            assert(capturedBlocks.size == 1) {
-                "Expected processEvents to be called once, but was called ${capturedBlocks.size} times"
+            assert(captureResults.size == 1) {
+                "Expected processEvents to be called once, but was called ${captureResults.size} times"
             }
         }
     }
@@ -208,7 +208,7 @@ internal class ChannelIndexerTest {
                 }
             coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
             coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(any()) } just Runs
             coEvery { eventProcessor.processEvents(any<Block>()) } coAnswers { emptyList() }
 
             val indexer =
@@ -243,7 +243,7 @@ internal class ChannelIndexerTest {
                         BlockIdentifier(number = 100L, id = "0x100")
                     }
                 coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
-                every { processor.process(any(), any()) } just Runs
+                every { processor.process(any()) } just Runs
 
                 coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(99L) }
                 // Throw  BlockNotFoundException here so the indexer starts in FULLY_SYNCED status
@@ -297,7 +297,7 @@ internal class ChannelIndexerTest {
                 }
             coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
             coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(any()) } just Runs
             coEvery { eventProcessor.processEvents(any<Block>()) } coAnswers { emptyList() }
 
             val indexer =

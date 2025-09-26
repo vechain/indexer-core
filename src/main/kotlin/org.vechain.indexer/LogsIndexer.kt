@@ -39,7 +39,7 @@ open class LogsIndexer(
     private val logFetchLimit: Long,
     private var eventCriteriaSet: List<EventCriteria>?,
     private var transferCriteriaSet: List<TransferCriteria>?,
-    override val eventProcessor: CombinedEventProcessor?,
+    eventProcessor: CombinedEventProcessor?,
     pruner: Pruner?,
     prunerInterval: Long,
     dependsOn: Set<Indexer>,
@@ -51,6 +51,7 @@ open class LogsIndexer(
         startBlock,
         syncLoggerInterval,
         eventProcessor,
+        null,
         pruner,
         prunerInterval,
         dependsOn
@@ -108,7 +109,8 @@ open class LogsIndexer(
                 // Process events and transfers
                 val indexedEvents =
                     eventProcessor?.processEvents(eventLogs, transferLogs) ?: emptyList()
-                if (indexedEvents.isNotEmpty()) process(indexedEvents)
+                if (indexedEvents.isNotEmpty())
+                    process(IndexingResult.EventsOnly(batchEndBlock, indexedEvents))
 
                 // Update last processed block
                 currentBlockNumber = batchEndBlock + 1

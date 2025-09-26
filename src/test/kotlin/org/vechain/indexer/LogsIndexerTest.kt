@@ -134,7 +134,7 @@ class LogsIndexerTest {
                 }
             coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
             coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(any()) } just Runs
             coEvery { eventProcessor.processEvents(any<Block>()) } coAnswers { emptyList() }
 
             val indexer =
@@ -169,7 +169,7 @@ class LogsIndexerTest {
                     {
                         BlockIdentifier(number = 100L, id = "0x100")
                     }
-                every { processor.process(any(), any()) } just Runs
+                every { processor.process(any()) } just Runs
 
                 coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
                 coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(99L) }
@@ -225,7 +225,7 @@ class LogsIndexerTest {
                 }
             coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
             coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
-            every { processor.process(any(), any()) } just Runs
+            every { processor.process(any()) } just Runs
             coEvery { eventProcessor.processEvents(any<Block>()) } coAnswers { emptyList() }
 
             val indexer =
