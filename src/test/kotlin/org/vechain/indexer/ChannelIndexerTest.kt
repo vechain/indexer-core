@@ -165,7 +165,7 @@ internal class ChannelIndexerTest {
         @Test
         fun `If an error is thrown, a restart should be triggered`() = runTest {
             val maxBlock = 10L
-            val capturedBlocks = mutableListOf<Block>()
+            val captureResults = mutableListOf<IndexingResult>()
 
             // Mock block fetching to return synthetic blocks
             coEvery { thorClient.getBlock(any()) } answers
@@ -174,9 +174,9 @@ internal class ChannelIndexerTest {
                 }
 
             // Mock processor and eventProcessor
-            every { processor.process(any()) } just runs
-            every { eventProcessor.processEvents(capture(capturedBlocks)) } throws
-                RuntimeException("Simulated error")
+            every { eventProcessor.processEvents(any<Block>()) } returns emptyList()
+            every { processor.process(capture(captureResults)) } throws
+                    RuntimeException("Simulated error")
 
             // Run the sync
             val indexer = TestableChannelIndexer(thorClient, processor, eventProcessor)
@@ -185,8 +185,8 @@ internal class ChannelIndexerTest {
             expectThrows<RestartIndexerException> { indexer.testSync(maxBlock) }
 
             // Assert that no blocks were processed due to the error
-            assert(capturedBlocks.size == 1) {
-                "Expected processEvents to be called once, but was called ${capturedBlocks.size} times"
+            assert(captureResults.size == 1) {
+                "Expected processEvents to be called once, but was called ${captureResults.size} times"
             }
         }
     }
