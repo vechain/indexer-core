@@ -176,7 +176,7 @@ internal class ChannelIndexerTest {
             // Mock processor and eventProcessor
             every { eventProcessor.processEvents(any<Block>()) } returns emptyList()
             every { processor.process(capture(captureResults)) } throws
-                    RuntimeException("Simulated error")
+                RuntimeException("Simulated error")
 
             // Run the sync
             val indexer = TestableChannelIndexer(thorClient, processor, eventProcessor)

@@ -42,9 +42,7 @@ interface Indexer : IndexerProcessor {
 }
 
 sealed class IndexingResult {
-    /**
-     *  Represents a full block of data including all events and call results
-     **/
+    /** Represents a full block of data including all events and call results */
     data class Normal(
         val block: Block,
         val events: List<IndexedEvent>,
