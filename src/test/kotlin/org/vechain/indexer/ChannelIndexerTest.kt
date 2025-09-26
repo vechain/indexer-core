@@ -102,7 +102,7 @@ internal class ChannelIndexerTest {
                 }
 
             // Mock processor and eventProcessor
-            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just runs
+            every { processor.process(any()) } just runs
             every { eventProcessor.processEvents(capture(capturedBlocks)) } returns emptyList()
 
             // Run the sync
@@ -144,7 +144,7 @@ internal class ChannelIndexerTest {
                     }
 
                 // Mock processor and eventProcessor
-                every { processor.process(IndexingResult.Normal(any(), any(), any())) } just runs
+                every { processor.process(any()) } just runs
                 every { eventProcessor.processEvents(capture(capturedBlocks)) } returns emptyList()
 
                 // Run the sync
@@ -174,7 +174,7 @@ internal class ChannelIndexerTest {
                 }
 
             // Mock processor and eventProcessor
-            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just runs
+            every { processor.process(any()) } just runs
             every { eventProcessor.processEvents(capture(capturedBlocks)) } throws
                 RuntimeException("Simulated error")
 
@@ -208,7 +208,7 @@ internal class ChannelIndexerTest {
                 }
             coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
             coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
-            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
+            every { processor.process(any()) } just Runs
             coEvery { eventProcessor.processEvents(any<Block>()) } coAnswers { emptyList() }
 
             val indexer =
@@ -243,7 +243,7 @@ internal class ChannelIndexerTest {
                         BlockIdentifier(number = 100L, id = "0x100")
                     }
                 coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
-                every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
+                every { processor.process(any()) } just Runs
 
                 coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(99L) }
                 // Throw  BlockNotFoundException here so the indexer starts in FULLY_SYNCED status
@@ -297,7 +297,7 @@ internal class ChannelIndexerTest {
                 }
             coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
             coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
-            every { processor.process(IndexingResult.Normal(any(), any(), any())) } just Runs
+            every { processor.process(any()) } just Runs
             coEvery { eventProcessor.processEvents(any<Block>()) } coAnswers { emptyList() }
 
             val indexer =
