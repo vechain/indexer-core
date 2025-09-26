@@ -14,7 +14,7 @@ plugins {
 
 group = "org.vechain"
 
-val projectVersion = System.getenv("PROJECT_VERSION") ?: "5.1.0"
+val projectVersion = System.getenv("PROJECT_VERSION") ?: "5.3.0-SNAPSHOT"
 version = projectVersion
 
 val isSnapshot = version.toString().endsWith("SNAPSHOT")

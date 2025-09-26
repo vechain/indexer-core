@@ -27,12 +27,6 @@ open class BlockIndexer(
     override val pruner: Pruner? = null,
     private val prunerInterval: Long = 10_000L,
 ) : Indexer {
-    init {
-        if (inspectionClauses != null && eventProcessor != null) {
-            throw IllegalArgumentException("Cannot set both inspectionClauses and eventProcessor")
-        }
-    }
-
     /** The last block that was successfully synchronised */
     protected var previousBlock: BlockIdentifier? = null
 
@@ -144,16 +138,7 @@ open class BlockIndexer(
                 logger.info("($status) Processing Block  $currentBlockNumber")
             }
 
-            val event = if (eventProcessor != null) {
-                BlockEvent.Normal(block, eventProcessor.processEvents(block))
-            } else if (inspectionClauses != null) {
-                val inspections = thorClient.inspectClauses(inspectionClauses, block.id)
-                BlockEvent.WithCallData(block, inspections)
-            } else {
-                BlockEvent.Normal(block, emptyList())
-            }
-
-            process(event)
+            process(blockToEvent(block))
             postProcessBlock(block)
             runPruner()
         } catch (_: BlockNotFoundException) {
@@ -166,6 +151,14 @@ open class BlockIndexer(
             logger.error("Error while processing block $currentBlockNumber", e)
             handleError()
         }
+    }
+
+    protected suspend fun blockToEvent(block: Block): BlockEvent {
+        val callResults =
+            inspectionClauses?.let { thorClient.inspectClauses(it, block.id) } ?: emptyList()
+        val events = eventProcessor?.processEvents(block) ?: emptyList()
+
+        return BlockEvent.Normal(block, events, callResults)
     }
 
     private fun handleFullySynced() {

@@ -3,6 +3,7 @@ package org.vechain.indexer
 import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.thor.client.DefaultThorClient
 import org.vechain.indexer.thor.client.ThorClient
+import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.thor.model.EventCriteria
 import org.vechain.indexer.thor.model.TransferCriteria
 
@@ -30,11 +31,17 @@ class IndexerFactory {
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
     private var channelBatchSize: Int = 2 // Default batch size for channel indexer
+    private var callDataClauses: List<Clause>? = null
 
     fun build(): Indexer {
         requireNotNull(name)
         requireNotNull(thorClient) { "Thor client must be set using thorClient() method." }
         requireNotNull(processor) { "Processor must be set using processor() method." }
+        if (!includeFullBlock) {
+            require(callDataClauses.isNullOrEmpty()) {
+                "Call data inspection clauses can only be used when includeFullBlock() is set."
+            }
+        }
 
         val eventProcessor =
             CombinedEventProcessor.create(
@@ -60,7 +67,8 @@ class IndexerFactory {
                 pruner = pruner,
                 eventProcessor = eventProcessor,
                 prunerInterval = prunerInterval,
-                batchSize = channelBatchSize
+                batchSize = channelBatchSize,
+                inspectionClauses = callDataClauses,
             )
         } else {
             LogsIndexer(
@@ -310,4 +318,10 @@ class IndexerFactory {
      * When enabled reverted transactions will be included in the `IndexedEvent` list.
      */
     fun includeFullBlock() = apply { this.includeFullBlock = true }
+
+    /**
+     * Sets the clauses to be used for call data inspection. This requires a block by block indexer
+     * and cannot be used when fast syncing via log events.
+     */
+    fun callDataClauses(clauses: List<Clause>) = apply { this.callDataClauses = clauses }
 }

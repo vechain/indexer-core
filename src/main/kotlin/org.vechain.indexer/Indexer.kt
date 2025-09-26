@@ -37,9 +37,36 @@ interface Indexer : IndexerProcessor {
 }
 
 sealed class BlockEvent {
-    data class Normal(val block: Block, val events: List<IndexedEvent>) : BlockEvent()
-    data class EventsOnly(val events: List<IndexedEvent>) : BlockEvent()
-    data class WithCallData(val block: Block, val callResults: List<InspectionResult>) : BlockEvent()
+    /** Represents a full block of data including all events and call results */
+    data class Normal(
+        val block: Block,
+        val events: List<IndexedEvent>,
+        val callResults: List<InspectionResult>
+    ) : BlockEvent()
+
+    /**
+     * Represents a batch of events without the full block data. This is used when indexing via
+     * smart contract events using a [LogsIndexer]
+     */
+    data class EventsOnly(val endBlock: Long, val events: List<IndexedEvent>) : BlockEvent()
+
+    fun latestBlockNumber(): Long =
+        when (this) {
+            is Normal -> block.number
+            is EventsOnly -> endBlock
+        }
+
+    fun events(): List<IndexedEvent> =
+        when (this) {
+            is Normal -> events
+            is EventsOnly -> events
+        }
+
+    fun callResults(): List<InspectionResult> =
+        when (this) {
+            is Normal -> callResults
+            is EventsOnly -> emptyList()
+        }
 }
 
 interface IndexerProcessor {

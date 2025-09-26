@@ -37,7 +37,6 @@ open class ChannelIndexer(
         prunerInterval,
     ) {
 
-
     override suspend fun sync(toBlock: Long) {
         coroutineScope {
             // Create a channel to load blocks up to the target block
@@ -46,12 +45,19 @@ open class ChannelIndexer(
             // Process blocks
             for (event in blockReceiver) {
                 try {
-                    process(event)
-                    currentBlockNumber = when (event) {
-                        is BlockEvent.EventsOnly -> throw IllegalStateException("Unexpected EventsOnly event")
-                        is BlockEvent.Normal -> event.block.number
-                        is BlockEvent.WithCallData -> event.block.number
+                    val block = event.latestBlockNumber()
+
+                    if (
+                        logger.isTraceEnabled ||
+                            status != Status.SYNCING ||
+                            block % syncLoggerInterval == 0L
+                    ) {
+                        logger.info("($status) Processing Block  $block")
                     }
+
+                    process(event)
+
+                    currentBlockNumber = block + 1
                     timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
                 } catch (e: Exception) {
                     logger.error(
@@ -92,25 +98,7 @@ open class ChannelIndexer(
         while (true) {
             try {
                 val block = thorClient.getBlock(i)
-
-                if (
-                    logger.isTraceEnabled ||
-                    status != Status.SYNCING ||
-                    block.number % syncLoggerInterval == 0L
-                ) {
-                    logger.info("($status) Processing Block  ${block.number}")
-                }
-
-                val event = if (eventProcessor != null) {
-                    BlockEvent.Normal(block, eventProcessor.processEvents(block))
-                } else if (inspectionClauses != null) {
-                    val inspections = thorClient.inspectClauses(inspectionClauses, block.id)
-                    BlockEvent.WithCallData(block, inspections)
-                } else {
-                    BlockEvent.Normal(block, emptyList())
-                }
-
-                return event
+                return blockToEvent(block)
             } catch (e: Exception) {
                 attempt++
                 logger.warn("Failed to fetch block $i (attempt $attempt): ${e.message}")

@@ -106,7 +106,8 @@ open class LogsIndexer(
                 // Process events and transfers
                 val indexedEvents =
                     eventProcessor?.processEvents(eventLogs, transferLogs) ?: emptyList()
-                if (indexedEvents.isNotEmpty()) process(BlockEvent.EventsOnly(indexedEvents))
+                if (indexedEvents.isNotEmpty())
+                    process(BlockEvent.EventsOnly(batchEndBlock, indexedEvents))
 
                 // Update last processed block
                 currentBlockNumber = batchEndBlock + 1

@@ -139,7 +139,9 @@ class DefaultThorClient(
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
                     is Result.Failure ->
-                        throw Exception("Inspect clauses request failed with error: ${result.error}")
+                        throw Exception(
+                            "Inspect clauses request failed with error: ${result.error}"
+                        )
                 }
 
             return@withContext objectMapper.readValue(
