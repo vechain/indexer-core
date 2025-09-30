@@ -50,13 +50,7 @@ open class ChannelIndexer(
                 try {
                     val block = event.latestBlockNumber()
 
-                    if (
-                        logger.isTraceEnabled ||
-                            status != Status.SYNCING ||
-                            block % syncLoggerInterval == 0L
-                    ) {
-                        logger.info("($status) Processing Block  $block")
-                    }
+                    logSyncStatus(block)
 
                     process(event)
 
@@ -108,6 +102,12 @@ open class ChannelIndexer(
                 kotlinx.coroutines.delay(currentDelay)
                 currentDelay = (currentDelay * 2).coerceAtMost(30000L)
             }
+        }
+    }
+
+    private fun logSyncStatus(block: Long) {
+        if (logger.isTraceEnabled || status != Status.SYNCING || block % syncLoggerInterval == 0L) {
+            logger.info("($status) Processing Block  $block")
         }
     }
 }

@@ -70,13 +70,7 @@ open class LogsIndexer(
             try {
                 val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
 
-                // Log sync status
-                if (
-                    logger.isTraceEnabled ||
-                        hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
-                ) {
-                    logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
-                }
+                logSyncStatus(currentBlockNumber, batchEndBlock, status)
 
                 // Fetch both event logs and VET transfers
                 // Only fetch event logs if we have ABI definitions
@@ -139,5 +133,14 @@ open class LogsIndexer(
 
         val firstMultiple = if (startBlock % x == 0L) startBlock else (startBlock / x + 1) * x
         return firstMultiple in startBlock..endBlock
+    }
+
+    private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long, status: Status) {
+        if (
+            logger.isTraceEnabled ||
+                hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
+        ) {
+            logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
+        }
     }
 }

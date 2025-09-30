@@ -137,13 +137,7 @@ open class BlockIndexer(
                 throw ReorgException(message = message)
             }
 
-            if (
-                logger.isTraceEnabled ||
-                    status != Status.SYNCING ||
-                    currentBlockNumber % syncLoggerInterval == 0L
-            ) {
-                logger.info("($status) Processing Block  $currentBlockNumber")
-            }
+            logProcessingBlock()
 
             process(blockToEvent(block))
             postProcessBlock(block)
@@ -294,4 +288,14 @@ open class BlockIndexer(
     }
 
     private fun dependenciesReady(): Boolean = dependsOn.all { it.status == Status.FULLY_SYNCED }
+
+    private fun logProcessingBlock() {
+        if (
+            logger.isTraceEnabled ||
+                status != Status.SYNCING ||
+                currentBlockNumber % syncLoggerInterval == 0L
+        ) {
+            logger.info("($status) Processing Block  $currentBlockNumber")
+        }
+    }
 }
