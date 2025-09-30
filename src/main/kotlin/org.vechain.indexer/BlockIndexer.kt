@@ -122,16 +122,7 @@ open class BlockIndexer(
 
             val block = thorClient.getBlock(currentBlockNumber)
 
-            // Check for chain re-organization.
-            if (
-                currentBlockNumber > startBlock &&
-                    previousBlock?.id?.let { it != block.parentID } == true
-            ) {
-                val message =
-                    "REORG @ Block $currentBlockNumber previousBlock=(id=${previousBlock?.id ?: "null"} number=${previousBlock?.number ?: "null"})  parentID=${block.parentID}"
-                logger.error(message)
-                throw ReorgException(message = message)
-            }
+            checkForReorg(block)
 
             logProcessingBlock()
 
@@ -260,6 +251,19 @@ open class BlockIndexer(
                 currentBlockNumber % syncLoggerInterval == 0L
         ) {
             logger.info("($status) Processing Block  $currentBlockNumber")
+        }
+    }
+
+    protected fun checkForReorg(block: Block) {
+        // Check for chain re-organization.
+        if (
+            currentBlockNumber > startBlock &&
+                previousBlock?.id?.let { it != block.parentID } == true
+        ) {
+            val message =
+                "REORG @ Block $currentBlockNumber previousBlock=(id=${previousBlock?.id ?: "null"} number=${previousBlock?.number ?: "null"})  parentID=${block.parentID}"
+            logger.error(message)
+            throw ReorgException(message = message)
         }
     }
 }

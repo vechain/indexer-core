@@ -26,7 +26,7 @@ open class ChannelIndexer(
     private val batchSize: Int,
     dependantIndexers: Set<Indexer>
 ) :
-    PreSyncIndexer(
+    BlockIndexer(
         name,
         thorClient,
         processor,
@@ -39,7 +39,22 @@ open class ChannelIndexer(
         dependantIndexers
     ) {
 
-    override suspend fun sync(toBlock: Long) {
+    /** Starts the indexer */
+    override suspend fun start() {
+        initialise()
+        val finalizedBlock = thorClient.getFinalizedBlock().number
+
+        if (currentBlockNumber < finalizedBlock) {
+            sync(finalizedBlock)
+        }
+
+        logger.info("Fast sync complete, switching to block indexer")
+        // Before running reset the previousBlock
+        previousBlock = null
+        run()
+    }
+
+    suspend fun sync(toBlock: Long) {
         coroutineScope {
             // Create a channel to load blocks up to the target block
             val blockReceiver = loadBlocks(toBlock)

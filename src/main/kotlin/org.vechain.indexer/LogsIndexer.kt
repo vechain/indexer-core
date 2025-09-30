@@ -43,7 +43,7 @@ open class LogsIndexer(
     pruner: Pruner?,
     prunerInterval: Long,
 ) :
-    PreSyncIndexer(
+    BlockIndexer(
         name,
         thorClient,
         processor,
@@ -58,12 +58,27 @@ open class LogsIndexer(
 
     protected open val logClient = LogClient(thorClient)
 
+    /** Starts the indexer */
+    override suspend fun start() {
+        initialise()
+        val finalizedBlock = thorClient.getFinalizedBlock().number
+
+        if (currentBlockNumber < finalizedBlock) {
+            sync(finalizedBlock)
+        }
+
+        logger.info("Fast sync complete, switching to block indexer")
+        // Before running reset the previousBlock
+        previousBlock = null
+        run()
+    }
+
     /**
      * Synchronizes logs from the current block to the target block.
      *
      * @param toBlock The block number to sync up to.
      */
-    override suspend fun sync(toBlock: Long) {
+    suspend fun sync(toBlock: Long) {
         while (currentBlockNumber < toBlock) {
             try {
                 val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
