@@ -135,7 +135,7 @@ open class BlockIndexer(
 
             logProcessingBlock()
 
-            process(blockToEvent(block))
+            process(buildIndexingResult(block))
             postProcessBlock(block)
             runPruner()
         } catch (_: BlockNotFoundException) {
@@ -150,7 +150,7 @@ open class BlockIndexer(
         }
     }
 
-    protected suspend fun blockToEvent(block: Block): IndexingResult {
+    protected suspend fun buildIndexingResult(block: Block): IndexingResult {
         val callResults =
             inspectionClauses?.let { thorClient.inspectClauses(it, block.id) } ?: emptyList()
         val events = eventProcessor?.processEvents(block) ?: emptyList()

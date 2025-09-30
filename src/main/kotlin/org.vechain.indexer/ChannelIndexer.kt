@@ -94,7 +94,7 @@ open class ChannelIndexer(
         while (true) {
             try {
                 val block = thorClient.getBlock(i)
-                return blockToEvent(block)
+                return buildIndexingResult(block)
             } catch (e: Exception) {
                 attempt++
                 logger.warn("Failed to fetch block $i (attempt $attempt): ${e.message}")
