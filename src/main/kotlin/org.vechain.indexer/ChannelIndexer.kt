@@ -46,7 +46,6 @@ open class ChannelIndexer(
 
             // Process blocks
             for (event in blockReceiver) {
-                waitForDependencies()
                 try {
                     val block = event.latestBlockNumber()
 

@@ -32,12 +32,10 @@ abstract class PreSyncIndexer(
     /** Starts the indexer */
     override suspend fun start() {
         initialise()
-        waitForDependencies()
         val finalizedBlock = thorClient.getFinalizedBlock().number
 
         if (currentBlockNumber < finalizedBlock) {
             sync(finalizedBlock)
-            waitForDependencies()
         }
 
         logger.info("Fast sync complete, switching to block indexer")

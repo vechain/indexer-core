@@ -1,39 +1,28 @@
 package org.vechain.indexer
 
 import io.mockk.MockKAnnotations
-import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
 import io.mockk.just
-import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
-import org.vechain.indexer.BlockTestBuilder.Companion.buildBlock
 import org.vechain.indexer.event.CombinedEventProcessor
-import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.RestartIndexerException
 import org.vechain.indexer.fixtures.IndexedEventFixture.create
 import org.vechain.indexer.thor.client.LogClient
 import org.vechain.indexer.thor.client.ThorClient
-import org.vechain.indexer.thor.model.Block
-import org.vechain.indexer.thor.model.BlockIdentifier
 import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.EventMeta
 import org.vechain.indexer.thor.model.TransferLog
-import strikt.api.expectThat
 import strikt.api.expectThrows
-import strikt.assertions.isEqualTo
 
 @ExtendWith(MockKExtension::class)
 class LogsIndexerTest {
@@ -113,142 +102,6 @@ class LogsIndexerTest {
             indexer.testSync(10L)
 
             assert(indexer.currentBlockNumber == 11L)
-        }
-    }
-
-    @Nested
-    inner class DependencyTest {
-
-        @BeforeEach
-        fun setup() {
-            every { processor.rollback(any()) } just Runs
-        }
-
-        @Test
-        fun `should wait for dependencies to be fully synced before starting`() = runBlocking {
-            val dependencyIndexer = mockk<Indexer>()
-            every { dependencyIndexer.status } returns Status.SYNCING
-            every { processor.getLastSyncedBlock() } answers
-                {
-                    BlockIdentifier(number = 100L, id = "0x100")
-                }
-            coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
-            coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
-            every { processor.process(any()) } just Runs
-            coEvery { eventProcessor.processEvents(any<Block>()) } coAnswers { emptyList() }
-
-            val indexer =
-                TestableLogsIndexer(
-                    thorClient,
-                    logClient,
-                    processor,
-                    eventProcessor,
-                    dependsOn = setOf(dependencyIndexer)
-                )
-
-            val job = launch { indexer.start(1L) }
-
-            // Give some time to ensure start() is waiting
-            delay(100L)
-            expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
-
-            // Change dependency status to FULLY_SYNCED and verify indexer starts
-            every { dependencyIndexer.status } returns Status.FULLY_SYNCED
-            delay(100L)
-            expectThat(indexer.status).isEqualTo(Status.SYNCING)
-
-            job.cancel()
-        }
-
-        @Test
-        fun `if already fully synced, should wait for dependencies if they are no longer fully synced`() =
-            runBlocking {
-                val dependencyIndexer = mockk<Indexer>()
-                every { dependencyIndexer.status } returns Status.FULLY_SYNCED
-                every { processor.getLastSyncedBlock() } answers
-                    {
-                        BlockIdentifier(number = 100L, id = "0x100")
-                    }
-                every { processor.process(any()) } just Runs
-
-                coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
-                coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(99L) }
-                // Throw  BlockNotFoundException here so the indexer starts in FULLY_SYNCED status
-                coEvery { thorClient.getBlock(any()) } coAnswers
-                    {
-                        throw BlockNotFoundException("Block not found")
-                    }
-
-                val indexer =
-                    TestableLogsIndexer(
-                        thorClient,
-                        logClient,
-                        processor,
-                        eventProcessor,
-                        dependsOn = setOf(dependencyIndexer)
-                    )
-
-                val job1 = launch { indexer.start(1L) }
-
-                // Indexer should start and be in FULLY_SYNCED status
-                delay(100L)
-                expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
-
-                // Change dependency status to SYNCING and verify indexer waits
-                every { dependencyIndexer.status } returns Status.SYNCING
-
-                val job2 = launch { indexer.start(1L) }
-                delay(100L)
-                expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
-
-                // Change dependency status back to FULLY_SYNCED and verify indexer resumes
-                every { dependencyIndexer.status } returns Status.FULLY_SYNCED
-                val job3 = launch { indexer.start(1L) }
-                delay(100L)
-                expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
-
-                job1.cancel()
-                job2.cancel()
-                job3.cancel()
-            }
-
-        @Test
-        fun `should handle multiple dependencies with different statuses`() = runBlocking {
-            val dependency1 = mockk<Indexer>()
-            val dependency2 = mockk<Indexer>()
-            every { dependency1.status } returns Status.FULLY_SYNCED
-            every { dependency2.status } returns Status.SYNCING
-
-            every { processor.getLastSyncedBlock() } answers
-                {
-                    BlockIdentifier(number = 100L, id = "0x100")
-                }
-            coEvery { thorClient.getFinalizedBlock() } coAnswers { buildBlock(1L) }
-            coEvery { thorClient.getBlock(any()) } coAnswers { buildBlock(100L) }
-            every { processor.process(any()) } just Runs
-            coEvery { eventProcessor.processEvents(any<Block>()) } coAnswers { emptyList() }
-
-            val indexer =
-                TestableLogsIndexer(
-                    thorClient,
-                    logClient,
-                    processor,
-                    eventProcessor,
-                    dependsOn = setOf(dependency1, dependency2)
-                )
-
-            val job = launch { indexer.start(1L) }
-
-            // Give some time to ensure start() is waiting
-            delay(100L)
-            expectThat(indexer.status).isEqualTo(Status.PENDING_DEPENDENCY)
-
-            // Change second dependency status to FULLY_SYNCED and verify indexer starts
-            every { dependency2.status } returns Status.FULLY_SYNCED
-            delay(100L)
-            expectThat(indexer.status).isEqualTo(Status.SYNCING)
-
-            job.cancel()
         }
     }
 

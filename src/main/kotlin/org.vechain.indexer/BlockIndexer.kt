@@ -41,8 +41,6 @@ open class BlockIndexer(
 
     override var status = Status.SYNCING
 
-    private var dependencyResumeStatus: Status? = null
-
     var currentBlockNumber: Long = 0
         protected set
 
@@ -91,7 +89,6 @@ open class BlockIndexer(
     /** Starts the indexer */
     override suspend fun start() {
         initialise()
-        waitForDependencies()
 
         logger.info("Starting @ Block: $currentBlockNumber")
         run()
@@ -119,7 +116,6 @@ open class BlockIndexer(
 
     protected suspend fun runOnce() {
         try {
-            waitForDependencies()
             backoffDelay()
 
             if (status == Status.ERROR || status == Status.REORG) restart()
@@ -256,38 +252,6 @@ open class BlockIndexer(
     override fun rollback(blockNumber: Long) = processor.rollback(blockNumber)
 
     override fun process(entry: IndexingResult) = processor.process(entry)
-
-    protected open suspend fun waitForDependencies() {
-        if (dependsOn.isEmpty()) {
-            dependencyResumeStatus = null
-            return
-        }
-
-        if (dependenciesReady()) {
-            resumeAfterDependencies()
-            return
-        }
-
-        if (status != Status.PENDING_DEPENDENCY) {
-            dependencyResumeStatus = status
-            status = Status.PENDING_DEPENDENCY
-        }
-
-        do {
-            delay(DEPENDENCY_CHECK_INTERVAL_MS)
-        } while (!dependenciesReady())
-
-        resumeAfterDependencies()
-    }
-
-    private fun resumeAfterDependencies() {
-        if (status == Status.PENDING_DEPENDENCY) {
-            status = dependencyResumeStatus ?: Status.SYNCING
-        }
-        dependencyResumeStatus = null
-    }
-
-    private fun dependenciesReady(): Boolean = dependsOn.all { it.status == Status.FULLY_SYNCED }
 
     private fun logProcessingBlock() {
         if (
