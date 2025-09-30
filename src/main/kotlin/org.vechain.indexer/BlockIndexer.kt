@@ -261,7 +261,7 @@ open class BlockIndexer(
 
     override fun rollback(blockNumber: Long) = processor.rollback(blockNumber)
 
-    override fun process(event: IndexingResult) = processor.process(event)
+    override fun process(entry: IndexingResult) = processor.process(entry)
 
     protected open suspend fun waitForDependencies() {
         if (dependsOn.isEmpty()) {
