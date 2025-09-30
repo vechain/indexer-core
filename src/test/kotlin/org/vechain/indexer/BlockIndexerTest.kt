@@ -1124,7 +1124,7 @@ class TestableBlockIndexer(
     pruner: Pruner? = null,
     prunerInterval: Long = 1L,
     syncLoggerInterval: Long = 100L,
-    dependsOn: Set<Indexer> = emptySet()
+    dependantIndexers: Set<Indexer> = emptySet()
 ) :
     BlockIndexer(
         name = name,
@@ -1135,7 +1135,7 @@ class TestableBlockIndexer(
         pruner = pruner,
         prunerInterval = prunerInterval,
         syncLoggerInterval = syncLoggerInterval,
-        dependsOn = dependsOn
+        dependantIndexers = dependantIndexers
     ) {
 
     var iterations: Long? = null

@@ -31,7 +31,7 @@ class IndexerFactory {
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
     private var channelBatchSize: Int = 2 // Default batch size for channel indexer
-    private var dependsOn = emptySet<Indexer>()
+    private var dependantIndexers = emptySet<Indexer>() // Indexers that are dependent on this one
     private var callDataClauses: List<Clause>? = null
 
     fun build(): Indexer {
@@ -70,9 +70,15 @@ class IndexerFactory {
                 prunerInterval = prunerInterval,
                 batchSize = channelBatchSize,
                 inspectionClauses = callDataClauses,
-                dependsOn = dependsOn,
+                dependantIndexers = dependantIndexers,
             )
         } else {
+
+            // If `dependantIndexers` is not empty, throw an error
+            require(dependantIndexers.isEmpty()) {
+                "Dependant indexers can only be used when includeFullBlock() is set."
+            }
+
             LogsIndexer(
                 name = name!!,
                 thorClient = thorClient!!,
@@ -87,7 +93,6 @@ class IndexerFactory {
                 eventProcessor = eventProcessor,
                 pruner = pruner,
                 prunerInterval = prunerInterval,
-                dependsOn = dependsOn,
             )
         }
     }
@@ -323,20 +328,27 @@ class IndexerFactory {
     fun includeFullBlock() = apply { this.includeFullBlock = true }
 
     /**
-     * Allows users to build a dependency graph of indexers.
+     * Allows users to build a dependency tree of indexers.
      *
-     * Indexers listed in `dependsOn` will be fully synced before this indexer starts syncing.
+     * Indexers in the dependency tree will process in step with one another.
      *
-     * If an indexer in `dependsOn` falls behind, this indexer will pause syncing until the
-     * dependent indexer is fully synced again.
+     * Firstly, all indexers will be processed up to the lowest common block height.
      *
-     * @param dependsOn Set of indexers that this indexer depends on.
+     * Then, as new blocks are processed, all indexers will process from the same block. This
+     * reduces the number of calls to the Thor API.
      *
-     * **Note for developers:** Use this functionality with caution. Where possible, avoid building
-     * strong interdependencies between indexers, as this can lead to complex sync issues and
-     * reduced system resilience.
+     * Indexers will process from top of the tree down, so if indexer A depends on indexer B,
+     * indexer B will always process before indexer A.
+     *
+     * Notes: Only the indexer at the top of the dependency graph should be started. It will handle
+     * processing for all indexers in the tree. As a result of this it is important not to create an
+     * indexer that is dependent on more than one indexer.
+     *
+     * @param dependantIndexers Set of indexers that depend on this indexer.
      */
-    fun dependsOn(dependsOn: Set<Indexer>) = apply { this.dependsOn = dependsOn }
+    fun dependantIndexers(dependantIndexers: Set<Indexer>) = apply {
+        this.dependantIndexers = dependantIndexers
+    }
 
     /**
      * Sets the clauses to be used for call data inspection. This requires a block by block indexer

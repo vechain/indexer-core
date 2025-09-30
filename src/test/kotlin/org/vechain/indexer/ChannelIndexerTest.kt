@@ -42,7 +42,7 @@ internal class ChannelIndexerTest {
         thorClient: ThorClient,
         processor: IndexerProcessor,
         eventProcessor: CombinedEventProcessor,
-        dependsOn: Set<Indexer> = emptySet()
+        dependantIndexers: Set<Indexer> = emptySet()
     ) :
         ChannelIndexer(
             name = "test",
@@ -54,7 +54,7 @@ internal class ChannelIndexerTest {
             pruner = null,
             prunerInterval = 10_000L,
             batchSize = 2,
-            dependsOn = dependsOn
+            dependantIndexers = dependantIndexers
         ) {
         var iterations: Long? = null
 

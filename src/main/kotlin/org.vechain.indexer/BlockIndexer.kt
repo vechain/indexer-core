@@ -28,7 +28,7 @@ open class BlockIndexer(
     protected val inspectionClauses: List<Clause>? = null,
     override val pruner: Pruner? = null,
     private val prunerInterval: Long,
-    override val dependsOn: Set<Indexer>,
+    override val dependantIndexers: Set<Indexer>,
 ) : Indexer {
     /** The last block that was successfully synchronised */
     protected var previousBlock: BlockIdentifier? = null

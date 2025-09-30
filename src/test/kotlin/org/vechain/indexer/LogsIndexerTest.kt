@@ -142,7 +142,6 @@ class LogsIndexerTest {
         override val logClient: LogClient,
         processor: IndexerProcessor,
         eventProcessor: CombinedEventProcessor,
-        dependsOn: Set<Indexer> = emptySet()
     ) :
         LogsIndexer(
             name = "test",
@@ -158,7 +157,6 @@ class LogsIndexerTest {
             eventProcessor = eventProcessor,
             pruner = null,
             prunerInterval = 10_000L,
-            dependsOn = dependsOn
         ) {
 
         var iterations: Long? = null

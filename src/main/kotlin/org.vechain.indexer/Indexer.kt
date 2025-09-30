@@ -38,7 +38,7 @@ interface Indexer : IndexerProcessor {
 
     suspend fun start()
 
-    val dependsOn: Set<Indexer>
+    val dependantIndexers: Set<Indexer>
 }
 
 sealed class IndexingResult {

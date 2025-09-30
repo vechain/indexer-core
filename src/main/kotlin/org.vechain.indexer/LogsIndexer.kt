@@ -42,7 +42,6 @@ open class LogsIndexer(
     eventProcessor: CombinedEventProcessor?,
     pruner: Pruner?,
     prunerInterval: Long,
-    dependsOn: Set<Indexer>,
 ) :
     PreSyncIndexer(
         name,
@@ -54,7 +53,7 @@ open class LogsIndexer(
         null,
         pruner,
         prunerInterval,
-        dependsOn
+        emptySet()
     ) {
 
     protected open val logClient = LogClient(thorClient)

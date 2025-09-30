@@ -14,7 +14,7 @@ abstract class PreSyncIndexer(
     inspectionClauses: List<Clause>?,
     pruner: Pruner?,
     prunerInterval: Long,
-    dependsOn: Set<Indexer>
+    dependantIndexers: Set<Indexer>
 ) :
     BlockIndexer(
         name,
@@ -26,7 +26,7 @@ abstract class PreSyncIndexer(
         inspectionClauses,
         pruner,
         prunerInterval,
-        dependsOn
+        dependantIndexers
     ) {
 
     /** Starts the indexer */
