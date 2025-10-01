@@ -1,13 +1,20 @@
 package org.vechain.indexer
 
-import java.util.ArrayDeque
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
@@ -18,13 +25,21 @@ private const val TIP_POLL_BASE_DELAY_MS = 1_000L
 private const val TIP_POLL_MAX_DELAY_MS = 10_000L
 
 interface BlockStream {
-    suspend fun next(): Block
+    suspend fun subscribe(): BlockStreamSubscription
 
-    fun reset()
+    suspend fun reset()
 
-    fun close()
+    suspend fun close()
 
     val isCaughtUp: Boolean
+}
+
+interface BlockStreamSubscription {
+    val nextBlockNumber: Long
+
+    suspend fun next(): Block
+
+    suspend fun close()
 }
 
 class PrefetchingBlockStream(
@@ -33,57 +48,135 @@ class PrefetchingBlockStream(
     private val currentBlockProvider: () -> Long,
     private val thorClient: ThorClient,
 ) : BlockStream {
-    private val buffer = ArrayDeque<Deferred<Pair<Long, Block>>>()
-    private var nextToSchedule = currentBlockProvider()
+    private sealed interface StreamEvent {
+        val version: Int
+
+        data class Reset(override val version: Int, val startBlock: Long) : StreamEvent
+
+        data class Block(
+            override val version: Int,
+            val block: org.vechain.indexer.thor.model.Block
+        ) : StreamEvent
+    }
+
+    private data class SubscriptionState(
+        val id: Int,
+        val channel: Channel<StreamEvent>,
+        val collectorJob: Job,
+        var expectedBlock: Long,
+        var version: Int,
+    )
+
+    private val mutex = Mutex()
+    private val subscriptions = mutableMapOf<Int, SubscriptionState>()
+    private val stream =
+        MutableSharedFlow<StreamEvent>(
+            replay = 0,
+            extraBufferCapacity = batchSize,
+            onBufferOverflow = BufferOverflow.SUSPEND,
+        )
     private var supervisor: CompletableJob = newSupervisor()
-    private var prefetchScope = CoroutineScope(scope.coroutineContext + supervisor)
+    private var streamScope = CoroutineScope(scope.coroutineContext + supervisor)
+    private var fetchJob: Job? = null
+    private val subscriptionSequence = AtomicInteger(0)
+    private var latestReset = StreamEvent.Reset(version = 0, startBlock = currentBlockProvider())
     private var latestBestBlock = Long.MIN_VALUE
-    private var caughtUp = false
+    @Volatile private var caughtUp = false
+
+    init {
+        startFetcher(latestReset)
+    }
 
     override val isCaughtUp: Boolean
         get() = caughtUp
 
-    override suspend fun next(): Block {
-        ensurePrefetched()
-        val deferred = buffer.removeFirst()
-        val (_, result) = deferred.await()
-        return result
+    override suspend fun subscribe(): BlockStreamSubscription {
+        val (state, reset) =
+            mutex.withLock {
+                val id = subscriptionSequence.incrementAndGet()
+                val channel = Channel<StreamEvent>(capacity = batchSize)
+                val resetSnapshot = latestReset
+                val collectorJob = startCollector(channel)
+                val subscriptionState =
+                    SubscriptionState(
+                        id = id,
+                        channel = channel,
+                        collectorJob = collectorJob,
+                        expectedBlock = resetSnapshot.startBlock,
+                        version = resetSnapshot.version,
+                    )
+                subscriptions[id] = subscriptionState
+                subscriptionState to resetSnapshot
+            }
+
+        // Send the latest reset event outside the lock to avoid potential suspension.
+        state.channel.trySend(reset).getOrThrow()
+
+        return Subscription(state)
     }
 
-    override fun reset() {
-        cancelPrefetchScope()
-        createPrefetchScope()
-        nextToSchedule = currentBlockProvider()
-        caughtUp = false
+    override suspend fun reset() {
+        val (resetEvent, previousJob) =
+            mutex.withLock {
+                val newReset =
+                    StreamEvent.Reset(
+                        version = latestReset.version + 1,
+                        startBlock = currentBlockProvider()
+                    )
+                val existingJob = fetchJob
+                fetchJob = null
+                latestReset = newReset
+                caughtUp = false
+                newReset to existingJob
+            }
+
+        previousJob?.cancelAndJoin()
+        startFetcher(resetEvent)
     }
 
-    override fun close() {
-        cancelPrefetchScope()
-    }
+    override suspend fun close() {
+        val states =
+            mutex.withLock {
+                val existing = subscriptions.values.toList()
+                subscriptions.clear()
+                existing
+            }
 
-    private fun ensurePrefetched() {
-        while (buffer.size < batchSize) {
-            val blockNumber = nextToSchedule
-            val deferred = prefetchScope.async { blockNumber to fetchBlock(blockNumber) }
-            buffer.add(deferred)
-            nextToSchedule++
+        states.forEach { state ->
+            state.collectorJob.cancel()
+            state.channel.cancel()
         }
-    }
 
-    private fun cancelPrefetchScope() {
-        buffer.forEach { it.cancel() }
-        buffer.clear()
+        val job = fetchJob
+        fetchJob = null
+        job?.cancelAndJoin()
         supervisor.cancel()
     }
 
-    private fun createPrefetchScope() {
-        supervisor = newSupervisor()
-        prefetchScope = CoroutineScope(scope.coroutineContext + supervisor)
-    }
+    private fun startCollector(channel: Channel<StreamEvent>): Job =
+        streamScope.launch {
+            try {
+                stream.collect { event -> channel.send(event) }
+            } catch (_: CancellationException) {
+                // Collector cancelled by subscription closing/reset.
+            } finally {
+                channel.close()
+            }
+        }
 
-    private fun newSupervisor(): CompletableJob {
-        val parentJob = scope.coroutineContext[Job]
-        return SupervisorJob(parentJob)
+    private fun startFetcher(resetEvent: StreamEvent.Reset) {
+        val job =
+            streamScope.launch {
+                stream.emit(resetEvent)
+                var nextBlock = resetEvent.startBlock
+                val version = resetEvent.version
+                while (isActive) {
+                    val block = fetchBlock(nextBlock)
+                    stream.emit(StreamEvent.Block(version, block))
+                    nextBlock++
+                }
+            }
+        fetchJob = job
     }
 
     private suspend fun fetchBlock(blockNumber: Long): Block {
@@ -98,12 +191,66 @@ class PrefetchingBlockStream(
                 latestBestBlock = maxOf(latestBestBlock, bestBlock.number)
                 if (bestBlock.number <= blockNumber) {
                     caughtUp = true
-                    delay(delayMs)
+                    kotlinx.coroutines.delay(delayMs)
                     delayMs = (delayMs * 2).coerceAtMost(TIP_POLL_MAX_DELAY_MS)
                     continue
                 }
                 caughtUp = false
                 throw e
+            }
+        }
+    }
+
+    private fun newSupervisor(): CompletableJob {
+        val parentJob = scope.coroutineContext[Job]
+        return SupervisorJob(parentJob)
+    }
+
+    private inner class Subscription(
+        private val state: SubscriptionState,
+    ) : BlockStreamSubscription {
+        override val nextBlockNumber: Long
+            get() = state.expectedBlock
+
+        override suspend fun next(): Block {
+            while (true) {
+                val event =
+                    try {
+                        state.channel.receive()
+                    } catch (e: ClosedReceiveChannelException) {
+                        throw CancellationException("Subscription closed", e)
+                    }
+                when (event) {
+                    is StreamEvent.Reset -> {
+                        if (event.version < state.version) continue
+                        state.version = event.version
+                        state.expectedBlock = event.startBlock
+                    }
+                    is StreamEvent.Block -> {
+                        if (event.version < state.version) continue
+                        if (event.version > state.version) {
+                            state.version = event.version
+                            state.expectedBlock = event.block.number
+                        }
+                        val expected = state.expectedBlock
+                        if (event.block.number < expected) {
+                            continue
+                        }
+                        if (event.block.number > expected) {
+                            state.expectedBlock = event.block.number
+                        }
+                        state.expectedBlock = event.block.number + 1
+                        return event.block
+                    }
+                }
+            }
+        }
+
+        override suspend fun close() {
+            val stateToClose = mutex.withLock { subscriptions.remove(state.id) }
+            if (stateToClose != null) {
+                state.collectorJob.cancel()
+                state.channel.cancel()
             }
         }
     }

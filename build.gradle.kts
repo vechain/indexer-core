@@ -20,7 +20,7 @@ jacoco {
 
 group = "org.vechain"
 
-val projectVersion = System.getenv("PROJECT_VERSION") ?: "6.0.28-SNAPSHOT"
+val projectVersion = System.getenv("PROJECT_VERSION") ?: "6.0.31-SNAPSHOT"
 version = projectVersion
 
 val isSnapshot = version.toString().endsWith("SNAPSHOT")
@@ -158,6 +158,7 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
     implementation("org.slf4j:slf4j-api:1.7.32")
     implementation("org.bouncycastle:bcprov-jdk15on:1.70")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.1")
