@@ -16,24 +16,13 @@ import org.vechain.indexer.thor.model.*
  *
  * This indexer iterates through blockchain transactions, extracts logs based on criteria, and
  * processes them accordingly.
- *
- * @param thorClient The Thor blockchain client instance.
- * @param startBlock The starting block number for indexing.
- * @param syncLoggerInterval Frequency of log sync status updates.
- * @param excludeVetTransfers If true, excludes VET transfer logs from processing.
- * @param blockBatchSize Number of blocks fetched per batch.
- * @param logFetchLimit Maximum number of logs fetched per API call.
- * @param pruner Optional pruner for cleaning up old data.
- * @param eventCriteriaSet Filtering criteria for event logs.
- * @param transferCriteriaSet Filtering criteria for transfer logs.
- * @param eventProcessor Optional event processor for handling indexed events. events.
  */
 open class LogsIndexer(
     name: String,
     override val thorClient: ThorClient,
     processor: IndexerProcessor,
     startBlock: Long,
-    private val syncLoggerInterval: Long,
+    syncLoggerInterval: Long,
     private val excludeVetTransfers: Boolean,
     private val blockBatchSize: Long,
     private val logFetchLimit: Long,
@@ -41,8 +30,7 @@ open class LogsIndexer(
     private var transferCriteriaSet: List<TransferCriteria>?,
     eventProcessor: CombinedEventProcessor?,
     pruner: Pruner?,
-    prunerInterval: Long,
-    dependantIndexers: Set<Indexer> = emptySet()
+    prunerInterval: Long
 ) :
     BlockIndexer(
         name = name,
@@ -54,19 +42,10 @@ open class LogsIndexer(
         inspectionClauses = null,
         pruner = pruner,
         prunerInterval = prunerInterval,
-        dependantIndexers = dependantIndexers,
+        dependsOn = null,
     ) {
 
-    private var fastSyncEnabled = true
     protected open val logClient = LogClient(thorClient)
-
-    /** Starts the indexer */
-    override suspend fun start() {
-        initialise()
-        fastSyncIfEnabled()
-        logStartingState()
-        run()
-    }
 
     /**
      * Synchronizes logs from the current block to the target block.
@@ -130,14 +109,7 @@ open class LogsIndexer(
         logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
     }
 
-    internal fun disableFastSync() {
-        fastSyncEnabled = false
-    }
-
-    internal fun isFastSyncEnabled(): Boolean = fastSyncEnabled
-
-    internal suspend fun fastSyncIfEnabled() {
-        if (!fastSyncEnabled) return
+    internal suspend fun fastSync() {
 
         val finalizedBlock = thorClient.getFinalizedBlock().number
 

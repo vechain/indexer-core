@@ -2,9 +2,6 @@ package org.vechain.indexer
 
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.CombinedEventProcessor
@@ -21,11 +18,10 @@ open class BlockIndexer(
     protected val startBlock: Long,
     private val syncLoggerInterval: Long,
     protected val eventProcessor: CombinedEventProcessor?,
-    protected val inspectionClauses: List<Clause>? = null,
-    override val pruner: Pruner? = null,
+    protected val inspectionClauses: List<Clause>?,
+    override val pruner: Pruner?,
     private val prunerInterval: Long,
-    override val dependantIndexers: Set<Indexer>,
-    private val batchSize: Int = 1,
+    override val dependsOn: Indexer?,
 ) : Indexer {
     /** The last block that was successfully synchronised */
     protected var previousBlock: BlockIdentifier? = null
@@ -36,10 +32,6 @@ open class BlockIndexer(
 
     protected val logger: Logger = LoggerFactory.getLogger(name)
 
-    init {
-        require(batchSize >= 1) { "batchSize must be at least 1" }
-    }
-
     override var status = Status.RUNNING
 
     var currentBlockNumber: Long = 0
@@ -47,9 +39,6 @@ open class BlockIndexer(
 
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
         internal set
-
-    protected lateinit var blockStream: BlockStream
-        private set
 
     /** Initialises the indexer processing */
     internal fun initialise(blockNumber: Long? = null) {
@@ -72,29 +61,6 @@ open class BlockIndexer(
             } else {
                 null
             }
-
-        resetBlockStream()
-    }
-
-    /**
-     * Triggers the non-blocking suspendable start() function inside its required coroutine scope.
-     */
-    override fun startInCoroutine(scope: CoroutineScope) {
-        scope.launch {
-            try {
-                start()
-            } catch (e: Exception) {
-                logger.error("Error starting indexer ${this.javaClass.simpleName}: ", e)
-                throw Exception(e.message, e)
-            }
-        }
-    }
-
-    /** Starts the indexer */
-    override suspend fun start() {
-        initialise()
-        logStartingState()
-        run()
     }
 
     /** Restarts the processing based on the current indexer status */
@@ -109,44 +75,6 @@ open class BlockIndexer(
 
         logger.info("✅ Successfully Restarted @ Block: $currentBlockNumber with status $status")
     }
-
-    /** The core indexer logic */
-    protected open suspend fun run() {
-        runLoop()
-    }
-
-    protected suspend fun runOnce() {
-        restartIfNeeded()
-        try {
-            val block = blockStream.next()
-            processBlock(block) { resetBlockStream() }
-        } catch (e: Exception) {
-            logBlockFetchError(currentBlockNumber, e)
-            handleError()
-            resetBlockStream()
-        }
-    }
-
-    protected open suspend fun runLoop(maxIterations: Long? = null) = coroutineScope {
-        blockStream = createBlockStream(this)
-        try {
-            var count = 0L
-            while (maxIterations == null || count < maxIterations) {
-                runOnce()
-                count++
-            }
-        } finally {
-            blockStream.close()
-        }
-    }
-
-    protected open fun createBlockStream(scope: CoroutineScope): BlockStream =
-        PrefetchingBlockStream(
-            scope = scope,
-            batchSize = batchSize,
-            currentBlockProvider = { currentBlockNumber },
-            thorClient = thorClient,
-        )
 
     protected suspend fun buildIndexingResult(block: Block): IndexingResult {
         val callResults =
@@ -229,7 +157,6 @@ open class BlockIndexer(
     protected fun runPruner() {
         val prunerInstance = pruner ?: return
         if (status != Status.RUNNING) return
-        if (!blockStream.isCaughtUp) return
         if (currentBlockNumber % prunerInterval != prunerIntervalOffset) return
 
         status = Status.PRUNING
@@ -251,23 +178,6 @@ open class BlockIndexer(
             logger.info("($status) Processing Block  $currentBlockNumber")
         }
     }
-
-    protected fun resetBlockStream() {
-        if (this::blockStream.isInitialized) {
-            blockStream.reset()
-        }
-    }
-
-    protected fun overrideBlockStream(stream: BlockStream) {
-        blockStream = stream
-    }
-
-    internal fun attachBlockStream(stream: BlockStream) {
-        overrideBlockStream(stream)
-    }
-
-    protected fun isBlockStreamCaughtUp(): Boolean =
-        this::blockStream.isInitialized && blockStream.isCaughtUp
 
     protected fun checkForReorg(block: Block) {
         // Check for chain re-organization.

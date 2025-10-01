@@ -1,6 +1,5 @@
 package org.vechain.indexer
 
-import kotlinx.coroutines.CoroutineScope
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
@@ -22,17 +21,17 @@ enum class Status {
 }
 
 interface Indexer : IndexerProcessor {
+    // The name of the indexer
     val name: String
 
+    // The current status of the indexer
     var status: Status
 
+    // Optional pruner that can be run periodically to clean up old data
     val pruner: Pruner?
 
-    fun startInCoroutine(scope: CoroutineScope)
-
-    suspend fun start()
-
-    val dependantIndexers: Set<Indexer>
+    // Optional parent indexers that this indexer depends on.
+    val dependsOn: Indexer?
 }
 
 sealed class IndexingResult {

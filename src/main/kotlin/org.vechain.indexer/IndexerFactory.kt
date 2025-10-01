@@ -30,8 +30,7 @@ class IndexerFactory {
     private var eventCriteriaSet: List<EventCriteria>? = null
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
-    private var channelBatchSize: Int = 2 // Default batch size for channel indexer
-    private var dependantIndexers = emptySet<Indexer>() // Indexers that this indexer depends on
+    private var dependsOn: Indexer? = null
     private var callDataClauses: List<Clause>? = null
 
     fun build(): BlockIndexer {
@@ -58,7 +57,7 @@ class IndexerFactory {
             )
 
         // If `includeFullBlock` is true, return a `BlockIndexer`
-        return if (includeFullBlock) {
+        return if (includeFullBlock || dependsOn != null) {
             BlockIndexer(
                 name = name!!,
                 thorClient = thorClient!!,
@@ -68,16 +67,10 @@ class IndexerFactory {
                 pruner = pruner,
                 eventProcessor = eventProcessor,
                 prunerInterval = prunerInterval,
-                batchSize = channelBatchSize,
                 inspectionClauses = callDataClauses,
-                dependantIndexers = dependantIndexers
+                dependsOn = dependsOn
             )
         } else {
-
-            // If `dependantIndexers` is not empty, throw an error
-            require(dependantIndexers.isEmpty()) {
-                "Dependant indexers can only be used when includeFullBlock() is set."
-            }
 
             LogsIndexer(
                 name = name!!,
@@ -306,17 +299,6 @@ class IndexerFactory {
     fun logFetchLimit(limit: Long) = apply { this.logFetchLimit = limit }
 
     /**
-     * Sets the batch size for the channel indexer.
-     *
-     * This is used to control how many blocks are processed in a single batch.
-     *
-     * The default value is `100`.
-     *
-     * @param size The batch size for the channel indexer.
-     */
-    fun channelBatchSize(size: Int) = apply { this.channelBatchSize = size }
-
-    /**
      * By default, the full block object is not returned to the `process` function. This allows us
      * to sync faster by using log and vet transfer events only.
      *
@@ -327,28 +309,8 @@ class IndexerFactory {
      */
     fun includeFullBlock() = apply { this.includeFullBlock = true }
 
-    /**
-     * Allows users to build a dependency tree of indexers.
-     *
-     * Indexers in the dependency tree will process in step with one another.
-     *
-     * Firstly, all indexers will be processed up to the lowest common block height.
-     *
-     * Then, as new blocks are processed, all indexers will process from the same block. This
-     * reduces the number of calls to the Thor API.
-     *
-     * Indexers will process from top of the tree down, so if indexer A depends on indexer B,
-     * indexer B will always process before indexer A.
-     *
-     * Notes: Only the indexer at the top of the dependency graph should be started. It will handle
-     * processing for all indexers in the tree. As a result of this it is important not to create an
-     * indexer that is dependent on more than one indexer.
-     *
-     * @param dependantIndexers Set of indexers that must process a block before this indexer.
-     */
-    fun dependantIndexers(dependantIndexers: Set<Indexer>) = apply {
-        this.dependantIndexers = dependantIndexers
-    }
+    /** Sets a parent indexer that this indexer depends on. */
+    fun dependsOn(indexer: Indexer) = apply { this.dependsOn = indexer }
 
     /**
      * Sets the clauses to be used for call data inspection. This requires a block by block indexer

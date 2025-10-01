@@ -1,60 +1,66 @@
 package org.vechain.indexer
 
 internal object CoordinatorSupport {
-    fun buildDependencyMap(
-        indexers: List<BlockIndexer>,
-        externalDependencies: Map<BlockIndexer, Set<BlockIndexer>> = emptyMap(),
-    ): Map<BlockIndexer, Set<BlockIndexer>> {
-        val indexerSet = indexers.toSet()
-        return indexers.associateWith { indexer ->
-            val declared = indexer.dependantIndexers.filterIsInstance<BlockIndexer>().toSet()
-            val external = externalDependencies[indexer] ?: emptySet()
-            val combined = declared + external
-
-            val unknown = combined - indexerSet
-            require(unknown.isEmpty()) {
-                "Dependencies ${unknown.map { it.name }} are not part of the provided indexers"
-            }
-
-            combined
-        }
-    }
-
-    fun buildDependantsMap(
-        dependencies: Map<BlockIndexer, Set<BlockIndexer>>,
-    ): Map<BlockIndexer, Set<BlockIndexer>> {
-        val dependants = mutableMapOf<BlockIndexer, MutableSet<BlockIndexer>>()
-        dependencies.keys.forEach { dependants.putIfAbsent(it, mutableSetOf()) }
-        dependencies.values.flatten().forEach { dependants.putIfAbsent(it, mutableSetOf()) }
-
-        dependencies.forEach { (dependent, upstream) ->
-            upstream.forEach { prerequisite -> dependants.getValue(prerequisite).add(dependent) }
-        }
-
-        return dependants.mapValues { it.value.toSet() }
-    }
 
     suspend fun prepareIndexers(
         indexers: List<BlockIndexer>,
-        dependencyMap: Map<BlockIndexer, Set<BlockIndexer>>,
-        dependantsMap: Map<BlockIndexer, Set<BlockIndexer>>,
     ) {
         indexers.forEach { indexer ->
-            if (indexer is LogsIndexer) {
-                val hasDependencies = dependencyMap[indexer]?.isNotEmpty() == true
-                val hasDependants = dependantsMap[indexer]?.isNotEmpty() == true
-                if (hasDependencies || hasDependants) {
-                    indexer.disableFastSync()
-                }
-            }
-
             indexer.initialise()
 
-            if (indexer is LogsIndexer && indexer.isFastSyncEnabled()) {
-                indexer.fastSyncIfEnabled()
+            if (indexer is LogsIndexer) {
+                indexer.fastSync()
             }
 
             indexer.logStartingState()
         }
+    }
+
+    /**
+     * Order the indexers topologically based on their dependencies. If there is a circular
+     * dependency, an exception is thrown.
+     */
+    fun topologicalOrder(indexers: List<BlockIndexer>): List<BlockIndexer> {
+        val ordered = mutableListOf<BlockIndexer>()
+        val indexerSet = indexers.toSet()
+        val visitState = mutableMapOf<BlockIndexer, VisitState>()
+
+        fun visit(indexer: BlockIndexer) {
+            when (visitState[indexer]) {
+                VisitState.VISITED -> return
+                VisitState.VISITING -> {
+                    throw IllegalStateException(
+                        "Circular dependency detected involving indexer ${indexer.name}",
+                    )
+                }
+                null -> {
+                    visitState[indexer] = VisitState.VISITING
+
+                    val dependency = indexer.dependsOn
+                    if (dependency != null) {
+                        require(dependency is BlockIndexer) {
+                            "Dependency ${dependency.name} for ${indexer.name} is not a block indexer"
+                        }
+                        require(dependency in indexerSet) {
+                            "Dependency ${dependency.name} for ${indexer.name} is not part of the provided indexers"
+                        }
+
+                        visit(dependency)
+                    }
+
+                    visitState[indexer] = VisitState.VISITED
+                    ordered.add(indexer)
+                }
+            }
+        }
+
+        indexers.forEach { visit(it) }
+
+        return ordered
+    }
+
+    private enum class VisitState {
+        VISITING,
+        VISITED,
     }
 }
