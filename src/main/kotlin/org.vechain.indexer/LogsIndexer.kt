@@ -42,34 +42,29 @@ open class LogsIndexer(
     eventProcessor: CombinedEventProcessor?,
     pruner: Pruner?,
     prunerInterval: Long,
+    dependantIndexers: Set<Indexer> = emptySet()
 ) :
     BlockIndexer(
-        name,
-        thorClient,
-        processor,
-        startBlock,
-        syncLoggerInterval,
-        eventProcessor,
-        null,
-        pruner,
-        prunerInterval,
-        emptySet()
+        name = name,
+        thorClient = thorClient,
+        processor = processor,
+        startBlock = startBlock,
+        syncLoggerInterval = syncLoggerInterval,
+        eventProcessor = eventProcessor,
+        inspectionClauses = null,
+        pruner = pruner,
+        prunerInterval = prunerInterval,
+        dependantIndexers = dependantIndexers,
     ) {
 
+    private var fastSyncEnabled = true
     protected open val logClient = LogClient(thorClient)
 
     /** Starts the indexer */
     override suspend fun start() {
         initialise()
-        val finalizedBlock = thorClient.getFinalizedBlock().number
-
-        if (currentBlockNumber < finalizedBlock) {
-            sync(finalizedBlock)
-        }
-
-        logger.info("Fast sync complete, switching to block indexer")
-        // Before running reset the previousBlock
-        previousBlock = null
+        fastSyncIfEnabled()
+        logStartingState()
         run()
     }
 
@@ -78,7 +73,7 @@ open class LogsIndexer(
      *
      * @param toBlock The block number to sync up to.
      */
-    suspend fun sync(toBlock: Long) {
+    open suspend fun sync(toBlock: Long) {
         while (currentBlockNumber < toBlock) {
             try {
                 val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
@@ -131,26 +126,27 @@ open class LogsIndexer(
         }
     }
 
-    /**
-     * @param startBlock The start of the block range.
-     * @param endBlock The end of the block range.
-     * @param x The number to check for multiples.
-     * @notice Determines if any multiples of `x` exist in the range `[startBlock, endBlock]`.
-     */
-    private fun hasMultipleInRange(
-        startBlock: Long,
-        endBlock: Long,
-        x: Long,
-    ): Boolean {
-        if (x == 0L) return false // Prevent division by zero
-
-        val firstMultiple = if (startBlock % x == 0L) startBlock else (startBlock / x + 1) * x
-        return firstMultiple in startBlock..endBlock
+    private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long, status: Status) {
+        logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
     }
 
-    private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long, status: Status) {
-        if (hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)) {
-            logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
+    internal fun disableFastSync() {
+        fastSyncEnabled = false
+    }
+
+    internal fun isFastSyncEnabled(): Boolean = fastSyncEnabled
+
+    internal suspend fun fastSyncIfEnabled() {
+        if (!fastSyncEnabled) return
+
+        val finalizedBlock = thorClient.getFinalizedBlock().number
+
+        if (currentBlockNumber < finalizedBlock) {
+            sync(finalizedBlock)
         }
+
+        logger.info("Fast sync complete, switching to block indexer")
+        // Before running reset the previousBlock
+        previousBlock = null
     }
 }

@@ -31,10 +31,10 @@ class IndexerFactory {
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
     private var channelBatchSize: Int = 2 // Default batch size for channel indexer
-    private var dependantIndexers = emptySet<Indexer>() // Indexers that are dependent on this one
+    private var dependantIndexers = emptySet<Indexer>() // Indexers that this indexer depends on
     private var callDataClauses: List<Clause>? = null
 
-    fun build(): Indexer {
+    fun build(): BlockIndexer {
         requireNotNull(name)
         requireNotNull(thorClient) { "Thor client must be set using thorClient() method." }
         requireNotNull(processor) { "Processor must be set using processor() method." }
@@ -70,7 +70,7 @@ class IndexerFactory {
                 prunerInterval = prunerInterval,
                 batchSize = channelBatchSize,
                 inspectionClauses = callDataClauses,
-                dependantIndexers = dependantIndexers,
+                dependantIndexers = dependantIndexers
             )
         } else {
 
@@ -344,7 +344,7 @@ class IndexerFactory {
      * processing for all indexers in the tree. As a result of this it is important not to create an
      * indexer that is dependent on more than one indexer.
      *
-     * @param dependantIndexers Set of indexers that depend on this indexer.
+     * @param dependantIndexers Set of indexers that must process a block before this indexer.
      */
     fun dependantIndexers(dependantIndexers: Set<Indexer>) = apply {
         this.dependantIndexers = dependantIndexers

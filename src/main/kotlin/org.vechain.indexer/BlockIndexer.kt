@@ -52,7 +52,7 @@ open class BlockIndexer(
         private set
 
     /** Initialises the indexer processing */
-    protected fun initialise(blockNumber: Long? = null) {
+    internal fun initialise(blockNumber: Long? = null) {
         // If no block number is provided, get the last synced block. If no block is found, start
         // from the beginning.
         val lastSyncedBlockNumber = blockNumber ?: getLastSyncedBlock()?.number ?: startBlock
@@ -93,8 +93,7 @@ open class BlockIndexer(
     /** Starts the indexer */
     override suspend fun start() {
         initialise()
-
-        logger.info("Starting @ Block: $currentBlockNumber")
+        logStartingState()
         run()
     }
 
@@ -117,23 +116,12 @@ open class BlockIndexer(
     }
 
     protected suspend fun runOnce() {
+        restartIfNeeded()
         try {
-            if (status == Status.ERROR || status == Status.REORG) restart()
-
             val block = blockStream.next()
-            val result = buildIndexingResult(block)
-            checkForReorg(block)
-
-            logProcessingBlock()
-
-            process(result)
-            postProcessBlock(block)
-            runPruner()
-        } catch (_: ReorgException) {
-            handleReorg()
-            resetBlockStream()
+            processBlock(block) { resetBlockStream() }
         } catch (e: Exception) {
-            logger.error("Error while processing block $currentBlockNumber", e)
+            logBlockFetchError(currentBlockNumber, e)
             handleError()
             resetBlockStream()
         }
@@ -168,8 +156,41 @@ open class BlockIndexer(
         return IndexingResult.Normal(block, events, callResults)
     }
 
+    internal fun restartIfNeeded() {
+        if (status == Status.ERROR || status == Status.REORG) restart()
+    }
+
+    internal fun logStartingState() {
+        logger.info("Starting @ Block: $currentBlockNumber")
+    }
+
+    internal suspend fun processBlock(block: Block, onReset: () -> Unit) {
+        try {
+            logProcessingBlock()
+            if (block.number < currentBlockNumber) {
+                // This block has already been processed, skip it.
+                return
+            }
+            checkForReorg(block)
+            process(buildIndexingResult(block))
+            postProcessBlock(block)
+            runPruner()
+        } catch (_: ReorgException) {
+            handleReorg()
+            onReset()
+        } catch (e: Exception) {
+            logger.error("Error while processing block ${block.number}", e)
+            handleError()
+            onReset()
+        }
+    }
+
     internal fun handleError() {
         status = Status.ERROR
+    }
+
+    internal fun logBlockFetchError(blockNumber: Long, throwable: Exception) {
+        logger.error("Error while fetching block $blockNumber", throwable)
     }
 
     private fun handleReorg() {
@@ -239,6 +260,10 @@ open class BlockIndexer(
 
     protected fun overrideBlockStream(stream: BlockStream) {
         blockStream = stream
+    }
+
+    internal fun attachBlockStream(stream: BlockStream) {
+        overrideBlockStream(stream)
     }
 
     protected fun isBlockStreamCaughtUp(): Boolean =
