@@ -20,6 +20,7 @@ import strikt.api.expect
 import strikt.api.expectThat
 import strikt.api.expectThrows
 import strikt.assertions.isEqualTo
+import strikt.assertions.isNotEmpty
 import strikt.assertions.message
 
 @ExtendWith(MockKExtension::class)
@@ -74,8 +75,8 @@ internal class BlockIndexerTest {
             job.join()
 
             expect {
-                // Verify the status is SYNCING
-                that(indexer.status).isEqualTo(Status.SYNCING)
+                // Verify the status is RUNNING
+                that(indexer.status).isEqualTo(Status.RUNNING)
                 // Verify the rollback is performed once
                 verify(exactly = 1) { processor.rollback(100L) }
             }
@@ -97,8 +98,8 @@ internal class BlockIndexerTest {
                 job.join()
 
                 expect {
-                    // Verify the status is SYNCING
-                    that(indexer.status).isEqualTo(Status.SYNCING)
+                    // Verify the status is RUNNING
+                    that(indexer.status).isEqualTo(Status.RUNNING)
                     // Verify the rollback is performed once
                     verify(exactly = 1) { processor.rollback(0L) }
                 }
@@ -117,8 +118,8 @@ internal class BlockIndexerTest {
             job.join()
 
             expect {
-                // Verify the status is SYNCING
-                that(indexer.status).isEqualTo(Status.SYNCING)
+                // Verify the status is RUNNING
+                that(indexer.status).isEqualTo(Status.RUNNING)
                 // Verify the correct number of processing of blocks
                 verify(exactly = 1) { processor.rollback(0L) }
                 verify(exactly = 1) { processor.process(any()) }
@@ -140,8 +141,8 @@ internal class BlockIndexerTest {
             job.join()
 
             expect {
-                // Verify the status is SYNCING
-                that(indexer.status).isEqualTo(Status.SYNCING)
+                // Verify the status is RUNNING
+                that(indexer.status).isEqualTo(Status.RUNNING)
                 // Verify the correct number of processing of blocks
                 verify(exactly = indexerIterationsNumber.toInt()) { processor.process(any()) }
             }
@@ -162,8 +163,8 @@ internal class BlockIndexerTest {
             job.join()
 
             expect {
-                // Verify the status is SYNCING
-                that(indexer.status).isEqualTo(Status.SYNCING)
+                // Verify the status is RUNNING
+                that(indexer.status).isEqualTo(Status.RUNNING)
                 // Verify post-processing increments the current block number
                 that(indexer.currentBlockNumber).isEqualTo(indexerIterationsNumber)
             }
@@ -200,8 +201,8 @@ internal class BlockIndexerTest {
             job.join()
 
             expect {
-                // Verify the status is SYNCING
-                that(indexer.status).isEqualTo(Status.SYNCING)
+                // Verify the status is RUNNING
+                that(indexer.status).isEqualTo(Status.RUNNING)
                 // Verify the correct number of processing of blocks
                 verify(exactly = 1) { processor.process(any()) }
             }
@@ -257,8 +258,8 @@ internal class BlockIndexerTest {
                     // Indexer should have advanced processing after successfully restarting
                     // processing of faulty block
                     that(indexer.currentBlockNumber).isEqualTo(errorBlockNumber + 1)
-                    // Indexer should switch back to SYNCING status error detection
-                    that(indexer.status).isEqualTo(Status.SYNCING)
+                    // Indexer should switch back to RUNNING status error detection
+                    that(indexer.status).isEqualTo(Status.RUNNING)
                     // Indexer should restart & rollback processing at the error block number
                     verify(exactly = 1) { processor.rollback(errorBlockNumber) }
                 }
@@ -297,8 +298,8 @@ internal class BlockIndexerTest {
                     // Indexer should have advanced processing after successfully restarting
                     // processing of faulty block
                     that(indexer.currentBlockNumber).isEqualTo(tooManyRequestsBlockNumber + 1)
-                    // Indexer should switch back to SYNCING status error detection
-                    that(indexer.status).isEqualTo(Status.SYNCING)
+                    // Indexer should switch back to RUNNING status error detection
+                    that(indexer.status).isEqualTo(Status.RUNNING)
                     // Indexer should restart & rollback processing at the error block number
                     verify(exactly = 1) { processor.rollback(tooManyRequestsBlockNumber) }
                 }
@@ -336,8 +337,8 @@ internal class BlockIndexerTest {
                     // Indexer should have advanced processing after successfully restarting
                     // processing of faulty block
                     that(indexer.currentBlockNumber).isEqualTo(reorgBlockNumber)
-                    // Indexer should switch back to SYNCING status after re-organization detection
-                    expectThat(indexer.status).isEqualTo(Status.SYNCING)
+                    // Indexer should switch back to RUNNING status after re-organization detection
+                    expectThat(indexer.status).isEqualTo(Status.RUNNING)
                     // The re-organization at block reorgBlockNumber should trigger a rollback of
                     // block
                     // (reorgBlockNumber - 1) data
@@ -363,7 +364,7 @@ internal class BlockIndexerTest {
         }
 
         @Test
-        fun `Indexer starting & processing block is at the SYNCING status`() = runBlocking {
+        fun `Indexer starting & processing block is at the RUNNING status`() = runBlocking {
             val iterations = 100L
 
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
@@ -379,8 +380,8 @@ internal class BlockIndexerTest {
             expect {
                 // Current block should correspond to number of iterations of indexer run
                 that(indexer.currentBlockNumber).isEqualTo(iterations)
-                // Status should be SYNCING
-                that(indexer.status).isEqualTo(Status.SYNCING)
+                // Status should be RUNNING
+                that(indexer.status).isEqualTo(Status.RUNNING)
                 // First initialise should roll back to start block
                 verify(exactly = 1) { processor.rollback(0L) }
                 // Number of processed blocks should correspond to current block number
@@ -389,69 +390,34 @@ internal class BlockIndexerTest {
         }
 
         @Test
-        fun `Indexer should switch to FULLY_SYNCED status when block not found`() = runBlocking {
-            val blockNotFound = BlockIdentifier(number = 99L, id = "0x99")
+        fun `Indexer stream reports caught up when best block not advanced`() = runBlocking {
+            val iterations = 3L
+            val attemptCounts = mutableMapOf<Long, Int>()
 
             coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
                 {
-                    if (getBlockNumberSlot.captured >= blockNotFound.number) {
-                        throw BlockNotFoundException("Block not found")
+                    val number = getBlockNumberSlot.captured
+                    val count = attemptCounts.getOrDefault(number, 0)
+                    attemptCounts[number] = count + 1
+                    if (number == 2L && count == 0) {
+                        throw BlockNotFoundException("Block pending")
                     }
-                    buildBlock(getBlockNumberSlot.captured)
+                    buildBlock(number)
                 }
-            coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(blockNotFound.number) }
-            every { processor.getLastSyncedBlock() } returns null andThen null andThen blockNotFound
+            coEvery { thorClient.getBestBlock() } returns buildBlock(1L)
+            every { processor.getLastSyncedBlock() } returns null
             every { processor.process(any()) } just Runs
 
-            val job = launch { indexer.start(blockNotFound.number + 1) }
+            val job = launch { indexer.start(iterations) }
             job.join()
 
             expect {
-                // The current block remains at the one not found
-                that(indexer.currentBlockNumber).isEqualTo(blockNotFound.number)
-                // Status should switch to FULLY_SYNCED
-                that(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+                that(indexer.status).isEqualTo(Status.RUNNING)
+                that(indexer.currentBlockNumber).isEqualTo(iterations)
+                that(indexer.isStreamCaughtUp()).isEqualTo(true)
+                that(attemptCounts[2L]).isEqualTo(2)
             }
         }
-
-        @Test
-        fun `Indexer should ensure whether it is FULLY_SYNCED and switch back to SYNCING`() =
-            runBlocking {
-                val iterations = 101L
-                val blockNotFound = BlockIdentifier(number = 99L, id = "0x99")
-
-                // Block is not found the first time indexer tries to fetch it
-                var calledAlready = false
-                coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                    {
-                        if (!calledAlready && getBlockNumberSlot.captured == blockNotFound.number) {
-                            calledAlready = true
-                            throw BlockNotFoundException("Block not found")
-                        }
-                        buildBlock(getBlockNumberSlot.captured)
-                    }
-                // Simulate a gap between last synced and current best block from chain
-                coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(iterations) }
-                every { processor.getLastSyncedBlock() } returns
-                    null andThen
-                    null andThen
-                    blockNotFound
-                every { processor.process(any()) } just Runs
-
-                // Iterations + (1 iteration) where block is not found to trigger the FULLY_SYNCED
-                // status
-                val job = launch { indexer.start(iterations + 1) }
-                job.join()
-
-                expect {
-                    // Current block number should match the number of iterations after we run
-                    // indexer (iterations + 1) number of times
-                    that(indexer.currentBlockNumber).isEqualTo(iterations)
-                    // Status should switch back to syncing after we detect indexer is behind best
-                    // on-chain block
-                    that(indexer.status).isEqualTo(Status.SYNCING)
-                }
-            }
 
         @Test
         fun `Indexer should switch to REORG status upon chain re-organization`() = runBlocking {
@@ -505,8 +471,8 @@ internal class BlockIndexerTest {
             expect {
                 // The current block number should match the re-organization block
                 that(indexer.currentBlockNumber).isEqualTo(1L)
-                // The indexer status should remain SYNCING
-                that(indexer.status).isEqualTo(Status.SYNCING)
+                // The indexer status should remain RUNNING
+                that(indexer.status).isEqualTo(Status.RUNNING)
             }
         }
 
@@ -602,8 +568,8 @@ internal class BlockIndexerTest {
                 job.join()
 
                 expect {
-                    // Verify the status is SYNCING
-                    that(indexer.status).isEqualTo(Status.SYNCING)
+                    // Verify the status is RUNNING
+                    that(indexer.status).isEqualTo(Status.RUNNING)
                     // Verify processEvents was called with the correct block
                     verify(exactly = 1) { eventProcessor.processEvents(block) }
                     // Verify processor.process was called with the matched events and block
@@ -643,47 +609,42 @@ internal class BlockIndexerTest {
     @Nested
     inner class PrunerTest {
         @Test
-        fun `pruner should run at the specified interval`() = runBlocking {
-            val prunerInterval = 2L
+        fun `pruner should run at consistent interval offsets`() {
+            val prunerInterval = 3L
+            val capturedBlocks = mutableListOf<Long>()
             val indexer =
                 TestableBlockIndexer(
                     name = "TestBlockIndexer",
+                    status = Status.RUNNING,
                     thorClient = thorClient,
                     processor = processor,
-                    startBlock = 0L,
                     pruner = pruner,
-                    prunerInterval = prunerInterval,
+                    prunerInterval = prunerInterval
                 )
 
-            var blockNotFoundThrown = false
-            coEvery { thorClient.getBlock(capture(getBlockNumberSlot)) } coAnswers
-                {
-                    if (!blockNotFoundThrown && getBlockNumberSlot.captured == 1L) {
-                        blockNotFoundThrown = true
-                        throw BlockNotFoundException("Block not found")
-                    }
-                    buildBlock(getBlockNumberSlot.captured)
-                }
-            coEvery { thorClient.getBestBlock() } coAnswers { buildBlock(1L) }
-            every { pruner.run(any()) } just Runs
-            every { processor.getLastSyncedBlock() } returns null
-            every { processor.process(any()) } just Runs
+            every { pruner.run(capture(capturedBlocks)) } just Runs
+            indexer.setBlockStreamOverride(StubBlockStream(caughtUp = true))
 
-            val job = launch { indexer.start(6) }
-            job.join()
+            repeat(12) {
+                indexer.publicRunPruner()
+                indexer.incrementBlockNumber()
+            }
 
             expect {
-                // Verify that the pruner was called at the specified intervals
-                verify(exactly = 2) { pruner.run(any()) }
+                that(capturedBlocks).isNotEmpty()
+                val expectedRemainder = capturedBlocks.first() % prunerInterval
+                capturedBlocks.forEach { blockNumber ->
+                    that(blockNumber % prunerInterval).isEqualTo(expectedRemainder)
+                }
             }
         }
 
         @Test
-        fun `pruner doesn't run if status isn't fully synced`() {
+        fun `pruner doesn't run when stream is not caught up`() {
             val indexer =
                 TestableBlockIndexer(
                     name = "TestBlockIndexer",
-                    status = Status.SYNCING,
+                    status = Status.RUNNING,
                     thorClient = thorClient,
                     processor = processor,
                     pruner = pruner,
@@ -691,21 +652,22 @@ internal class BlockIndexerTest {
                 )
 
             every { pruner.run(any()) } just Runs
+            indexer.setBlockStreamOverride(StubBlockStream(caughtUp = false))
 
             indexer.publicRunPruner()
 
             expect {
-                // Verify that the pruner was not called when status is not FULLY_SYNCED
+                // Verify that the pruner was not called when the tip has not been reached
                 verify(exactly = 0) { pruner.run(any()) }
             }
         }
 
         @Test
-        fun `pruner runs with status FULLY_SYNCED`() {
+        fun `pruner runs when stream is caught up`() {
             val indexer =
                 TestableBlockIndexer(
                     name = "TestBlockIndexer",
-                    status = Status.FULLY_SYNCED,
+                    status = Status.RUNNING,
                     thorClient = thorClient,
                     processor = processor,
                     pruner = pruner,
@@ -713,11 +675,12 @@ internal class BlockIndexerTest {
                 )
 
             every { pruner.run(any()) } just Runs
+            indexer.setBlockStreamOverride(StubBlockStream(caughtUp = true))
 
             indexer.publicRunPruner()
 
             expect {
-                // Verify that the pruner was called when status is FULLY_SYNCED
+                // Verify that the pruner was called when the tip has been reached
                 verify(exactly = 1) { pruner.run(any()) }
             }
         }
@@ -736,6 +699,7 @@ internal class BlockIndexerTest {
                 )
 
             every { pruner.run(any()) } just Runs
+            indexer.setBlockStreamOverride(StubBlockStream(caughtUp = true))
 
             indexer.publicRunPruner()
 
@@ -758,6 +722,7 @@ internal class BlockIndexerTest {
                 )
 
             every { pruner.run(any()) } just Runs
+            indexer.setBlockStreamOverride(StubBlockStream(caughtUp = true))
 
             indexer.publicRunPruner()
 
@@ -768,43 +733,13 @@ internal class BlockIndexerTest {
         }
 
         @Test
-        fun `pruner runs based on the interval set`() {
-            val prunerInterval = 3L
-            val indexer =
-                TestableBlockIndexer(
-                    name = "TestBlockIndexer",
-                    startBlock = 0L,
-                    status = Status.FULLY_SYNCED,
-                    thorClient = thorClient,
-                    processor = processor,
-                    pruner = pruner,
-                    prunerInterval = prunerInterval
-                )
-
-            every { pruner.run(any()) } just Runs
-
-            // Simulate multiple calls to publicRunPruner
-            for (i in 0..8) {
-                indexer.publicRunPruner()
-                indexer.incrementBlockNumber()
-            }
-
-            expect {
-                // Verify that the pruner was called only once at the specified interval
-                verify(exactly = 3) { pruner.run(any()) }
-                // Status should remain FULLY_SYNCED
-                that(indexer.status).isEqualTo(Status.FULLY_SYNCED)
-            }
-        }
-
-        @Test
-        fun `pruner sets status to PRUNING while pruning and then back the FULLY_SYNCED`() {
+        fun `pruner sets status to PRUNING while pruning and then back to RUNNING`() {
             val prunerInterval = 1L
             val indexer =
                 TestableBlockIndexer(
                     name = "TestBlockIndexer",
                     startBlock = 0L,
-                    status = Status.FULLY_SYNCED,
+                    status = Status.RUNNING,
                     thorClient = thorClient,
                     processor = processor,
                     pruner = pruner,
@@ -817,14 +752,16 @@ internal class BlockIndexerTest {
                     expectThat(indexer.status).isEqualTo(Status.PRUNING)
                 }
 
+            indexer.setBlockStreamOverride(StubBlockStream(caughtUp = true))
+
             // Call publicRunPruner to trigger pruning
             indexer.publicRunPruner()
 
             expect {
                 // Verify that the pruner was called once
                 verify(exactly = 1) { pruner.run(any()) }
-                // After pruning, status should revert back to FULLY_SYNCED
-                that(indexer.status).isEqualTo(Status.FULLY_SYNCED)
+                // After pruning, status should revert back to RUNNING
+                that(indexer.status).isEqualTo(Status.RUNNING)
             }
         }
     }
@@ -851,7 +788,7 @@ internal class BlockIndexerTest {
 
             expect {
                 that(indexer.currentBlockNumber).isEqualTo(10L)
-                that(indexer.status).isEqualTo(Status.SYNCING)
+                that(indexer.status).isEqualTo(Status.RUNNING)
                 verify(exactly = 1) { processor.rollback(10L) }
             }
         }
@@ -876,7 +813,7 @@ internal class BlockIndexerTest {
 
             expect {
                 that(indexer.currentBlockNumber).isEqualTo(0L)
-                that(indexer.status).isEqualTo(Status.SYNCING)
+                that(indexer.status).isEqualTo(Status.RUNNING)
                 verify(exactly = 1) { processor.rollback(0L) }
             }
         }
@@ -949,14 +886,14 @@ internal class BlockIndexerTest {
         }
 
         @Test
-        fun `restart should call initialise with no parameter when status is SYNCING`() {
+        fun `restart should call initialise with no parameter when status is RUNNING`() {
             every { processor.getLastSyncedBlock() } returns null
             every { processor.rollback(0L) } just Runs
 
             val indexer =
                 TestableBlockIndexer(
                     name = "TestBlockIndexer",
-                    status = Status.SYNCING,
+                    status = Status.RUNNING,
                     thorClient = thorClient,
                     processor = processor,
                     pruner = pruner,
@@ -979,7 +916,7 @@ internal class BlockIndexerTest {
                 val indexer =
                     TestableBlockIndexer(
                         name = "TestBlockIndexer",
-                        status = Status.SYNCING,
+                        status = Status.RUNNING,
                         thorClient = thorClient,
                         processor = processor,
                         pruner = pruner,
@@ -998,39 +935,13 @@ internal class BlockIndexerTest {
             }
 
         @Test
-        fun `postProcessBlock should update backoff period and change status to SYNCING when behind`() =
-            runBlocking {
-                val block = buildBlock(20L)
-
-                val indexer =
-                    TestableBlockIndexer(
-                        name = "TestBlockIndexer",
-                        status = Status.FULLY_SYNCED,
-                        thorClient = thorClient,
-                        processor = processor,
-                        pruner = pruner,
-                        prunerInterval = 1L
-                    )
-
-                coEvery { thorClient.getBestBlock() } returns buildBlock(21L)
-
-                indexer.overwriteCurrentBlockNumber(20L)
-                indexer.publicPostProcessBlock(block)
-
-                expect {
-                    that(indexer.status).isEqualTo(Status.SYNCING)
-                    that(indexer.currentBlockNumber).isEqualTo(21L)
-                }
-            }
-
-        @Test
         fun `should throw an IllegalStateException if block number does not match currentBlockNumber`() {
             val block = buildBlock(10L)
 
             val indexer =
                 TestableBlockIndexer(
                     name = "TestBlockIndexer",
-                    status = Status.SYNCING,
+                    status = Status.RUNNING,
                     thorClient = thorClient,
                     processor = processor,
                     pruner = pruner,
@@ -1046,85 +957,20 @@ internal class BlockIndexerTest {
                 .isEqualTo("Block number mismatch: expected 5, got 10")
         }
     }
-
-    @Nested
-    inner class EnsureFullySyncedTest {
-        @Test
-        fun `should not change status if not fully synced`() {
-            runBlocking {
-                val indexer =
-                    TestableBlockIndexer(
-                        name = "TestBlockIndexer",
-                        status = Status.SYNCING,
-                        thorClient = thorClient,
-                        processor = processor,
-                        pruner = pruner,
-                        prunerInterval = 1L
-                    )
-
-                indexer.publicEnsureFullySynced()
-
-                expectThat(indexer.status).isEqualTo(Status.SYNCING)
-            }
-        }
-
-        @Test
-        fun `should not change status if fully synced and latest block is not ahead`() {
-            runBlocking {
-                val indexer =
-                    TestableBlockIndexer(
-                        name = "TestBlockIndexer",
-                        status = Status.FULLY_SYNCED,
-                        thorClient = thorClient,
-                        processor = processor,
-                        pruner = pruner,
-                        prunerInterval = 1L
-                    )
-
-                indexer.overwriteCurrentBlockNumber(100L)
-                coEvery { thorClient.getBestBlock() } returns buildBlock(100L)
-
-                indexer.publicEnsureFullySynced()
-
-                expectThat(indexer.status).isEqualTo(Status.FULLY_SYNCED)
-            }
-
-            @Test
-            fun `should switch to SYNCING if fully synced but behind best block`() {
-                runBlocking {
-                    val indexer =
-                        TestableBlockIndexer(
-                            name = "TestBlockIndexer",
-                            status = Status.FULLY_SYNCED,
-                            thorClient = thorClient,
-                            processor = processor,
-                            pruner = pruner,
-                            prunerInterval = 1L
-                        )
-
-                    indexer.overwriteCurrentBlockNumber(100L)
-                    coEvery { thorClient.getBestBlock() } returns buildBlock(105L)
-
-                    indexer.publicEnsureFullySynced()
-
-                    expectThat(indexer.status).isEqualTo(Status.SYNCING)
-                }
-            }
-        }
-    }
 }
 
 class TestableBlockIndexer(
     name: String,
     thorClient: ThorClient,
     processor: IndexerProcessor,
-    override var status: Status = Status.SYNCING,
+    override var status: Status = Status.RUNNING,
     eventProcessor: CombinedEventProcessor? = null,
     startBlock: Long = 0L,
     pruner: Pruner? = null,
     prunerInterval: Long = 1L,
     syncLoggerInterval: Long = 100L,
-    dependantIndexers: Set<Indexer> = emptySet()
+    dependantIndexers: Set<Indexer> = emptySet(),
+    private val batchSizeOverride: Int = 1,
 ) :
     BlockIndexer(
         name = name,
@@ -1135,7 +981,8 @@ class TestableBlockIndexer(
         pruner = pruner,
         prunerInterval = prunerInterval,
         syncLoggerInterval = syncLoggerInterval,
-        dependantIndexers = dependantIndexers
+        dependantIndexers = dependantIndexers,
+        batchSize = batchSizeOverride,
     ) {
 
     var iterations: Long? = null
@@ -1146,17 +993,17 @@ class TestableBlockIndexer(
     }
 
     override suspend fun run() {
-        val max = iterations
-        var count = 0L
-
-        while (max == null || count < max) {
-            runOnce()
-            count++
-        }
+        runLoop(iterations)
     }
 
     fun publicRunPruner() {
         super.runPruner()
+    }
+
+    fun isStreamCaughtUp(): Boolean = isBlockStreamCaughtUp()
+
+    fun setBlockStreamOverride(stream: BlockStream) {
+        overrideBlockStream(stream)
     }
 
     fun incrementBlockNumber() {
@@ -1184,7 +1031,17 @@ class TestableBlockIndexer(
     }
 
     // Expose ensureFullySynced for testing
-    suspend fun publicEnsureFullySynced() {
-        super.ensureFullySynced()
+}
+
+private class StubBlockStream(private val caughtUp: Boolean) : BlockStream {
+    override suspend fun next(): Block {
+        throw UnsupportedOperationException("StubBlockStream does not provide blocks")
     }
+
+    override fun reset() {}
+
+    override fun close() {}
+
+    override val isCaughtUp: Boolean
+        get() = caughtUp
 }

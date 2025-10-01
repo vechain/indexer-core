@@ -167,13 +167,7 @@ class LogsIndexerTest {
         }
 
         override suspend fun run() {
-            val max = iterations
-            var count = 0L
-
-            while (max == null || count < max) {
-                runOnce()
-                count++
-            }
+            runLoop(iterations)
         }
 
         suspend fun testSync(toBlock: Long) {

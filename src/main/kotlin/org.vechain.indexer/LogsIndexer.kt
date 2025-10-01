@@ -149,10 +149,7 @@ open class LogsIndexer(
     }
 
     private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long, status: Status) {
-        if (
-            logger.isTraceEnabled ||
-                hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
-        ) {
+        if (hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)) {
             logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
         }
     }

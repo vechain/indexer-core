@@ -2,21 +2,17 @@ package org.vechain.indexer
 
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.CombinedEventProcessor
-import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
 import org.vechain.indexer.thor.model.Clause
-
-/** Initial processing backoff duration */
-const val INITIAL_BACKOFF_PERIOD = 10_000L
-
-private const val DEPENDENCY_CHECK_INTERVAL_MS = 50L
 
 open class BlockIndexer(
     override val name: String,
@@ -29,6 +25,7 @@ open class BlockIndexer(
     override val pruner: Pruner? = null,
     private val prunerInterval: Long,
     override val dependantIndexers: Set<Indexer>,
+    private val batchSize: Int = 1,
 ) : Indexer {
     /** The last block that was successfully synchronised */
     protected var previousBlock: BlockIdentifier? = null
@@ -39,7 +36,11 @@ open class BlockIndexer(
 
     protected val logger: Logger = LoggerFactory.getLogger(name)
 
-    override var status = Status.SYNCING
+    init {
+        require(batchSize >= 1) { "batchSize must be at least 1" }
+    }
+
+    override var status = Status.RUNNING
 
     var currentBlockNumber: Long = 0
         protected set
@@ -47,7 +48,8 @@ open class BlockIndexer(
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
         internal set
 
-    private var backoffPeriod = 0L
+    protected lateinit var blockStream: BlockStream
+        private set
 
     /** Initialises the indexer processing */
     protected fun initialise(blockNumber: Long? = null) {
@@ -60,7 +62,7 @@ open class BlockIndexer(
 
         // Initialise fields
         currentBlockNumber = lastSyncedBlockNumber
-        status = Status.SYNCING
+        status = Status.RUNNING
 
         // Set the previous block to the previously synced block if it exists, or null otherwise.
         val lastBlock = getLastSyncedBlock()
@@ -70,6 +72,8 @@ open class BlockIndexer(
             } else {
                 null
             }
+
+        resetBlockStream()
     }
 
     /**
@@ -109,37 +113,52 @@ open class BlockIndexer(
 
     /** The core indexer logic */
     protected open suspend fun run() {
-        while (true) {
-            runOnce()
-        }
+        runLoop()
     }
 
     protected suspend fun runOnce() {
         try {
-            backoffDelay()
-
             if (status == Status.ERROR || status == Status.REORG) restart()
 
-            val block = thorClient.getBlock(currentBlockNumber)
-
+            val block = blockStream.next()
+            val result = buildIndexingResult(block)
             checkForReorg(block)
 
             logProcessingBlock()
 
-            process(buildIndexingResult(block))
+            process(result)
             postProcessBlock(block)
             runPruner()
-        } catch (_: BlockNotFoundException) {
-            logger.info("Block $currentBlockNumber not found. Indexer may be fully synchronised.")
-            handleFullySynced()
-            ensureFullySynced()
         } catch (_: ReorgException) {
             handleReorg()
+            resetBlockStream()
         } catch (e: Exception) {
             logger.error("Error while processing block $currentBlockNumber", e)
             handleError()
+            resetBlockStream()
         }
     }
+
+    protected open suspend fun runLoop(maxIterations: Long? = null) = coroutineScope {
+        blockStream = createBlockStream(this)
+        try {
+            var count = 0L
+            while (maxIterations == null || count < maxIterations) {
+                runOnce()
+                count++
+            }
+        } finally {
+            blockStream.close()
+        }
+    }
+
+    protected open fun createBlockStream(scope: CoroutineScope): BlockStream =
+        PrefetchingBlockStream(
+            scope = scope,
+            batchSize = batchSize,
+            currentBlockProvider = { currentBlockNumber },
+            thorClient = thorClient,
+        )
 
     protected suspend fun buildIndexingResult(block: Block): IndexingResult {
         val callResults =
@@ -149,18 +168,11 @@ open class BlockIndexer(
         return IndexingResult.Normal(block, events, callResults)
     }
 
-    private fun handleFullySynced() {
-        backoffPeriod = 4000
-        status = Status.FULLY_SYNCED
-    }
-
     internal fun handleError() {
-        backoffPeriod = INITIAL_BACKOFF_PERIOD
         status = Status.ERROR
     }
 
     private fun handleReorg() {
-        backoffPeriod = INITIAL_BACKOFF_PERIOD
         status = Status.REORG
     }
 
@@ -170,28 +182,13 @@ open class BlockIndexer(
      *
      * @param block the block to undergo post-processing
      */
-    protected suspend fun postProcessBlock(block: Block) {
+    protected fun postProcessBlock(block: Block) {
 
         // If this block is not the block after currentBlockNumber, then we are in an invalid state.
         if (block.number != currentBlockNumber) {
             throw IllegalStateException(
                 "Block number mismatch: expected $currentBlockNumber, got ${block.number}",
             )
-        }
-
-        // Every 20 blocks, check if we are fully synced.
-        if (status == Status.FULLY_SYNCED && currentBlockNumber % 20 == 0L) {
-            ensureFullySynced()
-        }
-
-        // If we are fully synced, recalculate the backoff period.
-        if (status == Status.FULLY_SYNCED) {
-            val currentEpoch =
-                LocalDateTime.now(ZoneOffset.UTC).toInstant(ZoneOffset.UTC).toEpochMilli()
-            val timeSinceLastBlock = maxOf(currentEpoch - block.timestamp.times(1000), 0)
-            backoffPeriod = maxOf(0, INITIAL_BACKOFF_PERIOD - (timeSinceLastBlock)) + 100
-
-            logger.debug("Success @ Block $currentBlockNumber ($timeSinceLastBlock ms since mine)")
         }
 
         // Set the current block number to the next block.
@@ -209,32 +206,16 @@ open class BlockIndexer(
      * `prunerInterval` to ensure that not all indexers run the pruner at the same time.
      */
     protected fun runPruner() {
-        if (status != Status.FULLY_SYNCED) return
-        pruner?.let {
-            if (currentBlockNumber % prunerInterval == prunerIntervalOffset) {
-                status = Status.PRUNING
-                it.run(currentBlockNumber)
-                status = Status.FULLY_SYNCED
-            }
-        }
-    }
+        val prunerInstance = pruner ?: return
+        if (status != Status.RUNNING) return
+        if (!blockStream.isCaughtUp) return
+        if (currentBlockNumber % prunerInterval != prunerIntervalOffset) return
 
-    /** Ensures that indexer is not behind on-chain best block when in fully synced state */
-    protected suspend fun ensureFullySynced() {
-        if (status == Status.FULLY_SYNCED) {
-            val latestBlock = thorClient.getBestBlock()
-            if (latestBlock.number > currentBlockNumber) {
-                logger.info(
-                    "$name - Changing status to SYNCING (indexerBlock=$currentBlockNumber, latestBlock=${latestBlock.number})",
-                )
-                status = Status.SYNCING
-            }
-        }
-    }
-
-    internal suspend fun backoffDelay() {
-        if (status != Status.SYNCING) {
-            delay(backoffPeriod)
+        status = Status.PRUNING
+        try {
+            prunerInstance.run(currentBlockNumber)
+        } finally {
+            status = Status.RUNNING
         }
     }
 
@@ -245,14 +226,23 @@ open class BlockIndexer(
     override fun process(entry: IndexingResult) = processor.process(entry)
 
     private fun logProcessingBlock() {
-        if (
-            logger.isTraceEnabled ||
-                status != Status.SYNCING ||
-                currentBlockNumber % syncLoggerInterval == 0L
-        ) {
+        if (currentBlockNumber % syncLoggerInterval == 0L) {
             logger.info("($status) Processing Block  $currentBlockNumber")
         }
     }
+
+    protected fun resetBlockStream() {
+        if (this::blockStream.isInitialized) {
+            blockStream.reset()
+        }
+    }
+
+    protected fun overrideBlockStream(stream: BlockStream) {
+        blockStream = stream
+    }
+
+    protected fun isBlockStreamCaughtUp(): Boolean =
+        this::blockStream.isInitialized && blockStream.isCaughtUp
 
     protected fun checkForReorg(block: Block) {
         // Check for chain re-organization.

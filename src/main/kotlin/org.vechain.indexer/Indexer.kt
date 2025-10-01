@@ -9,10 +9,7 @@ import org.vechain.indexer.thor.model.InspectionResult
 /** The possible states the indexer can be */
 enum class Status {
     /** Indexer is processing blocks */
-    SYNCING,
-
-    /** Indexing is up to date with the latest on-chain block */
-    FULLY_SYNCED,
+    RUNNING,
 
     /** A chain re-organization has been detected during processing */
     REORG,
