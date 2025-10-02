@@ -98,12 +98,13 @@ open class BlockIndexer(
             throw IllegalStateException("Indexer $name is not initialised")
         }
         status = Status.RUNNING
+        if (block.number != currentBlockNumber) {
+            throw IllegalStateException(
+                "Block number mismatch: expected $currentBlockNumber, got ${block.number}"
+            )
+        }
         try {
             logProcessingBlock()
-            if (block.number < currentBlockNumber) {
-                // This block has already been processed, skip it.
-                return
-            }
             checkForReorg(block)
             process(buildIndexingResult(block))
             postProcessBlock(block)
