@@ -11,6 +11,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -65,7 +66,7 @@ class PrefetchingBlockStream(
     private val stream =
         MutableSharedFlow<StreamEvent>(
             replay = 0,
-            extraBufferCapacity = batchSize,
+            extraBufferCapacity = maxOf(batchSize - 1, 0),
             onBufferOverflow = BufferOverflow.SUSPEND,
         )
     private var supervisor: CompletableJob = newSupervisor()
@@ -154,6 +155,8 @@ class PrefetchingBlockStream(
     private fun startFetcher(resetEvent: StreamEvent.Reset) {
         val job =
             streamScope.launch {
+                // Ensure at least one collector is active before emitting to avoid dropping events.
+                stream.subscriptionCount.first { count -> count > 0 }
                 stream.emit(resetEvent)
                 var nextBlock = resetEvent.startBlock
                 val version = resetEvent.version
