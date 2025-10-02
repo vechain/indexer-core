@@ -32,7 +32,6 @@ open class IndexerCoordinator(
             thorClient: ThorClient,
             indexers: Collection<BlockIndexer>,
             blockBatchSize: Int = 1,
-            maxBlocks: Long? = null,
         ): Job {
             if (indexers.isEmpty()) {
                 return scope.launch {}
@@ -44,7 +43,6 @@ open class IndexerCoordinator(
             return scope.launch {
                 indexerCoordinator.run(
                     indexers = blockIndexers,
-                    maxBlocks = maxBlocks,
                 )
             }
         }
@@ -52,7 +50,6 @@ open class IndexerCoordinator(
 
     suspend fun run(
         indexers: List<BlockIndexer>,
-        maxBlocks: Long? = null,
     ) = coroutineScope {
         require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -60,7 +57,6 @@ open class IndexerCoordinator(
         CoordinatorSupport.prepareIndexers(scope = this, indexers = indexers)
 
         val startBlockNumber = indexers.minOf { it.currentBlockNumber }
-        val maxBlockExclusive = maxBlocks?.let { startBlockNumber + it }
 
         val stream =
             PrefetchingBlockStream(
@@ -76,7 +72,6 @@ open class IndexerCoordinator(
                 stream = stream,
                 executionGroups = executionGroups,
                 allIndexers = indexers,
-                maxBlockExclusive = maxBlockExclusive,
             )
 
         supervisor.run()
@@ -88,7 +83,6 @@ internal class GroupSupervisor(
     private val stream: BlockStream,
     private val executionGroups: List<List<BlockIndexer>>,
     private val allIndexers: List<BlockIndexer>,
-    private val maxBlockExclusive: Long?,
 ) {
     private val resetChannel = Channel<Unit>(capacity = Channel.CONFLATED)
 
@@ -136,7 +130,6 @@ internal class GroupSupervisor(
                         group = group,
                         subscription = subscription,
                         allIndexers = allIndexers,
-                        maxBlockExclusive = maxBlockExclusive,
                         onResetRequested = { resetChannel.trySend(Unit).isSuccess },
                     )
                 }
@@ -161,16 +154,12 @@ internal suspend fun CoroutineScope.processGroup(
     group: List<BlockIndexer>,
     subscription: BlockStreamSubscription,
     allIndexers: List<BlockIndexer>,
-    maxBlockExclusive: Long?,
     onResetRequested: () -> Unit,
 ) {
     val resetController = ResetController(onResetRequested)
 
     try {
         while (isActive && !resetController.isRequested()) {
-            if (maxBlockExclusive != null && subscription.nextBlockNumber >= maxBlockExclusive) {
-                break
-            }
 
             val block =
                 try {
@@ -189,10 +178,6 @@ internal suspend fun CoroutineScope.processGroup(
                     resetController.request()
                     break
                 }
-
-            if (maxBlockExclusive != null && block.number >= maxBlockExclusive) {
-                break
-            }
 
             if (resetController.isRequested()) {
                 break
@@ -220,24 +205,26 @@ internal suspend fun runGroupForBlock(
     block: Block,
     resetController: ResetController,
 ) = coroutineScope {
-    group.forEach { indexer ->
-        launch {
-            if (resetController.isRequested()) return@launch
+    group
+        .filter { it.currentBlockNumber == block.number }
+        .forEach { indexer ->
+            launch {
+                if (resetController.isRequested()) return@launch
 
-            indexer.restartIfNeeded()
-            if (resetController.isRequested()) return@launch
+                indexer.restartIfNeeded()
+                if (resetController.isRequested()) return@launch
 
-            indexer.processBlock(block) {
-                resetController.request()
-                cancel()
-            }
+                indexer.processBlock(block) {
+                    resetController.request()
+                    cancel()
+                }
 
-            if (indexer.status == Status.ERROR || indexer.status == Status.REORG) {
-                resetController.request()
-                cancel()
+                if (indexer.status == Status.ERROR || indexer.status == Status.REORG) {
+                    resetController.request()
+                    cancel()
+                }
             }
         }
-    }
 }
 
 internal class ResetController(private val triggerReset: () -> Unit) {
