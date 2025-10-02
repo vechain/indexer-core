@@ -60,7 +60,6 @@ class PrefetchingBlockStream(
         val collectorJob: Job,
         var expectedBlock: Long,
         var resetToken: String,
-        var previousResetToken: String?,
     )
 
     private val mutex = Mutex()
@@ -96,7 +95,6 @@ class PrefetchingBlockStream(
                         collectorJob = collectorJob,
                         expectedBlock = resetSnapshot.startBlock,
                         resetToken = resetSnapshot.resetToken,
-                        previousResetToken = null,
                     )
                 subscriptions[id] = subscriptionState
                 subscriptionState to resetSnapshot
@@ -194,34 +192,20 @@ class PrefetchingBlockStream(
                     }
                 when (event) {
                     is StreamEvent.Reset -> {
-                        when (event.resetToken) {
-                            state.resetToken -> continue
-                            state.previousResetToken -> continue
-                            else -> {
-                                state.previousResetToken = state.resetToken
-                                state.resetToken = event.resetToken
-                                state.expectedBlock = event.startBlock
-                            }
-                        }
+                        if (event.resetToken == state.resetToken) continue
+                        state.resetToken = event.resetToken
+                        state.expectedBlock = event.startBlock
                     }
                     is StreamEvent.Block -> {
-                        when (event.resetToken) {
-                            state.resetToken -> {
-                                val expected = state.expectedBlock
-                                if (event.block.number != expected) {
-                                    throw IllegalStateException(
-                                        "Received block ${event.block.number} but expected $expected"
-                                    )
-                                }
-                                state.expectedBlock = event.block.number + 1
-                                return event.block
-                            }
-                            state.previousResetToken -> continue
-                            else ->
-                                throw IllegalStateException(
-                                    "Received block from unknown reset ${event.resetToken} before reset was processed"
-                                )
+                        if (event.resetToken != state.resetToken) continue
+                        val expected = state.expectedBlock
+                        if (event.block.number != expected) {
+                            throw IllegalStateException(
+                                "Received block ${event.block.number} but expected $expected"
+                            )
                         }
+                        state.expectedBlock = event.block.number + 1
+                        return event.block
                     }
                 }
             }
