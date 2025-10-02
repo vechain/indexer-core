@@ -197,16 +197,18 @@ class PrefetchingBlockStream(
                     is StreamEvent.Block -> {
                         if (event.version < state.version) continue
                         if (event.version > state.version) {
-                            state.version = event.version
-                            state.expectedBlock = event.block.number
+                            throw IllegalStateException(
+                                "Received block from version ${event.version} before reset was processed"
+                            )
                         }
+
                         val expected = state.expectedBlock
-                        if (event.block.number < expected) {
-                            continue
+                        if (event.block.number != expected) {
+                            throw IllegalStateException(
+                                "Received block ${event.block.number} but expected ${expected}"
+                            )
                         }
-                        if (event.block.number > expected) {
-                            state.expectedBlock = event.block.number
-                        }
+
                         state.expectedBlock = event.block.number + 1
                         return event.block
                     }

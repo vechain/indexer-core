@@ -222,7 +222,7 @@ class PrefetchingBlockStreamTest {
     }
 
     @Test
-    fun `subscription advances when block number jumps forward`() = runTest {
+    fun `subscription fails when block number jumps forward`() = runTest {
         val client = TestThorClient { requested ->
             when (requested) {
                 50L -> block(50)
@@ -244,11 +244,8 @@ class PrefetchingBlockStreamTest {
 
         try {
             val first = awaitNext(subscription)
-            val second = awaitNext(subscription)
-
             expectThat(first.number).isEqualTo(50)
-            expectThat(second.number).isEqualTo(53)
-            expectThat(subscription.nextBlockNumber).isEqualTo(54)
+            assertFailsWith<IllegalStateException> { awaitNext(subscription) }
         } finally {
             subscription.close()
             stream.close()
