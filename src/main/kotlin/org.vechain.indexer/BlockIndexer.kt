@@ -1,5 +1,6 @@
 package org.vechain.indexer
 
+import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import org.slf4j.Logger
@@ -16,7 +17,6 @@ open class BlockIndexer(
     protected open val thorClient: ThorClient,
     private val processor: IndexerProcessor,
     protected val startBlock: Long,
-    private val syncLoggerInterval: Long,
     protected val eventProcessor: CombinedEventProcessor?,
     protected val inspectionClauses: List<Clause>?,
     override val pruner: Pruner?,
@@ -38,6 +38,9 @@ open class BlockIndexer(
         protected set
 
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
+        internal set
+
+    var timeLastLogged: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
         internal set
 
     /** Initialises the indexer processing */
@@ -180,7 +183,12 @@ open class BlockIndexer(
     override fun process(entry: IndexingResult) = processor.process(entry)
 
     private fun logProcessingBlock() {
-        if (currentBlockNumber % syncLoggerInterval == 0L) {
+        if (logger.isDebugEnabled) {
+            logger.debug("($status) Processing Block  $currentBlockNumber")
+        } else if (
+            Duration.between(timeLastLogged, LocalDateTime.now(ZoneOffset.UTC)).seconds > 5
+        ) {
+            timeLastLogged = LocalDateTime.now(ZoneOffset.UTC)
             logger.info("($status) Processing Block  $currentBlockNumber")
         }
     }

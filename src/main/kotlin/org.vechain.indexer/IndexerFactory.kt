@@ -22,7 +22,6 @@ class IndexerFactory {
     private var businessEventNames: List<String> = emptyList()
     private var businessEventContracts: List<String> = emptyList()
     private var substitutionParams: Map<String, String> = emptyMap()
-    private var syncLoggerInterval: Long = 1_000L
     private var blockBatchSize: Long = 100L //  Block batch size
     private var logFetchLimit: Long = 1000L //  Limits logs per API call (pagination)
     private var pruner: Pruner? = null
@@ -63,7 +62,6 @@ class IndexerFactory {
                 thorClient = thorClient!!,
                 processor = processor!!,
                 startBlock = startBlock,
-                syncLoggerInterval = syncLoggerInterval,
                 pruner = pruner,
                 eventProcessor = eventProcessor,
                 prunerInterval = prunerInterval,
@@ -77,7 +75,6 @@ class IndexerFactory {
                 thorClient = thorClient!!,
                 processor = processor!!,
                 startBlock = startBlock,
-                syncLoggerInterval = syncLoggerInterval,
                 excludeVetTransfers = !includeVetTransfers,
                 blockBatchSize = blockBatchSize,
                 logFetchLimit = logFetchLimit,
@@ -270,15 +267,6 @@ class IndexerFactory {
     fun transferCriteriaSet(criteria: List<TransferCriteria>) = apply {
         this.transferCriteriaSet = criteria
     }
-
-    /**
-     * Used to tune how often the indexer will log its progress when syncing.
-     *
-     * The default value is `1000` blocks
-     *
-     * @param interval The interval in `blocks` for logging progress.
-     */
-    fun syncLoggerInterval(interval: Long) = apply { this.syncLoggerInterval = interval }
 
     /**
      * Sets the block bach size for retrieving events logs and transfers from the Thor API.
