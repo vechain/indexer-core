@@ -1,5 +1,6 @@
 package org.vechain.indexer.thor
 
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableJob
@@ -43,12 +44,12 @@ class PrefetchingBlockStream(
 ) : BlockStream {
 
     private sealed interface StreamEvent {
-        val version: Int
+        val resetToken: String
 
-        data class Reset(override val version: Int, val startBlock: Long) : StreamEvent
+        data class Reset(override val resetToken: String, val startBlock: Long) : StreamEvent
 
         data class Block(
-            override val version: Int,
+            override val resetToken: String,
             val block: org.vechain.indexer.thor.model.Block
         ) : StreamEvent
     }
@@ -58,7 +59,8 @@ class PrefetchingBlockStream(
         val channel: Channel<StreamEvent>,
         val collectorJob: Job,
         var expectedBlock: Long,
-        var version: Int,
+        var resetToken: String,
+        var previousResetToken: String?,
     )
 
     private val mutex = Mutex()
@@ -73,7 +75,8 @@ class PrefetchingBlockStream(
     private var streamScope = CoroutineScope(scope.coroutineContext + supervisor)
     private var fetchJob: Job? = null
     private val subscriptionSequence = AtomicInteger(0)
-    private var latestReset = StreamEvent.Reset(version = 0, startBlock = currentBlockProvider())
+    private var latestReset =
+        StreamEvent.Reset(resetToken = newResetToken(), startBlock = currentBlockProvider())
 
     init {
         startFetcher(latestReset)
@@ -92,7 +95,8 @@ class PrefetchingBlockStream(
                         channel = channel,
                         collectorJob = collectorJob,
                         expectedBlock = resetSnapshot.startBlock,
-                        version = resetSnapshot.version,
+                        resetToken = resetSnapshot.resetToken,
+                        previousResetToken = null,
                     )
                 subscriptions[id] = subscriptionState
                 subscriptionState to resetSnapshot
@@ -109,7 +113,7 @@ class PrefetchingBlockStream(
             mutex.withLock {
                 val newReset =
                     StreamEvent.Reset(
-                        version = latestReset.version + 1,
+                        resetToken = newResetToken(),
                         startBlock = currentBlockProvider()
                     )
                 val existingJob = fetchJob
@@ -159,10 +163,10 @@ class PrefetchingBlockStream(
                 stream.subscriptionCount.first { count -> count > 0 }
                 stream.emit(resetEvent)
                 var nextBlock = resetEvent.startBlock
-                val version = resetEvent.version
+                val resetToken = resetEvent.resetToken
                 while (isActive) {
                     val block = thorClient.waitForBlock(nextBlock)
-                    stream.emit(StreamEvent.Block(version, block))
+                    stream.emit(StreamEvent.Block(resetToken, block))
                     nextBlock++
                 }
             }
@@ -190,27 +194,34 @@ class PrefetchingBlockStream(
                     }
                 when (event) {
                     is StreamEvent.Reset -> {
-                        if (event.version < state.version) continue
-                        state.version = event.version
-                        state.expectedBlock = event.startBlock
+                        when (event.resetToken) {
+                            state.resetToken -> continue
+                            state.previousResetToken -> continue
+                            else -> {
+                                state.previousResetToken = state.resetToken
+                                state.resetToken = event.resetToken
+                                state.expectedBlock = event.startBlock
+                            }
+                        }
                     }
                     is StreamEvent.Block -> {
-                        if (event.version < state.version) continue
-                        if (event.version > state.version) {
-                            throw IllegalStateException(
-                                "Received block from version ${event.version} before reset was processed"
-                            )
+                        when (event.resetToken) {
+                            state.resetToken -> {
+                                val expected = state.expectedBlock
+                                if (event.block.number != expected) {
+                                    throw IllegalStateException(
+                                        "Received block ${event.block.number} but expected $expected"
+                                    )
+                                }
+                                state.expectedBlock = event.block.number + 1
+                                return event.block
+                            }
+                            state.previousResetToken -> continue
+                            else ->
+                                throw IllegalStateException(
+                                    "Received block from unknown reset ${event.resetToken} before reset was processed"
+                                )
                         }
-
-                        val expected = state.expectedBlock
-                        if (event.block.number != expected) {
-                            throw IllegalStateException(
-                                "Received block ${event.block.number} but expected ${expected}"
-                            )
-                        }
-
-                        state.expectedBlock = event.block.number + 1
-                        return event.block
                     }
                 }
             }
@@ -224,4 +235,6 @@ class PrefetchingBlockStream(
             }
         }
     }
+
+    private fun newResetToken(): String = UUID.randomUUID().toString()
 }
