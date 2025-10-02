@@ -110,6 +110,9 @@ open class LogsIndexer(
     }
 
     internal suspend fun fastSync() {
+        val prevStatus = this.status
+        this.status = Status.SYNCING
+        logger.info("Starting fast sync from block $currentBlockNumber")
 
         val finalizedBlock = thorClient.getFinalizedBlock().number
 
@@ -120,5 +123,7 @@ open class LogsIndexer(
         logger.info("Fast sync complete, switching to block indexer")
         // Before running reset the previousBlock
         previousBlock = null
+
+        this.status = prevStatus
     }
 }

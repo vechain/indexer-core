@@ -4,10 +4,16 @@ import com.fasterxml.jackson.core.type.TypeReference
 import com.github.kittinunf.fuel.Fuel
 import com.github.kittinunf.result.Result
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.JsonUtils
+
+private const val TIP_POLL_MIN_DELAY_MS = 1_000L
+private const val TIP_POLL_INITIAL_DELAY_MS = 4_000L
+private const val TIP_POLL_DELAY_STEP_MS = 500L
 
 /**
  * Default implementation of the {@link org.vechain.indexer.thor.client.ThorClient.class ThorClient}
@@ -19,6 +25,8 @@ class DefaultThorClient(
     private val baseUrl: String,
     private vararg val headers: Pair<String, Any>,
 ) : ThorClient {
+
+    private val logger = LoggerFactory.getLogger(DefaultThorClient::class.java)
     private val objectMapper = JsonUtils.mapper
 
     override suspend fun getBlock(blockNumber: Long): Block =
@@ -43,6 +51,21 @@ class DefaultThorClient(
 
             return@withContext objectMapper.readValue(responseBody, Block::class.java)
         }
+
+    override suspend fun waitForBlock(blockNumber: Long): Block {
+        var delayMs = TIP_POLL_INITIAL_DELAY_MS
+        while (true) {
+            try {
+                return getBlock(blockNumber)
+            } catch (e: Exception) {
+                if (e !is BlockNotFoundException) {
+                    logger.warn("Error fetching block $blockNumber, retrying...", e)
+                }
+                delay(delayMs)
+                delayMs = (delayMs - TIP_POLL_DELAY_STEP_MS).coerceAtLeast(TIP_POLL_MIN_DELAY_MS)
+            }
+        }
+    }
 
     override suspend fun getBestBlock(): Block =
         withContext(Dispatchers.IO) {

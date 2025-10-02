@@ -1,4 +1,4 @@
-package org.vechain.indexer
+package org.vechain.indexer.thor
 
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
@@ -15,14 +15,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.vechain.indexer.exception.BlockNotFoundException
+import org.slf4j.LoggerFactory
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
-
-// VeChain block time averages ~10 seconds; start with a short poll and cap near the expected block
-// interval to avoid hammering the node while we wait for the next block to land.
-private const val TIP_POLL_BASE_DELAY_MS = 1_000L
-private const val TIP_POLL_MAX_DELAY_MS = 10_000L
 
 interface BlockStream {
     suspend fun subscribe(): BlockStreamSubscription
@@ -30,8 +25,6 @@ interface BlockStream {
     suspend fun reset()
 
     suspend fun close()
-
-    val isCaughtUp: Boolean
 }
 
 interface BlockStreamSubscription {
@@ -48,6 +41,9 @@ class PrefetchingBlockStream(
     private val currentBlockProvider: () -> Long,
     private val thorClient: ThorClient,
 ) : BlockStream {
+
+    private val logger = LoggerFactory.getLogger(PrefetchingBlockStream::class.java)
+
     private sealed interface StreamEvent {
         val version: Int
 
@@ -80,15 +76,10 @@ class PrefetchingBlockStream(
     private var fetchJob: Job? = null
     private val subscriptionSequence = AtomicInteger(0)
     private var latestReset = StreamEvent.Reset(version = 0, startBlock = currentBlockProvider())
-    private var latestBestBlock = Long.MIN_VALUE
-    @Volatile private var caughtUp = false
 
     init {
         startFetcher(latestReset)
     }
-
-    override val isCaughtUp: Boolean
-        get() = caughtUp
 
     override suspend fun subscribe(): BlockStreamSubscription {
         val (state, reset) =
@@ -126,7 +117,6 @@ class PrefetchingBlockStream(
                 val existingJob = fetchJob
                 fetchJob = null
                 latestReset = newReset
-                caughtUp = false
                 newReset to existingJob
             }
 
@@ -171,34 +161,12 @@ class PrefetchingBlockStream(
                 var nextBlock = resetEvent.startBlock
                 val version = resetEvent.version
                 while (isActive) {
-                    val block = fetchBlock(nextBlock)
+                    val block = thorClient.waitForBlock(nextBlock)
                     stream.emit(StreamEvent.Block(version, block))
                     nextBlock++
                 }
             }
         fetchJob = job
-    }
-
-    private suspend fun fetchBlock(blockNumber: Long): Block {
-        var delayMs = TIP_POLL_BASE_DELAY_MS
-        while (true) {
-            try {
-                val block = thorClient.getBlock(blockNumber)
-                caughtUp = block.number >= latestBestBlock
-                return block
-            } catch (e: BlockNotFoundException) {
-                val bestBlock = thorClient.getBestBlock()
-                latestBestBlock = maxOf(latestBestBlock, bestBlock.number)
-                if (bestBlock.number <= blockNumber) {
-                    caughtUp = true
-                    kotlinx.coroutines.delay(delayMs)
-                    delayMs = (delayMs * 2).coerceAtMost(TIP_POLL_MAX_DELAY_MS)
-                    continue
-                }
-                caughtUp = false
-                throw e
-            }
-        }
     }
 
     private fun newSupervisor(): CompletableJob {

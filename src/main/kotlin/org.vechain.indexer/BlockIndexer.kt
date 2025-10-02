@@ -32,7 +32,7 @@ open class BlockIndexer(
 
     protected val logger: Logger = LoggerFactory.getLogger(name)
 
-    override var status = Status.RUNNING
+    override var status = Status.NOT_INITIALISED
 
     var currentBlockNumber: Long = 0
         protected set
@@ -51,7 +51,6 @@ open class BlockIndexer(
 
         // Initialise fields
         currentBlockNumber = lastSyncedBlockNumber
-        status = Status.RUNNING
 
         // Set the previous block to the previously synced block if it exists, or null otherwise.
         val lastBlock = getLastSyncedBlock()
@@ -61,6 +60,8 @@ open class BlockIndexer(
             } else {
                 null
             }
+
+        status = Status.INITIALISED
     }
 
     /** Restarts the processing based on the current indexer status */
@@ -93,6 +94,10 @@ open class BlockIndexer(
     }
 
     internal suspend fun processBlock(block: Block, onReset: () -> Unit) {
+        if (status == Status.NOT_INITIALISED) {
+            throw IllegalStateException("Indexer $name is not initialised")
+        }
+        status = Status.RUNNING
         try {
             logProcessingBlock()
             if (block.number < currentBlockNumber) {

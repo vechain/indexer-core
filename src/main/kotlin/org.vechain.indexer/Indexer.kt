@@ -7,6 +7,15 @@ import org.vechain.indexer.thor.model.InspectionResult
 
 /** The possible states the indexer can be */
 enum class Status {
+    /** Indexer has not been initialised */
+    NOT_INITIALISED,
+
+    /** Indexer has been initialised but not started */
+    INITIALISED,
+
+    /** Indexer is syncing */
+    SYNCING,
+
     /** Indexer is processing blocks */
     RUNNING,
 

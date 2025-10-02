@@ -8,12 +8,19 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.vechain.indexer.thor.BlockStream
+import org.vechain.indexer.thor.BlockStreamSubscription
+import org.vechain.indexer.thor.PrefetchingBlockStream
 import org.vechain.indexer.thor.client.ThorClient
+import org.vechain.indexer.thor.model.Block
+
+private const val RESET_POLL_INTERVAL_MS = 100L
 
 open class IndexerCoordinator(
     private val thorClient: ThorClient,
@@ -63,140 +70,184 @@ open class IndexerCoordinator(
                 thorClient = thorClient,
             )
 
-        val resetChannel = Channel<Unit>(capacity = Channel.CONFLATED)
+        val supervisor =
+            GroupSupervisor(
+                parentScope = this,
+                stream = stream,
+                executionGroups = executionGroups,
+                allIndexers = indexers,
+                maxBlockExclusive = maxBlockExclusive,
+            )
 
-        suspend fun CoroutineScope.launchGroupProcessors(): Pair<List<Job>, Deferred<Unit>> {
-            val jobs =
-                executionGroups.map { group ->
-                    val subscription = stream.subscribe()
-                    launch {
-                        processGroup(
-                            group = group,
-                            subscription = subscription,
-                            allIndexers = indexers,
-                            resetChannel = resetChannel,
-                            maxBlockExclusive = maxBlockExclusive,
-                        )
-                    }
-                }
-            val completion = async { jobs.joinAll() }
-            return jobs to completion
-        }
+        supervisor.run()
+    }
+}
 
-        var (groupJobs, groupCompletion) = launchGroupProcessors()
+internal class GroupSupervisor(
+    private val parentScope: CoroutineScope,
+    private val stream: BlockStream,
+    private val executionGroups: List<List<BlockIndexer>>,
+    private val allIndexers: List<BlockIndexer>,
+    private val maxBlockExclusive: Long?,
+) {
+    private val resetChannel = Channel<Unit>(capacity = Channel.CONFLATED)
+
+    suspend fun run() {
+        var activeGroups = launchGroups()
 
         try {
-            while (isActive) {
-                if (groupCompletion.isCompleted) {
-                    groupCompletion.await()
+            while (parentScope.isActive) {
+                if (activeGroups.completion.isCompleted) {
+                    activeGroups.completion.await()
                     break
                 }
 
-                val resetSignal = withTimeoutOrNull(100L) { resetChannel.receive() }
+                val resetSignal = tryReceiveReset()
                 if (resetSignal != null) {
-                    groupCompletion.cancel()
-                    groupJobs.forEach { job -> job.cancel() }
-                    groupJobs.joinAll()
-                    stream.reset()
-                    val restarted = launchGroupProcessors()
-                    groupJobs = restarted.first
-                    groupCompletion = restarted.second
+                    activeGroups = restartGroups(activeGroups)
                 }
             }
         } finally {
-            groupCompletion.cancel()
-            groupJobs.forEach { it.cancel() }
-            groupJobs.joinAll()
+            activeGroups.cancelAll()
             stream.close()
+            resetChannel.close()
         }
     }
 
-    private suspend fun CoroutineScope.processGroup(
-        group: List<BlockIndexer>,
-        subscription: BlockStreamSubscription,
-        allIndexers: List<BlockIndexer>,
-        resetChannel: Channel<Unit>,
-        maxBlockExclusive: Long?,
-    ) {
-        val resetRequested = AtomicBoolean(false)
-
-        fun requestReset() {
-            if (resetRequested.compareAndSet(false, true)) {
-                resetChannel.trySend(Unit).isSuccess
-            }
+    private suspend fun tryReceiveReset(): Unit? =
+        try {
+            withTimeoutOrNull(RESET_POLL_INTERVAL_MS) { resetChannel.receive() }
+        } catch (_: ClosedReceiveChannelException) {
+            null
         }
 
-        try {
-            while (isActive && !resetRequested.get()) {
-                if (
-                    maxBlockExclusive != null && subscription.nextBlockNumber >= maxBlockExclusive
-                ) {
-                    break
+    private suspend fun restartGroups(current: GroupSet): GroupSet {
+        current.cancelAll()
+        stream.reset()
+        return launchGroups()
+    }
+
+    private suspend fun launchGroups(): GroupSet {
+        val jobs =
+            executionGroups.map { group ->
+                val subscription = stream.subscribe()
+                parentScope.launch {
+                    processGroup(
+                        group = group,
+                        subscription = subscription,
+                        allIndexers = allIndexers,
+                        maxBlockExclusive = maxBlockExclusive,
+                        onResetRequested = { resetChannel.trySend(Unit).isSuccess },
+                    )
                 }
+            }
+        val completion = parentScope.async { jobs.joinAll() }
+        return GroupSet(jobs, completion)
+    }
 
-                val block =
-                    try {
-                        subscription.next()
-                    } catch (e: CancellationException) {
-                        if (!resetRequested.get()) {
-                            throw e
-                        }
-                        break
-                    } catch (e: Exception) {
-                        val blockNumber = subscription.nextBlockNumber
-                        allIndexers.forEach { indexer ->
-                            indexer.logBlockFetchError(blockNumber, e)
-                            indexer.handleError()
-                        }
-                        requestReset()
-                        break
-                    }
+    private suspend fun GroupSet.cancelAll() {
+        completion.cancel()
+        jobs.forEach { it.cancel() }
+        jobs.joinAll()
+    }
 
-                if (maxBlockExclusive != null && block.number >= maxBlockExclusive) {
-                    break
-                }
+    private data class GroupSet(
+        val jobs: List<Job>,
+        val completion: Deferred<Unit>,
+    )
+}
 
+internal suspend fun CoroutineScope.processGroup(
+    group: List<BlockIndexer>,
+    subscription: BlockStreamSubscription,
+    allIndexers: List<BlockIndexer>,
+    maxBlockExclusive: Long?,
+    onResetRequested: () -> Unit,
+) {
+    val resetController = ResetController(onResetRequested)
+
+    try {
+        while (isActive && !resetController.isRequested()) {
+            if (maxBlockExclusive != null && subscription.nextBlockNumber >= maxBlockExclusive) {
+                break
+            }
+
+            val block =
                 try {
-                    coroutineScope {
-                        fun triggerReset() {
-                            if (!resetRequested.get()) {
-                                requestReset()
-                            }
-                            cancel()
-                        }
-
-                        group
-                            .map { indexer ->
-                                launch {
-                                    if (resetRequested.get()) return@launch
-
-                                    indexer.restartIfNeeded()
-                                    if (resetRequested.get()) return@launch
-
-                                    indexer.processBlock(block) { triggerReset() }
-
-                                    if (
-                                        indexer.status == Status.ERROR ||
-                                            indexer.status == Status.REORG
-                                    ) {
-                                        triggerReset()
-                                    }
-                                }
-                            }
-                            .joinAll()
-                    }
+                    subscription.next()
                 } catch (e: CancellationException) {
-                    if (!resetRequested.get()) {
+                    if (!resetController.isRequested()) {
                         throw e
                     }
-                }
-
-                if (resetRequested.get()) {
+                    break
+                } catch (e: Exception) {
+                    val blockNumber = subscription.nextBlockNumber
+                    allIndexers.forEach { indexer ->
+                        indexer.logBlockFetchError(blockNumber, e)
+                        indexer.handleError()
+                    }
+                    resetController.request()
                     break
                 }
+
+            if (maxBlockExclusive != null && block.number >= maxBlockExclusive) {
+                break
             }
-        } finally {
-            subscription.close()
+
+            if (resetController.isRequested()) {
+                break
+            }
+
+            try {
+                runGroupForBlock(group, block, resetController)
+            } catch (e: CancellationException) {
+                if (!resetController.isRequested()) {
+                    throw e
+                }
+            }
+
+            if (resetController.isRequested()) {
+                break
+            }
+        }
+    } finally {
+        subscription.close()
+    }
+}
+
+internal suspend fun runGroupForBlock(
+    group: List<BlockIndexer>,
+    block: Block,
+    resetController: ResetController,
+) = coroutineScope {
+    group.forEach { indexer ->
+        launch {
+            if (resetController.isRequested()) return@launch
+
+            indexer.restartIfNeeded()
+            if (resetController.isRequested()) return@launch
+
+            indexer.processBlock(block) {
+                resetController.request()
+                cancel()
+            }
+
+            if (indexer.status == Status.ERROR || indexer.status == Status.REORG) {
+                resetController.request()
+                cancel()
+            }
         }
     }
+}
+
+internal class ResetController(private val triggerReset: () -> Unit) {
+    private val requested = AtomicBoolean(false)
+
+    fun request() {
+        if (requested.compareAndSet(false, true)) {
+            triggerReset()
+        }
+    }
+
+    fun isRequested(): Boolean = requested.get()
 }
