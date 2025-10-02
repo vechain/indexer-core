@@ -3,6 +3,7 @@ package org.vechain.indexer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import org.vechain.indexer.exception.RestartIndexerException
 
 internal object CoordinatorSupport {
 
@@ -16,7 +17,15 @@ internal object CoordinatorSupport {
                     indexer.initialise()
 
                     if (indexer is LogsIndexer) {
-                        indexer.fastSync()
+                        while (true) {
+                            try {
+                                indexer.fastSync()
+                                break
+                            } catch (_: RestartIndexerException) {
+                                indexer.handleError()
+                                indexer.restartIfNeeded()
+                            }
+                        }
                     }
 
                     indexer.logStartingState()
