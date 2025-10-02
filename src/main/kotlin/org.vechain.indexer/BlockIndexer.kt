@@ -24,7 +24,8 @@ open class BlockIndexer(
     override val dependsOn: Indexer?,
 ) : Indexer {
     /** The last block that was successfully synchronised */
-    protected var previousBlock: BlockIdentifier? = null
+    var previousBlock: BlockIdentifier? = null
+        protected set
 
     // A random number between 0 and `prunerInterval`. This makes it less like that all pruners will
     // run at the same time.
@@ -110,7 +111,11 @@ open class BlockIndexer(
             logProcessingBlock()
             checkForReorg(block)
             process(buildIndexingResult(block))
-            postProcessBlock(block)
+            // Set the current block number to the next block.
+            currentBlockNumber = block.number + 1
+            // Set the previous block id.
+            previousBlock = BlockIdentifier(number = block.number, id = block.id)
+            timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
             runPruner()
         } catch (_: ReorgException) {
             handleReorg()
@@ -132,30 +137,6 @@ open class BlockIndexer(
 
     private fun handleReorg() {
         status = Status.REORG
-    }
-
-    /**
-     * Ensures that indexer is fully synced, recalculates the backoff period & increments the
-     * current block number.
-     *
-     * @param block the block to undergo post-processing
-     */
-    protected fun postProcessBlock(block: Block) {
-
-        // If this block is not the block after currentBlockNumber, then we are in an invalid state.
-        if (block.number != currentBlockNumber) {
-            throw IllegalStateException(
-                "Block number mismatch: expected $currentBlockNumber, got ${block.number}",
-            )
-        }
-
-        // Set the current block number to the next block.
-        currentBlockNumber = block.number + 1
-
-        // Set the previous block id.
-        previousBlock = BlockIdentifier(number = block.number, id = block.id)
-
-        timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
     }
 
     /**
@@ -193,7 +174,7 @@ open class BlockIndexer(
         }
     }
 
-    protected fun checkForReorg(block: Block) {
+    internal fun checkForReorg(block: Block) {
         // Check for chain re-organization.
         if (
             currentBlockNumber > startBlock &&
