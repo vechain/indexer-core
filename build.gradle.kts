@@ -161,6 +161,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
+    testImplementation("org.jetbrains.kotlin:kotlin-test:2.1.21")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.1")
     testImplementation("io.mockk:mockk:1.13.10")
     testImplementation("io.strikt:strikt-core:0.34.1")

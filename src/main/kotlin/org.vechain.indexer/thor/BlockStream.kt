@@ -15,7 +15,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.slf4j.LoggerFactory
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 
@@ -41,8 +40,6 @@ class PrefetchingBlockStream(
     private val currentBlockProvider: () -> Long,
     private val thorClient: ThorClient,
 ) : BlockStream {
-
-    private val logger = LoggerFactory.getLogger(PrefetchingBlockStream::class.java)
 
     private sealed interface StreamEvent {
         val version: Int

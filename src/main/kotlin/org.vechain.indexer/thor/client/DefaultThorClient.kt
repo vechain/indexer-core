@@ -14,6 +14,7 @@ import org.vechain.indexer.utils.JsonUtils
 private const val TIP_POLL_MIN_DELAY_MS = 1_000L
 private const val TIP_POLL_INITIAL_DELAY_MS = 4_000L
 private const val TIP_POLL_DELAY_STEP_MS = 500L
+private const val TIP_POLL_ERROR_DELAY_MS = 10_000L
 
 /**
  * Default implementation of the {@link org.vechain.indexer.thor.client.ThorClient.class ThorClient}
@@ -57,12 +58,12 @@ class DefaultThorClient(
         while (true) {
             try {
                 return getBlock(blockNumber)
-            } catch (e: Exception) {
-                if (e !is BlockNotFoundException) {
-                    logger.warn("Error fetching block $blockNumber, retrying...", e)
-                }
+            } catch (e: BlockNotFoundException) {
                 delay(delayMs)
                 delayMs = (delayMs - TIP_POLL_DELAY_STEP_MS).coerceAtLeast(TIP_POLL_MIN_DELAY_MS)
+            } catch (e: Exception) {
+                logger.warn("Error fetching block $blockNumber, retrying...", e)
+                delay(TIP_POLL_ERROR_DELAY_MS)
             }
         }
     }
