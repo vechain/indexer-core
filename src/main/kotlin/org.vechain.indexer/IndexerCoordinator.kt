@@ -56,8 +56,6 @@ open class IndexerCoordinator(
         val executionGroups = CoordinatorSupport.topologicalOrder(indexers)
         CoordinatorSupport.prepareIndexers(scope = this, indexers = indexers)
 
-        val startBlockNumber = indexers.minOf { it.currentBlockNumber }
-
         val stream =
             PrefetchingBlockStream(
                 scope = this,
@@ -212,7 +210,6 @@ internal suspend fun runGroupForBlock(
                 if (resetController.isRequested()) return@launch
 
                 indexer.restartIfNeeded()
-                if (resetController.isRequested()) return@launch
 
                 indexer.processBlock(block) {
                     resetController.request()
