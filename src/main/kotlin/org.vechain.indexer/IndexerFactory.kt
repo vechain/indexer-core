@@ -13,6 +13,7 @@ class IndexerFactory {
     private var thorClient: ThorClient? = null
     private var processor: IndexerProcessor? = null
     private var startBlock: Long = 0L
+    private var syncLoggerInterval: Long = 1_000L
     private var abiBasePath: String? = null
     private var abiEventNames: List<String> = emptyList()
     private var abiContracts: List<String> = emptyList()
@@ -62,6 +63,7 @@ class IndexerFactory {
                 thorClient = thorClient!!,
                 processor = processor!!,
                 startBlock = startBlock,
+                syncLoggerInterval = syncLoggerInterval,
                 pruner = pruner,
                 eventProcessor = eventProcessor,
                 prunerInterval = prunerInterval,
@@ -75,6 +77,7 @@ class IndexerFactory {
                 thorClient = thorClient!!,
                 processor = processor!!,
                 startBlock = startBlock,
+                syncLoggerInterval = syncLoggerInterval,
                 excludeVetTransfers = !includeVetTransfers,
                 blockBatchSize = blockBatchSize,
                 logFetchLimit = logFetchLimit,
@@ -135,6 +138,15 @@ class IndexerFactory {
      * @param startBlock The block number to start indexing from.
      */
     fun startBlock(startBlock: Long) = apply { this.startBlock = startBlock }
+
+    /**
+     * Used to tune how often the indexer will log its progress when syncing.
+     *
+     * The default value is `1000` blocks
+     *
+     * @param interval The interval in `blocks` for logging progress.
+     */
+    fun syncLoggerInterval(interval: Long) = apply { this.syncLoggerInterval = interval }
 
     /**
      * This function allows you to configure the ABI files for the indexer.

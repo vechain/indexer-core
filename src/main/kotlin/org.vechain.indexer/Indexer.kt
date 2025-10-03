@@ -13,11 +13,14 @@ enum class Status {
     /** Indexer has been initialised but not started */
     INITIALISED,
 
+    /** Indexer is performing a fast sync to catch up to the best block */
+    FAST_SYNCING,
+
     /** Indexer is syncing */
     SYNCING,
 
     /** Indexer is processing blocks */
-    RUNNING,
+    FULLY_SYNCED,
 
     /** A chain re-organization has been detected during processing */
     REORG,

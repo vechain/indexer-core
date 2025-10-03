@@ -22,6 +22,7 @@ open class LogsIndexer(
     override val thorClient: ThorClient,
     processor: IndexerProcessor,
     startBlock: Long,
+    syncLoggerInterval: Long,
     private val excludeVetTransfers: Boolean,
     private val blockBatchSize: Long,
     private val logFetchLimit: Long,
@@ -36,6 +37,7 @@ open class LogsIndexer(
         thorClient = thorClient,
         processor = processor,
         startBlock = startBlock,
+        syncLoggerInterval = syncLoggerInterval,
         eventProcessor = eventProcessor,
         inspectionClauses = null,
         pruner = pruner,
@@ -109,7 +111,7 @@ open class LogsIndexer(
 
     internal suspend fun fastSync() {
         val prevStatus = this.status
-        this.status = Status.SYNCING
+        this.status = Status.FAST_SYNCING
         logger.info("Starting fast sync from block $currentBlockNumber")
 
         val finalizedBlock = thorClient.getFinalizedBlock().number

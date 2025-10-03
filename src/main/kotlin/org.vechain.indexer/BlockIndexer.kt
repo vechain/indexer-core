@@ -17,6 +17,7 @@ open class BlockIndexer(
     protected open val thorClient: ThorClient,
     private val processor: IndexerProcessor,
     protected val startBlock: Long,
+    private val syncLoggerInterval: Long,
     protected val eventProcessor: CombinedEventProcessor?,
     protected val inspectionClauses: List<Clause>?,
     override val pruner: Pruner?,
@@ -39,9 +40,6 @@ open class BlockIndexer(
         protected set
 
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
-        internal set
-
-    var timeLastLogged: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
         internal set
 
     /** Initialises the indexer processing */
@@ -101,7 +99,7 @@ open class BlockIndexer(
         if (status == Status.NOT_INITIALISED) {
             throw IllegalStateException("Indexer $name is not initialised")
         }
-        status = Status.RUNNING
+        updateSyncStatus(block)
         if (block.number != currentBlockNumber) {
             throw IllegalStateException(
                 "Block number mismatch: expected $currentBlockNumber, got ${block.number}"
@@ -127,6 +125,18 @@ open class BlockIndexer(
         }
     }
 
+    private fun updateSyncStatus(block: Block) {
+        // if the timestamp of the block is within a minute of the current time, we are fully synced
+        val blockTime = LocalDateTime.ofEpochSecond(block.timestamp, 0, ZoneOffset.UTC)
+        val now = LocalDateTime.now(ZoneOffset.UTC)
+        status =
+            if (Duration.between(blockTime, now).toMinutes() < 1) {
+                Status.SYNCING
+            } else {
+                Status.FULLY_SYNCED
+            }
+    }
+
     internal fun handleError() {
         status = Status.ERROR
     }
@@ -146,14 +156,14 @@ open class BlockIndexer(
      */
     protected fun runPruner() {
         val prunerInstance = pruner ?: return
-        if (status != Status.RUNNING) return
+        if (status != Status.FULLY_SYNCED) return
         if (currentBlockNumber % prunerInterval != prunerIntervalOffset) return
 
         status = Status.PRUNING
         try {
             prunerInstance.run(currentBlockNumber)
         } finally {
-            status = Status.RUNNING
+            status = Status.FULLY_SYNCED
         }
     }
 
@@ -166,10 +176,7 @@ open class BlockIndexer(
     private fun logProcessingBlock() {
         if (logger.isDebugEnabled) {
             logger.debug("($status) Processing Block  $currentBlockNumber")
-        } else if (
-            Duration.between(timeLastLogged, LocalDateTime.now(ZoneOffset.UTC)).seconds > 5
-        ) {
-            timeLastLogged = LocalDateTime.now(ZoneOffset.UTC)
+        } else if (currentBlockNumber % syncLoggerInterval == 0L) {
             logger.info("($status) Processing Block  $currentBlockNumber")
         }
     }

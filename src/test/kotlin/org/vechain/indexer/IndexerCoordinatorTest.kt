@@ -41,14 +41,14 @@ class IndexerCoordinatorTest {
         val resetCalls = AtomicInteger(0)
         val block = testBlock(1)
         val subscription = TestSubscription(mutableListOf(block))
-        val indexer = mockBlockIndexer(statusSupplier = { Status.RUNNING })
+        val indexer = mockBlockIndexer(statusSupplier = { Status.SYNCING })
 
         every { indexer.currentBlockNumber } returns 1L
 
         coEvery { indexer.processBlock(block, any()) } answers
             {
-                val reset = invocation.args[1] as () -> Unit
-                reset()
+                val reset = invocation.args[1] as? (() -> Unit)
+                reset?.invoke()
             }
 
         processGroup(
@@ -70,7 +70,7 @@ class IndexerCoordinatorTest {
         val resetCalls = AtomicInteger(0)
         val block = testBlock(2)
         val subscription = TestSubscription(mutableListOf(block))
-        val status = AtomicReference(Status.RUNNING)
+        val status = AtomicReference(Status.SYNCING)
         val indexer = mockBlockIndexer(statusSupplier = { status.get() })
 
         every { indexer.currentBlockNumber } returns 2L
@@ -161,8 +161,8 @@ class IndexerCoordinatorTest {
         every { indexer2.currentBlockNumber } returns 6L
         coEvery { indexer1.processBlock(block, any()) } answers
             {
-                val reset = invocation.args[1] as () -> Unit
-                reset()
+                val reset = invocation.args[1] as? (() -> Unit)
+                reset?.invoke()
             }
 
         runGroupForBlock(
@@ -181,7 +181,7 @@ class IndexerCoordinatorTest {
     fun `runGroupForBlock requests reset when indexer enters error state`() = runTest {
         val controller = ResetController {}
         val block = testBlock(7)
-        val status = AtomicReference(Status.RUNNING)
+        val status = AtomicReference(Status.SYNCING)
         val indexer = mockBlockIndexer(statusSupplier = { status.get() })
 
         every { indexer.currentBlockNumber } returns 7L
@@ -243,8 +243,8 @@ class IndexerCoordinatorTest {
                 val blockArg = invocation.args[0] as Block
                 processedBlocks.incrementAndGet()
                 if (blockArg.number == firstBlock.number && stream.resetCount == 0) {
-                    val reset = invocation.args[1] as () -> Unit
-                    reset()
+                    val reset = invocation.args[1] as? (() -> Unit)
+                    reset?.invoke()
                 }
             }
 
@@ -288,7 +288,7 @@ class IndexerCoordinatorTest {
         )
 
     private fun mockBlockIndexer(
-        initialStatus: Status = Status.RUNNING,
+        initialStatus: Status = Status.SYNCING,
         statusSupplier: (() -> Status)? = null,
     ): BlockIndexer {
         val indexer = mockk<BlockIndexer>(relaxed = true)
