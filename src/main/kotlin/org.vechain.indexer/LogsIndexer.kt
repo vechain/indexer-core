@@ -53,18 +53,18 @@ open class LogsIndexer(
      * @param toBlock The block number to sync up to.
      */
     open suspend fun sync(toBlock: Long) {
-        while (currentBlockNumber < toBlock) {
+        while (getCurrentBlockNumber() < toBlock) {
             try {
-                val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
+                val batchEndBlock = minOf(getCurrentBlockNumber() + blockBatchSize, toBlock)
 
-                logSyncStatus(currentBlockNumber, batchEndBlock, status)
+                logSyncStatus(getCurrentBlockNumber(), batchEndBlock, getStatus())
 
                 // Fetch both event logs and VET transfers
                 // Only fetch event logs if we have ABI definitions
                 val eventLogs =
                     if (eventProcessor?.hasAbis() == true) {
                         logClient.fetchEventLogs(
-                            currentBlockNumber,
+                            getCurrentBlockNumber(),
                             batchEndBlock,
                             logFetchLimit,
                             eventCriteriaSet
@@ -74,7 +74,7 @@ open class LogsIndexer(
                 val transferLogs =
                     if (!excludeVetTransfers)
                         logClient.fetchTransfers(
-                            currentBlockNumber,
+                            getCurrentBlockNumber(),
                             batchEndBlock,
                             logFetchLimit,
                             transferCriteriaSet
@@ -82,7 +82,7 @@ open class LogsIndexer(
                     else emptyList()
 
                 if (eventLogs.isEmpty() && transferLogs.isEmpty()) {
-                    currentBlockNumber = batchEndBlock + 1
+                    setCurrentBlockNumber(batchEndBlock + 1)
                     timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
                     continue
                 }
@@ -94,11 +94,11 @@ open class LogsIndexer(
                     process(IndexingResult.EventsOnly(batchEndBlock, indexedEvents))
 
                 // Update last processed block
-                currentBlockNumber = batchEndBlock + 1
+                setCurrentBlockNumber(batchEndBlock + 1)
                 timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
             } catch (e: Exception) {
                 logger.error(
-                    "Restarting sync due to error syncing at block $currentBlockNumber: ${e.message}"
+                    "Restarting sync due to error syncing at block ${getCurrentBlockNumber()}: ${e.message}"
                 )
                 throw RestartIndexerException()
             }
@@ -109,21 +109,23 @@ open class LogsIndexer(
         logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
     }
 
-    internal suspend fun fastSync() {
-        val prevStatus = this.status
-        this.status = Status.FAST_SYNCING
-        logger.info("Starting fast sync from block $currentBlockNumber")
+    override suspend fun fastSync() {
+        while (true) {
+            setStatus(Status.FAST_SYNCING)
+            logger.info("Starting fast sync from block ${getCurrentBlockNumber()}")
 
-        val finalizedBlock = thorClient.getFinalizedBlock().number
+            val finalizedBlock = thorClient.getFinalizedBlock().number
 
-        if (currentBlockNumber < finalizedBlock) {
-            sync(finalizedBlock)
+            if (getCurrentBlockNumber() < finalizedBlock) {
+                sync(finalizedBlock)
+            }
+
+            logger.info("Fast sync complete, switching to block indexer")
+            // Before running reset the previousBlock
+            setPreviousBlock(null)
+
+            setStatus(Status.INITIALISED)
+            break
         }
-
-        logger.info("Fast sync complete, switching to block indexer")
-        // Before running reset the previousBlock
-        previousBlock = null
-
-        this.status = prevStatus
     }
 }

@@ -22,12 +22,6 @@ enum class Status {
     /** Indexer is processing blocks */
     FULLY_SYNCED,
 
-    /** A chain re-organization has been detected during processing */
-    REORG,
-
-    /** Indexer encountered an unknown exception during processing */
-    ERROR,
-
     /** Indexer is pruning old data. Records will not be processed while in this state */
     PRUNING,
 }
@@ -37,13 +31,31 @@ interface Indexer : IndexerProcessor {
     val name: String
 
     // The current status of the indexer
-    var status: Status
+    fun getStatus(): Status
+
+    // The current block number being processed
+    fun getCurrentBlockNumber(): Long
+
+    // The previous block processed by this indexer. Used to detect re-orgs.
+    fun getPreviousBlock(): BlockIdentifier?
+
+    // Initialise the indexer
+    fun initialise()
+
+    // Process a block. The onReset callback should be called if the indexer needs to reset its
+    // state
+    suspend fun processBlock(block: Block)
 
     // Optional pruner that can be run periodically to clean up old data
     val pruner: Pruner?
 
     // Optional parent indexers that this indexer depends on.
     val dependsOn: Indexer?
+
+    // Optional fast sync phase
+    suspend fun fastSync() {
+        // Default implementation does nothing
+    }
 }
 
 sealed class IndexingResult {

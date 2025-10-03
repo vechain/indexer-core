@@ -8,19 +8,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import org.vechain.indexer.thor.BlockStream
 import org.vechain.indexer.thor.BlockStreamSubscription
 import org.vechain.indexer.thor.PrefetchingBlockStream
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
-
-private const val RESET_POLL_INTERVAL_MS = 100L
 
 open class IndexerCoordinator(
     private val thorClient: ThorClient,
@@ -30,7 +26,7 @@ open class IndexerCoordinator(
         fun launch(
             scope: CoroutineScope,
             thorClient: ThorClient,
-            indexers: Collection<BlockIndexer>,
+            indexers: Collection<Indexer>,
             blockBatchSize: Int = 1,
         ): Job {
             if (indexers.isEmpty()) {
@@ -49,7 +45,7 @@ open class IndexerCoordinator(
     }
 
     suspend fun run(
-        indexers: List<BlockIndexer>,
+        indexers: List<Indexer>,
     ) = coroutineScope {
         require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -60,7 +56,7 @@ open class IndexerCoordinator(
             PrefetchingBlockStream(
                 scope = this,
                 batchSize = batchSize,
-                currentBlockProvider = { indexers.minOf { it.currentBlockNumber } },
+                currentBlockProvider = { indexers.minOf { it.getCurrentBlockNumber() } },
                 thorClient = thorClient,
             )
 
@@ -69,7 +65,6 @@ open class IndexerCoordinator(
                 parentScope = this,
                 stream = stream,
                 executionGroups = executionGroups,
-                allIndexers = indexers,
             )
 
         supervisor.run()
@@ -79,25 +74,23 @@ open class IndexerCoordinator(
 internal class GroupSupervisor(
     private val parentScope: CoroutineScope,
     private val stream: BlockStream,
-    private val executionGroups: List<List<BlockIndexer>>,
-    private val allIndexers: List<BlockIndexer>,
+    private val executionGroups: List<List<Indexer>>,
 ) {
     private val resetChannel = Channel<Unit>(capacity = Channel.CONFLATED)
 
     suspend fun run() {
         var activeGroups = launchGroups()
-
         try {
+            var shouldExit = false
             while (parentScope.isActive) {
-                if (activeGroups.completion.isCompleted) {
-                    activeGroups.completion.await()
-                    break
+                kotlinx.coroutines.selects.select<Unit> {
+                    activeGroups.completion.onAwait {
+                        // All jobs completed, exit loop
+                        shouldExit = true
+                    }
+                    resetChannel.onReceive { activeGroups = restartGroups(activeGroups) }
                 }
-
-                val resetSignal = tryReceiveReset()
-                if (resetSignal != null) {
-                    activeGroups = restartGroups(activeGroups)
-                }
+                if (shouldExit) break
             }
         } finally {
             activeGroups.cancelAll()
@@ -105,13 +98,6 @@ internal class GroupSupervisor(
             resetChannel.close()
         }
     }
-
-    private suspend fun tryReceiveReset(): Unit? =
-        try {
-            withTimeoutOrNull(RESET_POLL_INTERVAL_MS) { resetChannel.receive() }
-        } catch (_: ClosedReceiveChannelException) {
-            null
-        }
 
     private suspend fun restartGroups(current: GroupSet): GroupSet {
         current.cancelAll()
@@ -127,7 +113,6 @@ internal class GroupSupervisor(
                     processGroup(
                         group = group,
                         subscription = subscription,
-                        allIndexers = allIndexers,
                         onResetRequested = { resetChannel.trySend(Unit).isSuccess },
                     )
                 }
@@ -149,9 +134,8 @@ internal class GroupSupervisor(
 }
 
 internal suspend fun CoroutineScope.processGroup(
-    group: List<BlockIndexer>,
+    group: List<Indexer>,
     subscription: BlockStreamSubscription,
-    allIndexers: List<BlockIndexer>,
     onResetRequested: () -> Unit,
 ) {
     val resetController = ResetController(onResetRequested)
@@ -163,34 +147,16 @@ internal suspend fun CoroutineScope.processGroup(
                 try {
                     subscription.next()
                 } catch (e: CancellationException) {
-                    if (!resetController.isRequested()) {
-                        throw e
-                    }
-                    break
-                } catch (e: Exception) {
-                    val blockNumber = subscription.nextBlockNumber
-                    allIndexers.forEach { indexer ->
-                        indexer.logBlockFetchError(blockNumber, e)
-                        indexer.handleError()
-                    }
+                    throw e
+                } catch (_: Exception) {
                     resetController.request()
                     break
                 }
 
-            if (resetController.isRequested()) {
-                break
-            }
-
             try {
                 runGroupForBlock(group, block, resetController)
             } catch (e: CancellationException) {
-                if (!resetController.isRequested()) {
-                    throw e
-                }
-            }
-
-            if (resetController.isRequested()) {
-                break
+                throw e
             }
         }
     } finally {
@@ -199,24 +165,17 @@ internal suspend fun CoroutineScope.processGroup(
 }
 
 internal suspend fun runGroupForBlock(
-    group: List<BlockIndexer>,
+    group: List<Indexer>,
     block: Block,
     resetController: ResetController,
 ) = coroutineScope {
     group
-        .filter { it.currentBlockNumber == block.number }
+        .filter { it.getCurrentBlockNumber() == block.number }
         .forEach { indexer ->
             launch {
-                if (resetController.isRequested()) return@launch
-
-                indexer.restartIfNeeded()
-
-                indexer.processBlock(block) {
-                    resetController.request()
-                    cancel()
-                }
-
-                if (indexer.status == Status.ERROR || indexer.status == Status.REORG) {
+                try {
+                    indexer.processBlock(block)
+                } catch (_: Exception) {
                     resetController.request()
                     cancel()
                 }

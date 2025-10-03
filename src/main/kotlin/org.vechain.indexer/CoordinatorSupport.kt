@@ -3,34 +3,21 @@ package org.vechain.indexer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
-import org.vechain.indexer.exception.RestartIndexerException
 
 internal object CoordinatorSupport {
 
     suspend fun prepareIndexers(
         scope: CoroutineScope,
-        indexers: List<BlockIndexer>,
+        indexers: List<Indexer>,
     ) {
         val jobs =
             indexers.map { indexer ->
                 scope.launch {
                     indexer.initialise()
-
-                    if (indexer is LogsIndexer) {
-                        while (true) {
-                            try {
-                                indexer.fastSync()
-                                break
-                            } catch (_: RestartIndexerException) {
-                                indexer.handleError()
-                                indexer.restartIfNeeded()
-                            }
-                        }
-                    }
-
-                    indexer.logStartingState()
+                    indexer.fastSync()
                 }
             }
+
         jobs.joinAll()
     }
 
@@ -39,13 +26,13 @@ internal object CoordinatorSupport {
      * represent dependency tiers that can be processed in parallel with other tiers. If there is a
      * circular dependency, an exception is thrown.
      */
-    fun topologicalOrder(indexers: List<BlockIndexer>): List<List<BlockIndexer>> {
-        val ordered = mutableListOf<BlockIndexer>()
+    fun topologicalOrder(indexers: List<Indexer>): List<List<Indexer>> {
+        val ordered = mutableListOf<Indexer>()
         val indexerSet = indexers.toSet()
-        val visitState = mutableMapOf<BlockIndexer, VisitState>()
-        val depthMap = mutableMapOf<BlockIndexer, Int>()
+        val visitState = mutableMapOf<Indexer, VisitState>()
+        val depthMap = mutableMapOf<Indexer, Int>()
 
-        fun visit(indexer: BlockIndexer): Int =
+        fun visit(indexer: Indexer): Int =
             when (visitState[indexer]) {
                 VisitState.VISITED -> depthMap.getValue(indexer)
                 VisitState.VISITING -> {
@@ -59,9 +46,6 @@ internal object CoordinatorSupport {
                     val dependency = indexer.dependsOn
                     val depth =
                         if (dependency != null) {
-                            require(dependency is BlockIndexer) {
-                                "Dependency ${dependency.name} for ${indexer.name} is not a block indexer"
-                            }
                             require(dependency in indexerSet) {
                                 "Dependency ${dependency.name} for ${indexer.name} is not part of the provided indexers"
                             }
@@ -80,7 +64,7 @@ internal object CoordinatorSupport {
 
         indexers.forEach { visit(it) }
 
-        val depthToIndexers = mutableMapOf<Int, MutableList<BlockIndexer>>()
+        val depthToIndexers = mutableMapOf<Int, MutableList<Indexer>>()
         ordered.forEach { indexer ->
             val depth = depthMap.getValue(indexer)
             depthToIndexers.getOrPut(depth) { mutableListOf() }.add(indexer)
