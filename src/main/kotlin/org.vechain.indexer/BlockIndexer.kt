@@ -126,11 +126,11 @@ open class BlockIndexer(
     }
 
     private fun updateSyncStatus(block: Block) {
-        // if the timestamp of the block is within a minute of the current time, we are fully synced
+        // if the timestamp of the block is within 15 seconds of the current time, we are fully synced
         val blockTime = LocalDateTime.ofEpochSecond(block.timestamp, 0, ZoneOffset.UTC)
         val now = LocalDateTime.now(ZoneOffset.UTC)
         status =
-            if (Duration.between(blockTime, now).toMinutes() < 1) {
+            if (Duration.between(blockTime, now).toSeconds() < 15) {
                 Status.FULLY_SYNCED
             } else {
                 Status.SYNCING
@@ -176,7 +176,7 @@ open class BlockIndexer(
     private fun logProcessingBlock() {
         if (logger.isDebugEnabled) {
             logger.debug("($status) Processing Block  $currentBlockNumber")
-        } else if (currentBlockNumber % syncLoggerInterval == 0L) {
+        } else if (status == Status.FULLY_SYNCED || currentBlockNumber % syncLoggerInterval == 0L) {
             logger.info("($status) Processing Block  $currentBlockNumber")
         }
     }
