@@ -131,9 +131,9 @@ open class BlockIndexer(
         val now = LocalDateTime.now(ZoneOffset.UTC)
         status =
             if (Duration.between(blockTime, now).toMinutes() < 1) {
-                Status.SYNCING
-            } else {
                 Status.FULLY_SYNCED
+            } else {
+                Status.SYNCING
             }
     }
 
