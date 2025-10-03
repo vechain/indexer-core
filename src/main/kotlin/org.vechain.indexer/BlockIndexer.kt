@@ -91,7 +91,7 @@ open class BlockIndexer(
     }
 
     override suspend fun processBlock(block: Block) {
-        ensureStatus(status,setOf(Status.INITIALISED, Status.SYNCING, Status.FULLY_SYNCED))
+        ensureStatus(status, setOf(Status.INITIALISED, Status.SYNCING, Status.FULLY_SYNCED))
         updateSyncStatus(block)
         checkForReorg(block)
         if (block.number != currentBlockNumber) {
@@ -110,7 +110,7 @@ open class BlockIndexer(
         runPruner()
     }
 
-    private fun updateSyncStatus(block: Block) {
+    protected fun updateSyncStatus(block: Block) {
         // if the timestamp of the block is within 15 seconds of the current time, we are fully
         // synced
         val blockTime = LocalDateTime.ofEpochSecond(block.timestamp, 0, ZoneOffset.UTC)

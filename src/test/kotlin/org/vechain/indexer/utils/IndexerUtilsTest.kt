@@ -34,9 +34,7 @@ internal class IndexerUtilsTest {
         val status = Status.FAST_SYNCING
 
         val exception =
-            expectThrows<IllegalStateException> {
-                IndexerUtils.ensureStatus(status, emptySet())
-            }
+            expectThrows<IllegalStateException> { IndexerUtils.ensureStatus(status, emptySet()) }
 
         expectThat(exception.message.subject).isEqualTo("Invalid status: $status")
     }
