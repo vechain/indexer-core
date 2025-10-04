@@ -27,14 +27,13 @@ abstract class BaseInterruptibleSupervisor(
                             null // Return null to indicate restart
                         }
                     }
-                val action =
-                    select {
-                        job.onAwait {
-                            if (exceptionThrown) SupervisorAction.Restart
-                            else SupervisorAction.Completed
-                        }
-                        interrupts.onReceive { reason -> onInterrupt(reason) }
+                val action = select {
+                    job.onAwait {
+                        if (exceptionThrown) SupervisorAction.Restart
+                        else SupervisorAction.Completed
                     }
+                    interrupts.onReceive { reason -> onInterrupt(reason) }
+                }
                 when (action) {
                     SupervisorAction.Completed -> return job.await()
                     SupervisorAction.Restart -> {
