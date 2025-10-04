@@ -91,6 +91,10 @@ open class BlockIndexer(
     }
 
     override suspend fun processBlock(block: Block) {
+        // If shut down throw an error
+        if (status == Status.SHUT_DOWN) {
+            throw InterruptedException("Indexer is shut down")
+        }
         ensureStatus(status, setOf(Status.INITIALISED, Status.SYNCING, Status.FULLY_SYNCED))
         updateSyncStatus(block)
         checkForReorg(block)
@@ -168,5 +172,10 @@ open class BlockIndexer(
             rollback(currentBlockNumber - 1)
             throw ReorgException(message)
         }
+    }
+
+    override fun shutDown() {
+        setStatus(Status.SHUT_DOWN)
+        logger.info("Indexer Shut down")
     }
 }

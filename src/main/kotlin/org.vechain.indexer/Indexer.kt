@@ -24,6 +24,9 @@ enum class Status {
 
     /** Indexer is pruning old data. Records will not be processed while in this state */
     PRUNING,
+
+    /** Indexer has been shut down and cannot be restarted */
+    SHUT_DOWN,
 }
 
 interface Indexer : IndexerProcessor {
@@ -56,6 +59,8 @@ interface Indexer : IndexerProcessor {
     suspend fun fastSync() {
         // Default implementation does nothing
     }
+
+    fun shutDown()
 }
 
 sealed class IndexingResult {

@@ -55,6 +55,8 @@ open class LogsIndexer(
     open suspend fun sync(toBlock: Long) {
         while (getCurrentBlockNumber() < toBlock) {
             try {
+                // If shut down throw
+                if (getStatus() == Status.SHUT_DOWN) throw InterruptedException()
                 val batchEndBlock = minOf(getCurrentBlockNumber() + blockBatchSize, toBlock)
 
                 logSyncStatus(getCurrentBlockNumber(), batchEndBlock, getStatus())
@@ -95,6 +97,7 @@ open class LogsIndexer(
 
                 // Update last processed block
                 setCurrentBlockNumber(batchEndBlock + 1)
+
                 timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
             } catch (e: Exception) {
                 logger.error(
@@ -114,15 +117,18 @@ open class LogsIndexer(
             setStatus(Status.FAST_SYNCING)
             logger.info("Starting fast sync from block ${getCurrentBlockNumber()}")
 
-            val finalizedBlock = thorClient.getFinalizedBlock().number
+            val finalizedBlock = thorClient.getFinalizedBlock()
 
-            if (getCurrentBlockNumber() < finalizedBlock) {
-                sync(finalizedBlock)
+            if (getCurrentBlockNumber() <= finalizedBlock.number) {
+                sync(finalizedBlock.number)
             }
 
-            logger.info("Fast sync complete, switching to block indexer")
-            // Before running reset the previousBlock
-            setPreviousBlock(null)
+            logger.info("Fast sync complete")
+
+            // Set previous block to the finalized block
+            setPreviousBlock(
+                BlockIdentifier(number = finalizedBlock.number, id = finalizedBlock.id)
+            )
 
             setStatus(Status.INITIALISED)
             break

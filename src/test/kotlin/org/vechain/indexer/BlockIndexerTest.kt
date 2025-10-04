@@ -546,5 +546,33 @@ internal class BlockIndexerTest {
                 that(indexer.timeLastProcessed).isGreaterThan(previousTime)
             }
         }
+
+        @Test
+        fun `if shut down throw`() {
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    startBlock = 0L,
+                    eventProcessor = null,
+                    pruner = null,
+                    prunerInterval = 1000L,
+                    syncLoggerInterval = 1L,
+                    inspectionClauses = null,
+                    dependsOn = null,
+                )
+
+            val block = buildBlock(num = 0L)
+            indexer.publicSetStatus(Status.SHUT_DOWN)
+            indexer.publicSetCurrentBlockNumber(block.number)
+
+            val exception =
+                assertThrows<InterruptedException> { runBlocking { indexer.processBlock(block) } }
+
+            val errorMessage: String? = exception.message
+
+            expectThat(errorMessage).isEqualTo("Indexer is shut down")
+        }
     }
 }
