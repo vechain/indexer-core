@@ -54,9 +54,8 @@ open class LogsIndexer(
      */
     open suspend fun sync(toBlock: Long) {
         while (getCurrentBlockNumber() < toBlock) {
+            checkIfShuttingDown()
             try {
-                // If shut down throw
-                if (getStatus() == Status.SHUT_DOWN) throw InterruptedException()
                 val batchEndBlock = minOf(getCurrentBlockNumber() + blockBatchSize, toBlock)
 
                 logSyncStatus(getCurrentBlockNumber(), batchEndBlock, getStatus())

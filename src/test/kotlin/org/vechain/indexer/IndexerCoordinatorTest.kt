@@ -11,6 +11,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -25,10 +26,10 @@ class IndexerCoordinatorTest {
     @Test
     fun `reset controller only triggers once`() {
         val invocations = AtomicInteger(0)
-        val controller = ResetController { invocations.incrementAndGet() }
+        val controller = InterruptController { invocations.incrementAndGet() }
 
-        controller.request()
-        controller.request()
+        controller.request(InterruptReason.Error)
+        controller.request(InterruptReason.Error)
 
         assertTrue(controller.isRequested())
         assertEquals(1, invocations.get())
@@ -36,7 +37,8 @@ class IndexerCoordinatorTest {
 
     @Test
     fun `processGroup requests reset when indexer reports error`() = runTest {
-        val resetCalls = AtomicInteger(0)
+        val interrupts = mutableListOf<InterruptReason>()
+        val controller = InterruptController { interrupts.add(it) }
         val block = testBlock(2)
         val subscription = TestSubscription(mutableListOf(block))
         val status = AtomicReference(Status.SYNCING)
@@ -48,19 +50,18 @@ class IndexerCoordinatorTest {
         processGroup(
             group = listOf(indexer),
             subscription = subscription,
-            onResetRequested = {
-                resetCalls.incrementAndGet()
-                true
-            },
+            interruptController = controller,
         )
 
-        assertEquals(1, resetCalls.get())
+        assertEquals(listOf(InterruptReason.Error), interrupts)
+        assertEquals(InterruptReason.Error, controller.currentReason())
         assertTrue(subscription.closed)
     }
 
     @Test
     fun `processGroup handles block fetch exceptions`() = runTest {
-        val resetCalls = AtomicInteger(0)
+        val interrupts = mutableListOf<InterruptReason>()
+        val controller = InterruptController { interrupts.add(it) }
         val failure = RuntimeException("boom")
         val subscription = FailingSubscription(nextBlock = 5, failure = failure)
         val indexer1 = mockBlockIndexer()
@@ -69,13 +70,11 @@ class IndexerCoordinatorTest {
         processGroup(
             group = listOf(indexer1, indexer2),
             subscription = subscription,
-            onResetRequested = {
-                resetCalls.incrementAndGet()
-                true
-            },
+            interruptController = controller,
         )
 
-        assertEquals(1, resetCalls.get())
+        assertEquals(listOf(InterruptReason.Error), interrupts)
+        assertEquals(InterruptReason.Error, controller.currentReason())
         assertTrue(subscription.closed)
     }
 
@@ -96,6 +95,7 @@ class IndexerCoordinatorTest {
                 }
             }
         val indexer = mockBlockIndexer()
+        val controller = InterruptController {}
 
         val thrown =
             assertThrows<CancellationException> {
@@ -103,18 +103,20 @@ class IndexerCoordinatorTest {
                     processGroup(
                         group = listOf(indexer),
                         subscription = subscription,
-                        onResetRequested = { false },
+                        interruptController = controller,
                     )
                 }
             }
 
         assertEquals(failure, thrown)
         assertTrue(closed.get())
+        assertFalse(controller.isRequested())
     }
 
     @Test
     fun `runGroupForBlock requests reset when indexer throws an exception`() = runTest {
-        val controller = ResetController {}
+        val interrupts = mutableListOf<InterruptReason>()
+        val controller = InterruptController { interrupts.add(it) }
         val block = testBlock(7)
         val status = AtomicReference(Status.SYNCING)
         val indexer = mockBlockIndexer(statusSupplier = { status.get() })
@@ -125,10 +127,12 @@ class IndexerCoordinatorTest {
         runGroupForBlock(
             group = listOf(indexer),
             block = block,
-            resetController = controller,
+            interruptController = controller,
         )
 
         assertTrue(controller.isRequested())
+        assertEquals(listOf(InterruptReason.Error), interrupts)
+        assertEquals(InterruptReason.Error, controller.currentReason())
     }
 
     @Test
@@ -136,6 +140,7 @@ class IndexerCoordinatorTest {
         val block = testBlock(8)
         val stream = FakeBlockStream(ArrayDeque(listOf(mutableListOf(block))))
         val indexer = mockBlockIndexer()
+        val controller = InterruptController {}
 
         coEvery { indexer.processBlock(block) } returns Unit
 
@@ -144,6 +149,7 @@ class IndexerCoordinatorTest {
                 parentScope = this,
                 stream = stream,
                 executionGroups = listOf(listOf(indexer)),
+                interruptController = controller,
             )
 
         supervisor.run()

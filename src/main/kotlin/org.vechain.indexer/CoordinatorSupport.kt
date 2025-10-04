@@ -1,25 +1,6 @@
 package org.vechain.indexer
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
-
 internal object CoordinatorSupport {
-
-    suspend fun prepareIndexers(
-        scope: CoroutineScope,
-        indexers: List<Indexer>,
-    ) {
-        val jobs =
-            indexers.map { indexer ->
-                scope.launch {
-                    indexer.initialise()
-                    indexer.fastSync()
-                }
-            }
-
-        jobs.joinAll()
-    }
 
     /**
      * Order the indexers topologically based on their dependencies. The returned grouped lists

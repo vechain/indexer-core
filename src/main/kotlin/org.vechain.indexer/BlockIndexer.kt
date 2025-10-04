@@ -3,6 +3,7 @@ package org.vechain.indexer
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneOffset
+import kotlin.coroutines.cancellation.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.CombinedEventProcessor
@@ -90,11 +91,15 @@ open class BlockIndexer(
         return IndexingResult.Normal(block, events, callResults)
     }
 
-    override suspend fun processBlock(block: Block) {
+    protected fun checkIfShuttingDown() {
         // If shut down throw an error
         if (status == Status.SHUT_DOWN) {
-            throw InterruptedException("Indexer is shut down")
+            throw CancellationException("Indexer is shut down")
         }
+    }
+
+    override suspend fun processBlock(block: Block) {
+        checkIfShuttingDown()
         ensureStatus(status, setOf(Status.INITIALISED, Status.SYNCING, Status.FULLY_SYNCED))
         updateSyncStatus(block)
         checkForReorg(block)

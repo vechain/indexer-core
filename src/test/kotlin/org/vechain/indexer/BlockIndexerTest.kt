@@ -568,7 +568,7 @@ internal class BlockIndexerTest {
             indexer.publicSetCurrentBlockNumber(block.number)
 
             val exception =
-                assertThrows<InterruptedException> { runBlocking { indexer.processBlock(block) } }
+                assertThrows<CancellationException> { runBlocking { indexer.processBlock(block) } }
 
             val errorMessage: String? = exception.message
 
