@@ -1,4 +1,4 @@
-package org.vechain.indexer
+package org.vechain.indexer.orchestration
 
 import io.mockk.coEvery
 import io.mockk.every
@@ -6,23 +6,22 @@ import io.mockk.mockk
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.collections.ArrayDeque
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.vechain.indexer.BlockIndexer
+import org.vechain.indexer.Indexer
+import org.vechain.indexer.Status
 import org.vechain.indexer.thor.BlockStream
 import org.vechain.indexer.thor.BlockStreamSubscription
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.Transaction
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class IndexerCoordinatorTest {
+class IndexerOrchestratorTest {
 
     @Test
     fun `initialiseAndSyncPhase requests error when fast sync fails`() = runTest {
@@ -41,9 +40,9 @@ class IndexerCoordinatorTest {
                 }
                 .exceptionOrNull()
 
-        assertTrue(thrown is RuntimeException)
-        assertEquals(listOf(InterruptReason.Error), interrupts)
-        assertEquals(InterruptReason.Error, controller.currentReason())
+        Assertions.assertTrue(thrown is RuntimeException)
+        Assertions.assertEquals(listOf(InterruptReason.Error), interrupts)
+        Assertions.assertEquals(InterruptReason.Error, controller.currentReason())
     }
 
     @Test
@@ -75,10 +74,10 @@ class IndexerCoordinatorTest {
                 }
                 .exceptionOrNull()
 
-        assertNull(thrown)
-        assertEquals(2, attempts.get())
-        assertEquals(listOf(InterruptReason.Error), interrupts)
-        assertFalse(controller.isRequested())
+        Assertions.assertNull(thrown)
+        Assertions.assertEquals(2, attempts.get())
+        Assertions.assertEquals(listOf(InterruptReason.Error), interrupts)
+        Assertions.assertFalse(controller.isRequested())
     }
 
     @Test
@@ -89,8 +88,8 @@ class IndexerCoordinatorTest {
         controller.request(InterruptReason.Error)
         controller.request(InterruptReason.Error)
 
-        assertTrue(controller.isRequested())
-        assertEquals(1, invocations.get())
+        Assertions.assertTrue(controller.isRequested())
+        Assertions.assertEquals(1, invocations.get())
     }
 
     @Test
@@ -111,9 +110,9 @@ class IndexerCoordinatorTest {
             interruptController = controller,
         )
 
-        assertEquals(listOf(InterruptReason.Error), interrupts)
-        assertEquals(InterruptReason.Error, controller.currentReason())
-        assertTrue(subscription.closed)
+        Assertions.assertEquals(listOf(InterruptReason.Error), interrupts)
+        Assertions.assertEquals(InterruptReason.Error, controller.currentReason())
+        Assertions.assertTrue(subscription.closed)
     }
 
     @Test
@@ -131,14 +130,14 @@ class IndexerCoordinatorTest {
             interruptController = controller,
         )
 
-        assertEquals(listOf(InterruptReason.Error), interrupts)
-        assertEquals(InterruptReason.Error, controller.currentReason())
-        assertTrue(subscription.closed)
+        Assertions.assertEquals(listOf(InterruptReason.Error), interrupts)
+        Assertions.assertEquals(InterruptReason.Error, controller.currentReason())
+        Assertions.assertTrue(subscription.closed)
     }
 
     @Test
     fun `processGroup rethrows cancellation when reset not requested`() {
-        val failure = CancellationException("cancelled")
+        val failure = kotlinx.coroutines.CancellationException("cancelled")
         val closed = AtomicBoolean(false)
         val subscription =
             object : BlockStreamSubscription {
@@ -166,9 +165,9 @@ class IndexerCoordinatorTest {
                 }
             }
 
-        assertEquals(failure, thrown)
-        assertTrue(closed.get())
-        assertFalse(controller.isRequested())
+        Assertions.assertEquals(failure, thrown)
+        Assertions.assertTrue(closed.get())
+        Assertions.assertFalse(controller.isRequested())
     }
 
     @Test
@@ -188,9 +187,9 @@ class IndexerCoordinatorTest {
             interruptController = controller,
         )
 
-        assertTrue(controller.isRequested())
-        assertEquals(listOf(InterruptReason.Error), interrupts)
-        assertEquals(InterruptReason.Error, controller.currentReason())
+        Assertions.assertTrue(controller.isRequested())
+        Assertions.assertEquals(listOf(InterruptReason.Error), interrupts)
+        Assertions.assertEquals(InterruptReason.Error, controller.currentReason())
     }
 
     @Test
@@ -212,9 +211,9 @@ class IndexerCoordinatorTest {
 
         supervisor.run()
 
-        assertTrue(stream.closed)
-        assertEquals(0, stream.resetCount)
-        assertTrue(stream.subscriptions.all { it.closed })
+        Assertions.assertTrue(stream.closed)
+        Assertions.assertEquals(0, stream.resetCount)
+        Assertions.assertTrue(stream.subscriptions.all { it.closed })
     }
 
     private fun testBlock(number: Long): Block =
