@@ -12,6 +12,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -22,6 +23,63 @@ import org.vechain.indexer.thor.model.Transaction
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class IndexerCoordinatorTest {
+
+    @Test
+    fun `initialiseAndSyncPhase requests error when fast sync fails`() = runTest {
+        val interrupts = mutableListOf<InterruptReason>()
+        val controller = InterruptController { interrupts.add(it) }
+        val indexer = mockIndexer()
+        coEvery { indexer.fastSync() } throws RuntimeException("boom")
+
+        val thrown =
+            runCatching {
+                    initialiseAndSyncPhase(
+                        scope = this,
+                        indexers = listOf(indexer),
+                        interruptController = controller,
+                    )
+                }
+                .exceptionOrNull()
+
+        assertTrue(thrown is RuntimeException)
+        assertEquals(listOf(InterruptReason.Error), interrupts)
+        assertEquals(InterruptReason.Error, controller.currentReason())
+    }
+
+    @Test
+    fun `interruptible supervisor restarts phase after fast sync failure`() = runTest {
+        val interrupts = mutableListOf<InterruptReason>()
+        val controller = InterruptController { interrupts.add(it) }
+        val attempts = AtomicInteger(0)
+        val indexer = mockIndexer()
+        coEvery { indexer.fastSync() } answers
+            {
+                if (attempts.incrementAndGet() == 1) {
+                    throw RuntimeException("boom")
+                }
+            }
+
+        val supervisor = InterruptibleSupervisor(scope = this, interruptController = controller)
+
+        val thrown =
+            runCatching {
+                    supervisor.runPhases(
+                        listOf {
+                            initialiseAndSyncPhase(
+                                scope = this,
+                                indexers = listOf(indexer),
+                                interruptController = controller,
+                            )
+                        }
+                    )
+                }
+                .exceptionOrNull()
+
+        assertNull(thrown)
+        assertEquals(2, attempts.get())
+        assertEquals(listOf(InterruptReason.Error), interrupts)
+        assertFalse(controller.isRequested())
+    }
 
     @Test
     fun `reset controller only triggers once`() {
@@ -146,7 +204,7 @@ class IndexerCoordinatorTest {
 
         val supervisor =
             GroupSupervisor(
-                parentScope = this,
+                scope = this,
                 stream = stream,
                 executionGroups = listOf(listOf(indexer)),
                 interruptController = controller,
@@ -191,6 +249,9 @@ class IndexerCoordinatorTest {
         every { indexer.getStatus() } answers { supplier() }
         return indexer
     }
+
+    private fun mockIndexer(): Indexer =
+        mockk(relaxed = true) { every { name } returns "test-indexer" }
 
     private class TestSubscription(
         private val blocks: MutableList<Block>,

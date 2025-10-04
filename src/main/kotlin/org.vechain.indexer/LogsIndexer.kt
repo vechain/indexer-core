@@ -3,7 +3,6 @@ package org.vechain.indexer
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import org.vechain.indexer.event.CombinedEventProcessor
-import org.vechain.indexer.exception.RestartIndexerException
 import org.vechain.indexer.thor.client.LogClient
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.*
@@ -47,90 +46,79 @@ open class LogsIndexer(
 
     protected open val logClient = LogClient(thorClient)
 
+    override suspend fun fastSync() {
+
+        setStatus(Status.FAST_SYNCING)
+        logger.info("Starting fast sync from block ${getCurrentBlockNumber()}")
+
+        val finalizedBlock = thorClient.getFinalizedBlock()
+
+        if (getCurrentBlockNumber() <= finalizedBlock.number) {
+            sync(finalizedBlock.number)
+        }
+
+        logger.info("Fast sync complete")
+
+        // Set previous block to the finalized block
+        setPreviousBlock(BlockIdentifier(number = finalizedBlock.number, id = finalizedBlock.id))
+
+        setStatus(Status.INITIALISED)
+    }
+
     /**
      * Synchronizes logs from the current block to the target block.
      *
      * @param toBlock The block number to sync up to.
      */
-    open suspend fun sync(toBlock: Long) {
+    internal suspend fun sync(toBlock: Long) {
         while (getCurrentBlockNumber() < toBlock) {
             checkIfShuttingDown()
-            try {
-                val batchEndBlock = minOf(getCurrentBlockNumber() + blockBatchSize, toBlock)
+            val batchEndBlock = minOf(getCurrentBlockNumber() + blockBatchSize, toBlock)
 
-                logSyncStatus(getCurrentBlockNumber(), batchEndBlock, getStatus())
+            logSyncStatus(getCurrentBlockNumber(), batchEndBlock, getStatus())
 
-                // Fetch both event logs and VET transfers
-                // Only fetch event logs if we have ABI definitions
-                val eventLogs =
-                    if (eventProcessor?.hasAbis() == true) {
-                        logClient.fetchEventLogs(
-                            getCurrentBlockNumber(),
-                            batchEndBlock,
-                            logFetchLimit,
-                            eventCriteriaSet
-                        )
-                    } else emptyList()
+            // Fetch both event logs and VET transfers
+            // Only fetch event logs if we have ABI definitions
+            val eventLogs =
+                if (eventProcessor?.hasAbis() == true) {
+                    logClient.fetchEventLogs(
+                        getCurrentBlockNumber(),
+                        batchEndBlock,
+                        logFetchLimit,
+                        eventCriteriaSet
+                    )
+                } else emptyList()
 
-                val transferLogs =
-                    if (!excludeVetTransfers)
-                        logClient.fetchTransfers(
-                            getCurrentBlockNumber(),
-                            batchEndBlock,
-                            logFetchLimit,
-                            transferCriteriaSet
-                        )
-                    else emptyList()
+            val transferLogs =
+                if (!excludeVetTransfers)
+                    logClient.fetchTransfers(
+                        getCurrentBlockNumber(),
+                        batchEndBlock,
+                        logFetchLimit,
+                        transferCriteriaSet
+                    )
+                else emptyList()
 
-                if (eventLogs.isEmpty() && transferLogs.isEmpty()) {
-                    setCurrentBlockNumber(batchEndBlock + 1)
-                    timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
-                    continue
-                }
-
-                // Process events and transfers
-                val indexedEvents =
-                    eventProcessor?.processEvents(eventLogs, transferLogs) ?: emptyList()
-                if (indexedEvents.isNotEmpty())
-                    process(IndexingResult.EventsOnly(batchEndBlock, indexedEvents))
-
-                // Update last processed block
+            if (eventLogs.isEmpty() && transferLogs.isEmpty()) {
                 setCurrentBlockNumber(batchEndBlock + 1)
-
                 timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
-            } catch (e: Exception) {
-                logger.error(
-                    "Restarting sync due to error syncing at block ${getCurrentBlockNumber()}: ${e.message}"
-                )
-                throw RestartIndexerException()
+                continue
             }
+
+            // Process events and transfers
+            val indexedEvents =
+                eventProcessor?.processEvents(eventLogs, transferLogs) ?: emptyList()
+            if (indexedEvents.isNotEmpty())
+                process(IndexingResult.EventsOnly(batchEndBlock, indexedEvents))
+
+            // Update last processed block
+            setCurrentBlockNumber(batchEndBlock + 1)
+
+            timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
         }
     }
 
     private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long, status: Status) {
         logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
-    }
-
-    override suspend fun fastSync() {
-        while (true) {
-            setStatus(Status.FAST_SYNCING)
-            logger.info("Starting fast sync from block ${getCurrentBlockNumber()}")
-
-            val finalizedBlock = thorClient.getFinalizedBlock()
-
-            if (getCurrentBlockNumber() <= finalizedBlock.number) {
-                sync(finalizedBlock.number)
-            }
-
-            logger.info("Fast sync complete")
-
-            // Set previous block to the finalized block
-            setPreviousBlock(
-                BlockIdentifier(number = finalizedBlock.number, id = finalizedBlock.id)
-            )
-
-            setStatus(Status.INITIALISED)
-            break
-        }
     }
 }

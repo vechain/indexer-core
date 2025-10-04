@@ -30,86 +30,106 @@ open class IndexerCoordinator(
         fun launch(
             scope: CoroutineScope,
             thorClient: ThorClient,
-            indexers: Collection<Indexer>,
+            indexers: List<Indexer>,
             blockBatchSize: Int = 1,
         ): Job {
-            if (indexers.isEmpty()) {
-                return scope.launch {}
-            }
+            require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-            val blockIndexers = indexers.toList()
-            val indexerCoordinator = IndexerCoordinator(thorClient, batchSize = blockBatchSize)
+            val indexerCoordinator =
+                IndexerCoordinator(thorClient = thorClient, batchSize = blockBatchSize)
 
             return scope.launch {
                 indexerCoordinator.run(
-                    indexers = blockIndexers,
+                    indexers = indexers,
+                    batchSize = blockBatchSize,
+                    thorClient = thorClient,
                 )
             }
         }
     }
 
-    suspend fun run(
-        indexers: List<Indexer>,
-    ) = coroutineScope {
-        require(indexers.isNotEmpty()) { "At least one indexer is required" }
+    suspend fun run(indexers: List<Indexer>, batchSize: Int, thorClient: ThorClient) =
+        coroutineScope {
+            require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-        val interruptController = InterruptController()
-        val executionGroups = CoordinatorSupport.topologicalOrder(indexers)
+            val interruptController = InterruptController()
+            val executionGroups = CoordinatorSupport.topologicalOrder(indexers)
 
-        val stream =
-            PrefetchingBlockStream(
-                scope = this,
-                batchSize = batchSize,
-                currentBlockProvider = { indexers.minOf { it.getCurrentBlockNumber() } },
-                thorClient = thorClient,
+            val supervisor =
+                InterruptibleSupervisor(scope = this, interruptController = interruptController)
+
+            supervisor.runPhases(
+                listOf(
+                    {
+                        initialiseAndSyncPhase(
+                            scope = this,
+                            indexers = indexers,
+                            interruptController = interruptController
+                        )
+                    },
+                    {
+                        processBlocksPhase(
+                            scope = this,
+                            batchSize = batchSize,
+                            thorClient = thorClient,
+                            executionGroups = executionGroups,
+                            interruptController = interruptController
+                        )
+                    }
+                )
             )
-
-        val supervisor =
-            InterruptibleSupervisor(parentScope = this, interruptController = interruptController)
-
-        supervisor.runPhases(
-            listOf(
-                { prepareIndexersPhase(this, indexers, interruptController) },
-                { groupSupervisorPhase(this, stream, executionGroups, interruptController) }
-            )
-        )
-    }
+        }
 }
 
-suspend fun prepareIndexersPhase(
+suspend fun initialiseAndSyncPhase(
     scope: CoroutineScope,
     indexers: List<Indexer>,
     interruptController: InterruptController,
 ) {
     val jobs =
         indexers.map { indexer ->
-            scope.launch {
-                try {
-                    indexer.initialise()
-                    indexer.fastSync()
-                } catch (e: CancellationException) {
-                    interruptController.request(InterruptReason.Shutdown)
-                    throw e
-                } catch (e: Exception) {
-                    interruptController.request(InterruptReason.Error)
-                    throw e
-                }
-            }
+            scope.launch { runIndexerInitialisation(indexer, interruptController) }
         }
     jobs.joinAll()
 }
 
-suspend fun groupSupervisorPhase(
-    parentScope: CoroutineScope,
-    stream: BlockStream,
+private suspend fun runIndexerInitialisation(
+    indexer: Indexer,
+    interruptController: InterruptController,
+) {
+    try {
+        indexer.initialise()
+        indexer.fastSync()
+    } catch (e: CancellationException) {
+        interruptController.request(InterruptReason.Shutdown)
+        throw e
+    } catch (e: Throwable) {
+        interruptController.request(InterruptReason.Error)
+        throw e
+    }
+}
+
+suspend fun processBlocksPhase(
+    scope: CoroutineScope,
+    batchSize: Int,
+    thorClient: ThorClient,
     executionGroups: List<List<Indexer>>,
     interruptController: InterruptController,
 ) {
-    GroupSupervisor(parentScope, stream, executionGroups, interruptController).run()
+    val stream =
+        PrefetchingBlockStream(
+            scope = scope,
+            batchSize = batchSize,
+            currentBlockProvider = {
+                executionGroups.flatten().minOf { it.getCurrentBlockNumber() }
+            },
+            thorClient = thorClient,
+        )
+    GroupSupervisor(scope, stream, executionGroups, interruptController).run()
 }
 
 class InterruptibleSupervisor(
-    private val parentScope: CoroutineScope,
+    private val scope: CoroutineScope,
     private val interruptController: InterruptController,
 ) {
     suspend fun runPhases(phases: List<suspend () -> Unit>) {
@@ -117,11 +137,11 @@ class InterruptibleSupervisor(
         var shouldExit = false
         val interrupts = interruptController.registerListener()
         try {
-            while (parentScope.isActive && !shouldExit && currentPhase < phases.size) {
-                val phaseJob = parentScope.async { phases[currentPhase]() }
+            while (scope.isActive && !shouldExit && currentPhase < phases.size) {
+                val phaseJob = scope.async { phases[currentPhase]() }
                 val action =
                     try {
-                        select<SupervisorAction> {
+                        select {
                             phaseJob.onAwait { SupervisorAction.Completed }
                             interrupts.onReceive { reason ->
                                 when (reason) {
@@ -132,11 +152,14 @@ class InterruptibleSupervisor(
                         }
                     } catch (e: CancellationException) {
                         throw e
-                    } catch (e: ClosedReceiveChannelException) {
+                    } catch (_: ClosedReceiveChannelException) {
                         SupervisorAction.CompleteAndExit
                     } catch (e: Throwable) {
-                        phaseJob.cancel()
-                        throw e
+                        when (interruptController.currentReason()) {
+                            InterruptReason.Error -> SupervisorAction.RestartPhase
+                            InterruptReason.Shutdown -> SupervisorAction.Stop
+                            null -> throw e
+                        }
                     }
 
                 when (action) {
@@ -145,14 +168,14 @@ class InterruptibleSupervisor(
                     }
                     SupervisorAction.RestartPhase -> {
                         phaseJob.cancel()
-                        phaseJob.join()
+                        runCatching { phaseJob.join() }
                         interruptController.clear(InterruptReason.Error)
                         continue
                     }
                     SupervisorAction.Stop,
                     SupervisorAction.CompleteAndExit -> {
                         phaseJob.cancel()
-                        phaseJob.join()
+                        runCatching { phaseJob.join() }
                         shouldExit = true
                     }
                 }
@@ -171,7 +194,7 @@ class InterruptibleSupervisor(
 }
 
 internal class GroupSupervisor(
-    private val parentScope: CoroutineScope,
+    private val scope: CoroutineScope,
     private val stream: BlockStream,
     private val executionGroups: List<List<Indexer>>,
     private val interruptController: InterruptController,
@@ -182,7 +205,7 @@ internal class GroupSupervisor(
         var activeGroups = launchGroups()
         try {
             var shouldExit = false
-            while (parentScope.isActive && !shouldExit) {
+            while (scope.isActive && !shouldExit) {
                 when (
                     select<GroupAction> {
                         activeGroups.completion.onAwait { GroupAction.Completed }
@@ -227,7 +250,7 @@ internal class GroupSupervisor(
         val jobs =
             executionGroups.map { group ->
                 val subscription = stream.subscribe()
-                parentScope.launch {
+                scope.launch {
                     processGroup(
                         group = group,
                         subscription = subscription,
@@ -235,7 +258,7 @@ internal class GroupSupervisor(
                     )
                 }
             }
-        val completion = parentScope.async { jobs.joinAll() }
+        val completion = scope.async { jobs.joinAll() }
         return GroupSet(jobs, completion)
     }
 
