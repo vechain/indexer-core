@@ -1,17 +1,14 @@
 package org.vechain.indexer.orchestration
 
-import kotlin.collections.forEach
-import kotlinx.coroutines.CancellationException
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.selects.select
 import org.vechain.indexer.Indexer
 import org.vechain.indexer.orchestration.OrchestrationUtils.runWithInterruptHandling
 import org.vechain.indexer.thor.BlockStream
@@ -19,42 +16,48 @@ import org.vechain.indexer.thor.BlockStreamSubscription
 import org.vechain.indexer.thor.model.Block
 
 class GroupSupervisor(
-    private val scope: CoroutineScope,
+    scope: CoroutineScope,
     private val stream: BlockStream,
     private val executionGroups: List<List<Indexer>>,
-    private val interruptController: InterruptController,
-) {
+    interruptController: InterruptController,
+) : BaseInterruptibleSupervisor(scope, interruptController) {
 
     suspend fun run() {
-        val interrupts = interruptController.registerListener()
-        var activeGroups = launchGroups()
-        try {
-            var shouldExit = false
-            while (scope.isActive && !shouldExit) {
-                when (
-                    select<GroupAction> {
-                        activeGroups.completion.onAwait { GroupAction.Completed }
-                        interrupts.onReceive { reason ->
-                            when (reason) {
-                                InterruptReason.Error -> GroupAction.Restart
-                                InterruptReason.Shutdown -> GroupAction.Shutdown
-                            }
+        supervise(
+            work = {
+                var activeGroups = launchGroups()
+                var shouldExit = false
+                while (scope.isActive && !shouldExit) {
+                    val action = waitForGroupAction(activeGroups)
+                    when (action) {
+                        GroupAction.Completed,
+                        GroupAction.Shutdown -> shouldExit = true
+                        GroupAction.Restart -> {
+                            activeGroups = restartGroups(activeGroups)
                         }
                     }
-                ) {
-                    GroupAction.Completed -> shouldExit = true
-                    GroupAction.Shutdown -> shouldExit = true
-                    GroupAction.Restart -> {
-                        activeGroups = restartGroups(activeGroups)
-                    }
+                }
+                activeGroups.cancelAll()
+                stream.close()
+            },
+            onInterrupt = { reason ->
+                when (reason) {
+                    InterruptReason.Error -> BaseInterruptibleSupervisor.SupervisorAction.Restart
+                    InterruptReason.Shutdown -> BaseInterruptibleSupervisor.SupervisorAction.Stop
                 }
             }
-        } catch (e: ClosedReceiveChannelException) {
-            // Treat listener closure as shutdown request
-        } finally {
-            interrupts.cancel()
-            activeGroups.cancelAll()
-            stream.close()
+        )
+    }
+
+    private suspend fun waitForGroupAction(current: GroupSet): GroupAction {
+        return kotlinx.coroutines.selects.select {
+            current.completion.onAwait { GroupAction.Completed }
+            interruptController.registerListener().onReceive { reason ->
+                when (reason) {
+                    InterruptReason.Error -> GroupAction.Restart
+                    InterruptReason.Shutdown -> GroupAction.Shutdown
+                }
+            }
         }
     }
 

@@ -13,7 +13,7 @@ import org.vechain.indexer.orchestration.OrchestrationUtils.runWithInterruptHand
 import org.vechain.indexer.thor.PrefetchingBlockStream
 import org.vechain.indexer.thor.client.ThorClient
 
-open class IndexerCoordinator {
+open class IndexerOrchestrator {
     companion object {
         @Suppress("unused")
         fun launch(
@@ -24,10 +24,10 @@ open class IndexerCoordinator {
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-            val indexerCoordinator = IndexerCoordinator()
+            val indexerOrchestrator = IndexerOrchestrator()
 
             return scope.launch {
-                indexerCoordinator.run(
+                indexerOrchestrator.run(
                     indexers = indexers,
                     batchSize = blockBatchSize,
                     thorClient = thorClient,
