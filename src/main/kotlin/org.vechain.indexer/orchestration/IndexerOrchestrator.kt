@@ -36,37 +36,40 @@ open class IndexerOrchestrator {
         }
     }
 
-    suspend fun run(indexers: List<Indexer>, batchSize: Int, thorClient: ThorClient) =
-        coroutineScope {
-            require(indexers.isNotEmpty()) { "At least one indexer is required" }
+    suspend fun run(
+        indexers: List<Indexer>,
+        batchSize: Int,
+        thorClient: ThorClient,
+    ) = coroutineScope {
+        require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-            val interruptController = InterruptController()
-            val executionGroups = OrchestrationUtils.topologicalOrder(indexers)
+        val interruptController = InterruptController()
+        val executionGroups = OrchestrationUtils.topologicalOrder(indexers)
 
-            val supervisor =
-                InterruptibleSupervisor(scope = this, interruptController = interruptController)
+        val supervisor =
+            InterruptibleSupervisor(scope = this, interruptController = interruptController)
 
-            supervisor.runPhases(
-                listOf(
-                    {
-                        initialiseAndSyncPhase(
-                            scope = this,
-                            indexers = indexers,
-                            interruptController = interruptController
-                        )
-                    },
-                    {
-                        processBlocksPhase(
-                            scope = this,
-                            batchSize = batchSize,
-                            thorClient = thorClient,
-                            executionGroups = executionGroups,
-                            interruptController = interruptController
-                        )
-                    }
-                )
-            )
-        }
+        supervisor.runPhases(
+            listOf(
+                {
+                    initialiseAndSyncPhase(
+                        scope = this,
+                        indexers = indexers,
+                        interruptController = interruptController,
+                    )
+                },
+                {
+                    processBlocksPhase(
+                        scope = this,
+                        batchSize = batchSize,
+                        thorClient = thorClient,
+                        executionGroups = executionGroups,
+                        interruptController = interruptController,
+                    )
+                },
+            ),
+        )
+    }
 }
 
 suspend fun initialiseAndSyncPhase(

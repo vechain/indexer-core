@@ -9,6 +9,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import org.vechain.indexer.Indexer
 import org.vechain.indexer.orchestration.OrchestrationUtils.runWithInterruptHandling
 import org.vechain.indexer.thor.BlockStream
@@ -21,7 +22,6 @@ class GroupSupervisor(
     private val executionGroups: List<List<Indexer>>,
     interruptController: InterruptController,
 ) : BaseInterruptibleSupervisor(scope, interruptController) {
-
     suspend fun run() {
         supervise(
             work = {
@@ -31,7 +31,7 @@ class GroupSupervisor(
                     val action = waitForGroupAction(activeGroups)
                     when (action) {
                         GroupAction.Completed,
-                        GroupAction.Shutdown -> shouldExit = true
+                        GroupAction.Shutdown, -> shouldExit = true
                         GroupAction.Restart -> {
                             activeGroups = restartGroups(activeGroups)
                         }
@@ -42,21 +42,19 @@ class GroupSupervisor(
             },
             onInterrupt = { reason ->
                 when (reason) {
-                    InterruptReason.Error -> BaseInterruptibleSupervisor.SupervisorAction.Restart
-                    InterruptReason.Shutdown -> BaseInterruptibleSupervisor.SupervisorAction.Stop
+                    InterruptReason.Error -> SupervisorAction.Restart
+                    InterruptReason.Shutdown -> SupervisorAction.Stop
                 }
-            }
+            },
         )
     }
 
-    private suspend fun waitForGroupAction(current: GroupSet): GroupAction {
-        return kotlinx.coroutines.selects.select {
-            current.completion.onAwait { GroupAction.Completed }
-            interruptController.registerListener().onReceive { reason ->
-                when (reason) {
-                    InterruptReason.Error -> GroupAction.Restart
-                    InterruptReason.Shutdown -> GroupAction.Shutdown
-                }
+    private suspend fun waitForGroupAction(current: GroupSet): GroupAction = select {
+        current.completion.onAwait { GroupAction.Completed }
+        interruptController.registerListener().onReceive { reason ->
+            when (reason) {
+                InterruptReason.Error -> GroupAction.Restart
+                InterruptReason.Shutdown -> GroupAction.Shutdown
             }
         }
     }

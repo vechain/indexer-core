@@ -22,12 +22,10 @@ class InterruptibleSupervisor(
                     work = { phase() },
                     onInterrupt = { reason ->
                         when (reason) {
-                            InterruptReason.Error ->
-                                BaseInterruptibleSupervisor.SupervisorAction.Restart
-                            InterruptReason.Shutdown ->
-                                BaseInterruptibleSupervisor.SupervisorAction.Stop
+                            InterruptReason.Error -> SupervisorAction.Restart
+                            InterruptReason.Shutdown -> SupervisorAction.Stop
                         }
-                    }
+                    },
                 )
             when (result) {
                 null -> shouldExit = true
