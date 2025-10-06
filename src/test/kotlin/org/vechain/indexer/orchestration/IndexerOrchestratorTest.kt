@@ -15,6 +15,7 @@ import org.junit.jupiter.api.assertThrows
 import org.vechain.indexer.BlockIndexer
 import org.vechain.indexer.Indexer
 import org.vechain.indexer.Status
+import org.vechain.indexer.initialiseAndSyncPhase
 import org.vechain.indexer.thor.BlockStream
 import org.vechain.indexer.thor.BlockStreamSubscription
 import org.vechain.indexer.thor.model.Block

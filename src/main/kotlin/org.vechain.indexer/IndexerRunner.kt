@@ -1,4 +1,4 @@
-package org.vechain.indexer.orchestration
+package org.vechain.indexer
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -8,12 +8,14 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.vechain.indexer.Indexer
-import org.vechain.indexer.orchestration.OrchestrationUtils.runWithInterruptHandling
+import org.vechain.indexer.orchestration.GroupSupervisor
+import org.vechain.indexer.orchestration.InterruptController
+import org.vechain.indexer.orchestration.InterruptibleSupervisor
+import org.vechain.indexer.orchestration.OrchestrationUtils
 import org.vechain.indexer.thor.PrefetchingBlockStream
 import org.vechain.indexer.thor.client.ThorClient
 
-open class IndexerOrchestrator {
+open class IndexerRunner {
     companion object {
         @Suppress("unused")
         fun launch(
@@ -24,7 +26,7 @@ open class IndexerOrchestrator {
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-            val indexerOrchestrator = IndexerOrchestrator()
+            val indexerOrchestrator = IndexerRunner()
 
             return scope.launch {
                 indexerOrchestrator.run(
@@ -78,14 +80,14 @@ suspend fun initialiseAndSyncPhase(
     interruptController: InterruptController,
 ) {
     val parentContext = scope.coroutineContext
-    val parentJob = parentContext[Job]
+    val parentJob = parentContext[Job.Key]
     val supervisorJob = parentJob?.let { SupervisorJob(it) } ?: SupervisorJob()
     try {
         withContext(parentContext + supervisorJob) {
             val tasks =
                 indexers.map { indexer ->
                     async {
-                        runWithInterruptHandling(interruptController) {
+                        OrchestrationUtils.runWithInterruptHandling(interruptController) {
                             indexer.initialise()
                             indexer.fastSync()
                         }
