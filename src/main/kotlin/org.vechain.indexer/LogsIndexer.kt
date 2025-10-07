@@ -43,6 +43,10 @@ open class LogsIndexer(
         prunerInterval = prunerInterval,
         dependsOn = null,
     ) {
+    init {
+        require(blockBatchSize >= 1) { "blockBatchSize must be >= 1" }
+        require(logFetchLimit >= 1) { "logFetchLimit must be >= 1" }
+    }
 
     protected open val logClient = LogClient(thorClient)
 

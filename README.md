@@ -23,7 +23,7 @@ open class IndexerConfig() {
     open fun blockIndexer(myPruner: Pruner): Indexer =
         IndexerFactory()
             .name("BlockIndexer")
-            .thorClient("https://mainnet.vechain.org")
+            .thorClient("https://mainnet.vechain.org", Pair("X-Project-Id", "my-indexer"))
             .processor(blockProcessor)
             .pruner(myPruner)
             .startBlock(0)

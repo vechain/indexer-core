@@ -83,6 +83,7 @@ open class IndexerRunner {
         thorClient: ThorClient,
         batchSize: Int,
     ) {
+        require(batchSize >= 1) { "batchSize must be >= 1" }
         logger.info("Running indexers...")
         coroutineScope {
             val executionGroups = topologicalOrder(indexers)
