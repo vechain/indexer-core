@@ -4,95 +4,20 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.vechain.indexer.BlockIndexer
-import org.vechain.indexer.Indexer
 import org.vechain.indexer.Status
-import org.vechain.indexer.initialiseAndSyncPhase
+import org.vechain.indexer.fixtures.BlockFixtures.testBlock
 import org.vechain.indexer.thor.BlockStream
 import org.vechain.indexer.thor.BlockStreamSubscription
 import org.vechain.indexer.thor.model.Block
-import org.vechain.indexer.thor.model.Transaction
 
-@OptIn(ExperimentalCoroutinesApi::class)
-class IndexerOrchestratorTest {
-
-    @Test
-    fun `initialiseAndSyncPhase requests error when fast sync fails`() = runTest {
-        val interrupts = mutableListOf<InterruptReason>()
-        val controller = InterruptController { interrupts.add(it) }
-        val indexer = mockIndexer()
-        coEvery { indexer.fastSync() } throws RuntimeException("boom")
-
-        val thrown =
-            runCatching {
-                    initialiseAndSyncPhase(
-                        scope = this,
-                        indexers = listOf(indexer),
-                        interruptController = controller,
-                    )
-                }
-                .exceptionOrNull()
-
-        Assertions.assertTrue(thrown is RuntimeException)
-        Assertions.assertEquals(listOf(InterruptReason.Error), interrupts)
-        Assertions.assertEquals(InterruptReason.Error, controller.currentReason())
-    }
-
-    @Test
-    fun `interruptible supervisor restarts phase after fast sync failure`() = runTest {
-        val interrupts = mutableListOf<InterruptReason>()
-        val controller = InterruptController { interrupts.add(it) }
-        val attempts = AtomicInteger(0)
-        val indexer = mockIndexer()
-        coEvery { indexer.fastSync() } answers
-            {
-                if (attempts.incrementAndGet() == 1) {
-                    throw RuntimeException("boom")
-                }
-            }
-
-        val supervisor = InterruptibleSupervisor(scope = this, interruptController = controller)
-
-        val thrown =
-            runCatching {
-                    supervisor.runPhases(
-                        listOf {
-                            initialiseAndSyncPhase(
-                                scope = this,
-                                indexers = listOf(indexer),
-                                interruptController = controller,
-                            )
-                        }
-                    )
-                }
-                .exceptionOrNull()
-
-        Assertions.assertNull(thrown)
-        Assertions.assertEquals(2, attempts.get())
-        Assertions.assertEquals(listOf(InterruptReason.Error), interrupts)
-        Assertions.assertFalse(controller.isRequested())
-    }
-
-    @Test
-    fun `reset controller only triggers once`() {
-        val invocations = AtomicInteger(0)
-        val controller = InterruptController { invocations.incrementAndGet() }
-
-        controller.request(InterruptReason.Error)
-        controller.request(InterruptReason.Error)
-
-        Assertions.assertTrue(controller.isRequested())
-        Assertions.assertEquals(1, invocations.get())
-    }
-
+class GroupSupervisorTest {
     @Test
     fun `processGroup requests reset when indexer reports error`() = runTest {
         val interrupts = mutableListOf<InterruptReason>()
@@ -217,29 +142,6 @@ class IndexerOrchestratorTest {
         Assertions.assertTrue(stream.subscriptions.all { it.closed })
     }
 
-    private fun testBlock(number: Long): Block =
-        Block(
-            number = number,
-            id = "block-$number",
-            size = 1,
-            parentID = "parent-${number - 1}",
-            timestamp = number,
-            gasLimit = 1,
-            baseFeePerGas = null,
-            beneficiary = "beneficiary",
-            gasUsed = 1,
-            totalScore = 1,
-            txsRoot = "root",
-            txsFeatures = 0,
-            stateRoot = "state",
-            receiptsRoot = "receipts",
-            com = false,
-            signer = "signer",
-            isTrunk = true,
-            isFinalized = true,
-            transactions = emptyList<Transaction>(),
-        )
-
     private fun mockBlockIndexer(
         initialStatus: Status = Status.SYNCING,
         statusSupplier: (() -> Status)? = null,
@@ -248,39 +150,6 @@ class IndexerOrchestratorTest {
         val supplier = statusSupplier ?: { initialStatus }
         every { indexer.getStatus() } answers { supplier() }
         return indexer
-    }
-
-    private fun mockIndexer(): Indexer =
-        mockk(relaxed = true) { every { name } returns "test-indexer" }
-
-    private class TestSubscription(
-        private val blocks: MutableList<Block>,
-    ) : BlockStreamSubscription {
-        private var cursor = blocks.firstOrNull()?.number ?: 0L
-        var closed: Boolean = false
-            private set
-
-        var nextCalls: Int = 0
-            private set
-
-        override val nextBlockNumber: Long
-            get() = cursor
-
-        override suspend fun next(): Block {
-            nextCalls++
-            val block =
-                if (blocks.isEmpty()) {
-                    throw CancellationException("No more blocks")
-                } else {
-                    blocks.removeAt(0)
-                }
-            cursor = block.number + 1
-            return block
-        }
-
-        override suspend fun close() {
-            closed = true
-        }
     }
 
     private class FailingSubscription(
@@ -325,6 +194,36 @@ class IndexerOrchestratorTest {
 
         override suspend fun reset() {
             resetCount++
+        }
+
+        override suspend fun close() {
+            closed = true
+        }
+    }
+
+    private class TestSubscription(
+        private val blocks: MutableList<Block>,
+    ) : BlockStreamSubscription {
+        private var cursor = blocks.firstOrNull()?.number ?: 0L
+        var closed: Boolean = false
+            private set
+
+        var nextCalls: Int = 0
+            private set
+
+        override val nextBlockNumber: Long
+            get() = cursor
+
+        override suspend fun next(): Block {
+            nextCalls++
+            val block =
+                if (blocks.isEmpty()) {
+                    throw CancellationException("No more blocks")
+                } else {
+                    blocks.removeAt(0)
+                }
+            cursor = block.number + 1
+            return block
         }
 
         override suspend fun close() {
