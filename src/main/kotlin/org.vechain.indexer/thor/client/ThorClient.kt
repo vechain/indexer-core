@@ -13,6 +13,8 @@ import org.vechain.indexer.thor.model.*
 interface ThorClient {
     suspend fun getBlock(blockNumber: Long): Block
 
+    suspend fun waitForBlock(blockNumber: Long): Block
+
     suspend fun getBestBlock(): Block
 
     suspend fun getFinalizedBlock(): Block

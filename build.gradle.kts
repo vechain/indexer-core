@@ -12,9 +12,15 @@ plugins {
     jacoco
 }
 
+java.sourceCompatibility = JavaVersion.VERSION_21
+
+jacoco {
+    toolVersion = "0.8.11"
+}
+
 group = "org.vechain"
 
-val projectVersion = System.getenv("PROJECT_VERSION") ?: "5.3.0"
+val projectVersion = System.getenv("PROJECT_VERSION") ?: "6.0.0"
 version = projectVersion
 
 val isSnapshot = version.toString().endsWith("SNAPSHOT")
@@ -150,16 +156,18 @@ dependencies {
     implementation("com.github.kittinunf.fuel:fuel:2.3.1")
     implementation("com.github.kittinunf.fuel:fuel-coroutines:2.3.1")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
-    implementation("org.slf4j:slf4j-api:1.7.32")
+    implementation("org.slf4j:slf4j-api:2.0.13")
     implementation("org.bouncycastle:bcprov-jdk15on:1.70")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.1")
 
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.9.3")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
+    testImplementation("org.jetbrains.kotlin:kotlin-test:2.1.21")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.1")
-    testImplementation("io.mockk:mockk:1.13.5")
+    testImplementation("io.mockk:mockk:1.13.10")
     testImplementation("io.strikt:strikt-core:0.34.1")
     testImplementation("org.slf4j:slf4j-simple:2.0.13")
 
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.9.3")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
 }
 
 if (!isSnapshot) {

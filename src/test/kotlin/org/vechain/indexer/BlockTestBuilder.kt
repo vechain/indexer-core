@@ -6,12 +6,13 @@ class BlockTestBuilder {
     companion object {
         fun buildBlock(
             num: Long,
+            timestamp: Long = 1L,
             parentId: String = "0x${maxOf(num - 1, 0)}",
         ): Block =
             Block(
                 id = "0x$num",
                 number = num,
-                timestamp = num,
+                timestamp = timestamp,
                 size = 0,
                 gasUsed = 0,
                 gasLimit = 0,

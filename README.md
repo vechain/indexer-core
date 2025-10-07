@@ -1,42 +1,72 @@
 # Indexer Core
 
-This library provides the core functionality for building an indexer for a VechainThor. Here is a simple example of how to use it:
+This library provides the core functionality for building an indexer for VechainThor. It supports running multiple indexers concurrently with automatic dependency management and parallel processing.
+
+## Features
+
+- **Parallel Processing**: Multiple indexers process blocks concurrently for maximum performance
+- **Dependency Management**: Automatically orders indexers based on their dependencies using topological sorting
+- **Retry Logic**: Built-in retry mechanisms for initialization, sync, and block processing
+- **Block Buffering**: Configurable buffering to optimize throughput
+- **Group Coordination**: Indexers with dependencies are organized into processing groups that maintain proper ordering
 
 ## Example usage
 
 ```kotlin
 @Configuration
-open class Config() {
+open class IndexerConfig() {
 
     @Bean
     open fun myPruner(): Pruner = PrunerService()
 
     @Bean
-    open fun myIndexer(
-        myProcessor: IndexerProcessor,
-        startBlock: Long,
-        syncLogInterval: Long,
-        syncBlockBatchSize: Long,
-        myPruner: Pruner,
-    ): Indexer =
+    open fun blockIndexer(myPruner: Pruner): Indexer =
         IndexerFactory()
-            .name("MyIndexer")
-            .thorClient("https://mainnet.vechain.org")
-            .processor(myProcessor)
+            .name("BlockIndexer")
+            .thorClient("https://mainnet.vechain.org", Pair("X-Project-Id", "my-indexer"))
+            .processor(blockProcessor)
             .pruner(myPruner)
-            .startBlock(startBlock)
-            .syncLoggerInterval(syncLogInterval)
+            .startBlock(0)
+            .syncLoggerInterval(1000)
             .abis("/abis")
             .businessEvents("/business-events", "/abis")
             .excludeVetTransfers()
             .build()
+
+    @Bean
+    open fun transactionIndexer(blockIndexer: Indexer): Indexer =
+        IndexerFactory()
+            .name("TransactionIndexer")
+            .thorClient("https://mainnet.vechain.org")
+            .processor(txProcessor)
+            .dependsOn(blockIndexer)  // Ensures BlockIndexer processes blocks first
+            .startBlock(0)
+            .build()
+
+    @Bean
+    open fun indexerRunner(
+        scope: CoroutineScope,
+        thorClient: ThorClient,
+        blockIndexer: Indexer,
+        transactionIndexer: Indexer
+    ): Job {
+        return IndexerRunner.launch(
+            scope = scope,
+            thorClient = thorClient,
+            indexers = listOf(blockIndexer, transactionIndexer),
+            blockBatchSize = 10  // Buffer up to 10 blocks per group
+        )
+    }
 }
 ```
 
 The `IndexerFactory` can be used to configure your indexer. The only required parameters are the `name`, `thorClient` and the `processor`.
 For details of the available configuration options, see the comments in the `IndexerFactory` class.
 
-An example of an `IndexerProcessor` implementation is as follows:
+
+## IndexerProcessor Implementation
+
+An example of an `IndexerProcessor` implementation:
 
 ```kotlin
 @Component
@@ -59,6 +89,32 @@ open class MyProcessor(
       return null
     }
 }
+```
+
+## Architecture
+
+### IndexerRunner
+
+The `IndexerRunner` coordinates multiple indexers:
+
+1. **Initialization Phase**: All indexers are initialized and fast-synced concurrently
+2. **Execution Phase**: Indexers are organized into dependency groups and process blocks in parallel
+   - Groups are determined by topological sorting based on `dependsOn` relationships
+   - Within each group, indexers process the same block **sequentially** in list order
+   - Different groups can work on different blocks simultaneously (e.g., Group 2 on block N+1 while Group 1 on block N+2)
+
+### Dependency Management
+
+The `IndexerOrderUtils` provides topological sorting to determine the correct processing order:
+
+```kotlin
+val indexer1 = createIndexer("Base")
+val indexer2 = createIndexer("DependentA", dependsOn = indexer1)
+val indexer3 = createIndexer("DependentB", dependsOn = indexer1)
+val indexer4 = createIndexer("FinalIndexer", dependsOn = indexer2)
+
+// Results in groups: [[Base], [DependentA, DependentB], [FinalIndexer]]
+// DependentA and DependentB can process blocks in parallel
 ```
 
 ## Java compatibility

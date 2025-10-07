@@ -1,22 +1,18 @@
 package org.vechain.indexer
 
+import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-import kotlinx.coroutines.*
+import kotlin.coroutines.cancellation.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.CombinedEventProcessor
-import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
 import org.vechain.indexer.thor.model.Clause
-
-/** Initial processing backoff duration */
-const val INITIAL_BACKOFF_PERIOD = 10_000L
-
-private const val DEPENDENCY_CHECK_INTERVAL_MS = 50L
+import org.vechain.indexer.utils.IndexerUtils.ensureStatus
 
 open class BlockIndexer(
     override val name: String,
@@ -25,13 +21,23 @@ open class BlockIndexer(
     protected val startBlock: Long,
     private val syncLoggerInterval: Long,
     protected val eventProcessor: CombinedEventProcessor?,
-    protected val inspectionClauses: List<Clause>? = null,
-    override val pruner: Pruner? = null,
+    protected val inspectionClauses: List<Clause>?,
+    override val pruner: Pruner?,
     private val prunerInterval: Long,
-    override val dependsOn: Set<Indexer>,
+    override val dependsOn: Indexer?,
 ) : Indexer {
+    init {
+        require(prunerInterval > 0) { "prunerInterval must be > 0" }
+    }
+
     /** The last block that was successfully synchronised */
-    protected var previousBlock: BlockIdentifier? = null
+    private var previousBlock: BlockIdentifier? = null
+
+    override fun getPreviousBlock(): BlockIdentifier? = previousBlock
+
+    protected fun setPreviousBlock(value: BlockIdentifier?) {
+        previousBlock = value
+    }
 
     // A random number between 0 and `prunerInterval`. This makes it less like that all pruners will
     // run at the same time.
@@ -39,128 +45,83 @@ open class BlockIndexer(
 
     protected val logger: Logger = LoggerFactory.getLogger(name)
 
-    override var status = Status.SYNCING
+    private var status = Status.NOT_INITIALISED
 
-    private var dependencyResumeStatus: Status? = null
+    protected fun setStatus(newStatus: Status) {
+        status = newStatus
+    }
 
-    var currentBlockNumber: Long = 0
-        protected set
+    override fun getStatus(): Status = status
+
+    private var currentBlockNumber: Long = 0
+
+    override fun getCurrentBlockNumber(): Long = currentBlockNumber
+
+    protected fun setCurrentBlockNumber(value: Long) {
+        currentBlockNumber = value
+    }
 
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
         internal set
 
-    private var backoffPeriod = 0L
-
     /** Initialises the indexer processing */
-    protected fun initialise(blockNumber: Long? = null) {
-        // If no block number is provided, get the last synced block. If no block is found, start
-        // from the beginning.
-        val lastSyncedBlockNumber = blockNumber ?: getLastSyncedBlock()?.number ?: startBlock
-
-        // To ensure data integrity roll back changes made in the last block
-        rollback(lastSyncedBlockNumber)
-
-        // Initialise fields
-        currentBlockNumber = lastSyncedBlockNumber
-        status = Status.SYNCING
-
-        // Set the previous block to the previously synced block if it exists, or null otherwise.
-        val lastBlock = getLastSyncedBlock()
-        previousBlock =
-            if (lastBlock?.number == lastSyncedBlockNumber - 1L) {
-                lastBlock
-            } else {
-                null
-            }
+    override fun initialise() {
+        val lastSyncedBlockNumber = determineStartingBlock()
+        rollbackToSafeState(lastSyncedBlockNumber)
+        initializeState(lastSyncedBlockNumber)
+        logInitialization()
     }
 
     /**
-     * Triggers the non-blocking suspendable start() function inside its required coroutine scope.
+     * Determines the starting block number for initialization.
+     *
+     * @return The last synced block number if available, otherwise the configured start block.
      */
-    override fun startInCoroutine(scope: CoroutineScope) {
-        scope.launch {
-            try {
-                start()
-            } catch (e: Exception) {
-                logger.error("Error starting indexer ${this.javaClass.simpleName}: ", e)
-                throw Exception(e.message, e)
-            }
+    protected open fun determineStartingBlock(): Long {
+        return getLastSyncedBlock()?.number ?: startBlock
+    }
+
+    /**
+     * Rolls back to a safe state to ensure data integrity.
+     *
+     * @param blockNumber The block number to roll back to.
+     */
+    protected open fun rollbackToSafeState(blockNumber: Long) {
+        rollback(blockNumber)
+    }
+
+    /**
+     * Initializes the indexer state fields.
+     *
+     * @param blockNumber The block number to initialize from.
+     */
+    protected open fun initializeState(blockNumber: Long) {
+        currentBlockNumber = blockNumber
+        previousBlock = calculatePreviousBlock(blockNumber)
+        status = Status.INITIALISED
+    }
+
+    /**
+     * Calculates the previous block identifier based on the current block number.
+     *
+     * @param currentBlock The current block number.
+     * @return The previous block identifier if it's sequential, null otherwise.
+     */
+    protected open fun calculatePreviousBlock(currentBlock: Long): BlockIdentifier? {
+        val lastBlock = getLastSyncedBlock()
+        return if (lastBlock?.number == currentBlock - 1L) {
+            lastBlock
+        } else {
+            null
         }
     }
 
-    /** Starts the indexer */
-    override suspend fun start() {
-        initialise()
-        waitForDependencies()
-
-        logger.info("Starting @ Block: $currentBlockNumber")
-        run()
+    /** Logs the initialization message. */
+    protected open fun logInitialization() {
+        logger.info("Initialised @ Block: $currentBlockNumber")
     }
 
-    /** Restarts the processing based on the current indexer status */
-    protected open fun restart() {
-        logger.info("⚠️ Restarting @ Block: $currentBlockNumber with status $status")
-        // Initialise the indexer
-        when (status) {
-            Status.ERROR -> initialise(currentBlockNumber)
-            Status.REORG -> initialise(currentBlockNumber - 1)
-            else -> initialise()
-        }
-
-        logger.info("✅ Successfully Restarted @ Block: $currentBlockNumber with status $status")
-    }
-
-    /** The core indexer logic */
-    protected open suspend fun run() {
-        while (true) {
-            runOnce()
-        }
-    }
-
-    protected suspend fun runOnce() {
-        try {
-            waitForDependencies()
-            backoffDelay()
-
-            if (status == Status.ERROR || status == Status.REORG) restart()
-
-            val block = thorClient.getBlock(currentBlockNumber)
-
-            // Check for chain re-organization.
-            if (
-                currentBlockNumber > startBlock &&
-                    previousBlock?.id?.let { it != block.parentID } == true
-            ) {
-                val message =
-                    "REORG @ Block $currentBlockNumber previousBlock=(id=${previousBlock?.id ?: "null"} number=${previousBlock?.number ?: "null"})  parentID=${block.parentID}"
-                logger.error(message)
-                throw ReorgException(message = message)
-            }
-
-            if (
-                logger.isTraceEnabled ||
-                    status != Status.SYNCING ||
-                    currentBlockNumber % syncLoggerInterval == 0L
-            ) {
-                logger.info("($status) Processing Block  $currentBlockNumber")
-            }
-
-            process(blockToEvent(block))
-            postProcessBlock(block)
-            runPruner()
-        } catch (_: BlockNotFoundException) {
-            logger.info("Block $currentBlockNumber not found. Indexer may be fully synchronised.")
-            handleFullySynced()
-            ensureFullySynced()
-        } catch (_: ReorgException) {
-            handleReorg()
-        } catch (e: Exception) {
-            logger.error("Error while processing block $currentBlockNumber", e)
-            handleError()
-        }
-    }
-
-    protected suspend fun blockToEvent(block: Block): IndexingResult {
+    protected suspend fun buildIndexingResult(block: Block): IndexingResult {
         val callResults =
             inspectionClauses?.let { thorClient.inspectClauses(it, block.id) } ?: emptyList()
         val events = eventProcessor?.processEvents(block) ?: emptyList()
@@ -168,58 +129,81 @@ open class BlockIndexer(
         return IndexingResult.Normal(block, events, callResults)
     }
 
-    private fun handleFullySynced() {
-        backoffPeriod = 4000
-        status = Status.FULLY_SYNCED
+    protected fun checkIfShuttingDown() {
+        // If shut down throw an error
+        if (status == Status.SHUT_DOWN) {
+            throw CancellationException("Indexer is shut down")
+        }
     }
 
-    internal fun handleError() {
-        backoffPeriod = INITIAL_BACKOFF_PERIOD
-        status = Status.ERROR
-    }
+    override suspend fun processBlock(block: Block) {
+        validateProcessingState()
+        validateBlockNumber(block)
+        updateSyncStatus(block)
+        checkForReorg(block)
 
-    private fun handleReorg() {
-        backoffPeriod = INITIAL_BACKOFF_PERIOD
-        status = Status.REORG
+        processAndUpdateState(block)
     }
 
     /**
-     * Ensures that indexer is fully synced, recalculates the backoff period & increments the
-     * current block number.
+     * Validates that the indexer is in a valid state for processing blocks.
      *
-     * @param block the block to undergo post-processing
+     * @throws CancellationException if the indexer is shut down.
+     * @throws IllegalStateException if the indexer is not in a valid processing state.
      */
-    protected suspend fun postProcessBlock(block: Block) {
+    protected open fun validateProcessingState() {
+        checkIfShuttingDown()
+        ensureStatus(status, setOf(Status.INITIALISED, Status.SYNCING, Status.FULLY_SYNCED))
+    }
 
-        // If this block is not the block after currentBlockNumber, then we are in an invalid state.
+    /**
+     * Validates that the block number matches the expected current block number.
+     *
+     * @param block The block to validate.
+     * @throws IllegalStateException if the block number doesn't match.
+     */
+    protected open fun validateBlockNumber(block: Block) {
         if (block.number != currentBlockNumber) {
             throw IllegalStateException(
-                "Block number mismatch: expected $currentBlockNumber, got ${block.number}",
+                "Block number mismatch: expected $currentBlockNumber, got ${block.number}"
             )
         }
+    }
 
-        // Every 20 blocks, check if we are fully synced.
-        if (status == Status.FULLY_SYNCED && currentBlockNumber % 20 == 0L) {
-            ensureFullySynced()
-        }
+    /**
+     * Processes the block and updates the indexer state.
+     *
+     * @param block The block to process.
+     */
+    protected open suspend fun processAndUpdateState(block: Block) {
+        logProcessingBlock()
+        process(buildIndexingResult(block))
+        updateBlockState(block)
+        runPruner()
+    }
 
-        // If we are fully synced, recalculate the backoff period.
-        if (status == Status.FULLY_SYNCED) {
-            val currentEpoch =
-                LocalDateTime.now(ZoneOffset.UTC).toInstant(ZoneOffset.UTC).toEpochMilli()
-            val timeSinceLastBlock = maxOf(currentEpoch - block.timestamp.times(1000), 0)
-            backoffPeriod = maxOf(0, INITIAL_BACKOFF_PERIOD - (timeSinceLastBlock)) + 100
-
-            logger.debug("Success @ Block $currentBlockNumber ($timeSinceLastBlock ms since mine)")
-        }
-
-        // Set the current block number to the next block.
+    /**
+     * Updates the block state after successful processing.
+     *
+     * @param block The processed block.
+     */
+    protected open fun updateBlockState(block: Block) {
         currentBlockNumber = block.number + 1
-
-        // Set the previous block id.
         previousBlock = BlockIdentifier(number = block.number, id = block.id)
-
         timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
+    }
+
+    protected fun updateSyncStatus(block: Block) {
+        // if the timestamp of the block is within 15 seconds of the current time, we are fully
+        // synced
+        val blockTime = LocalDateTime.ofEpochSecond(block.timestamp, 0, ZoneOffset.UTC)
+        val now = LocalDateTime.now(ZoneOffset.UTC)
+        status =
+            if (Duration.between(blockTime, now).toSeconds() < 15) {
+                Status.FULLY_SYNCED
+            } else {
+                Status.SYNCING
+            }
     }
 
     /**
@@ -228,32 +212,32 @@ open class BlockIndexer(
      * `prunerInterval` to ensure that not all indexers run the pruner at the same time.
      */
     protected fun runPruner() {
-        if (status != Status.FULLY_SYNCED) return
-        pruner?.let {
-            if (currentBlockNumber % prunerInterval == prunerIntervalOffset) {
-                status = Status.PRUNING
-                it.run(currentBlockNumber)
-                status = Status.FULLY_SYNCED
-            }
-        }
+        if (!shouldRunPruner()) return
+
+        executePruner()
     }
 
-    /** Ensures that indexer is not behind on-chain best block when in fully synced state */
-    protected suspend fun ensureFullySynced() {
-        if (status == Status.FULLY_SYNCED) {
-            val latestBlock = thorClient.getBestBlock()
-            if (latestBlock.number > currentBlockNumber) {
-                logger.info(
-                    "$name - Changing status to SYNCING (indexerBlock=$currentBlockNumber, latestBlock=${latestBlock.number})",
-                )
-                status = Status.SYNCING
-            }
-        }
+    /**
+     * Determines whether the pruner should run based on current state and conditions.
+     *
+     * @return true if the pruner should run, false otherwise.
+     */
+    protected open fun shouldRunPruner(): Boolean {
+        if (pruner == null) return false
+        if (status != Status.FULLY_SYNCED) return false
+        if (currentBlockNumber % prunerInterval != prunerIntervalOffset) return false
+        return true
     }
 
-    internal suspend fun backoffDelay() {
-        if (status != Status.SYNCING) {
-            delay(backoffPeriod)
+    /** Executes the pruner service. */
+    protected open fun executePruner() {
+        val prunerInstance = pruner ?: return
+
+        status = Status.PRUNING
+        try {
+            prunerInstance.run(currentBlockNumber)
+        } finally {
+            status = Status.FULLY_SYNCED
         }
     }
 
@@ -261,37 +245,93 @@ open class BlockIndexer(
 
     override fun rollback(blockNumber: Long) = processor.rollback(blockNumber)
 
-    override fun process(event: IndexingResult) = processor.process(event)
+    override fun process(entry: IndexingResult) = processor.process(entry)
 
-    protected open suspend fun waitForDependencies() {
-        if (dependsOn.isEmpty()) {
-            dependencyResumeStatus = null
-            return
+    private fun logProcessingBlock() {
+        if (shouldLogDebug()) {
+            logger.debug(buildLogMessage())
+        } else if (shouldLogInfo()) {
+            logger.info(buildLogMessage())
         }
-
-        if (dependenciesReady()) {
-            resumeAfterDependencies()
-            return
-        }
-
-        if (status != Status.PENDING_DEPENDENCY) {
-            dependencyResumeStatus = status
-            status = Status.PENDING_DEPENDENCY
-        }
-
-        do {
-            delay(DEPENDENCY_CHECK_INTERVAL_MS)
-        } while (!dependenciesReady())
-
-        resumeAfterDependencies()
     }
 
-    private fun resumeAfterDependencies() {
-        if (status == Status.PENDING_DEPENDENCY) {
-            status = dependencyResumeStatus ?: Status.SYNCING
-        }
-        dependencyResumeStatus = null
+    /**
+     * Determines whether debug logging should be enabled.
+     *
+     * @return true if debug logging is enabled, false otherwise.
+     */
+    protected open fun shouldLogDebug(): Boolean = logger.isDebugEnabled
+
+    /**
+     * Determines whether info logging should be enabled.
+     *
+     * @return true if info logging should occur, false otherwise.
+     */
+    protected open fun shouldLogInfo(): Boolean {
+        return status == Status.FULLY_SYNCED || currentBlockNumber % syncLoggerInterval == 0L
     }
 
-    private fun dependenciesReady(): Boolean = dependsOn.all { it.status == Status.FULLY_SYNCED }
+    /**
+     * Builds the log message for block processing.
+     *
+     * @return The formatted log message.
+     */
+    protected open fun buildLogMessage(): String {
+        return "($status) Processing Block  $currentBlockNumber"
+    }
+
+    internal fun checkForReorg(block: Block) {
+        if (shouldCheckForReorg() && isReorgDetected(block)) {
+            handleReorg(block)
+        }
+    }
+
+    /**
+     * Determines whether a reorg check should be performed.
+     *
+     * @return true if reorg checking should occur, false otherwise.
+     */
+    protected open fun shouldCheckForReorg(): Boolean {
+        return currentBlockNumber > startBlock && previousBlock != null
+    }
+
+    /**
+     * Detects if a chain reorganization has occurred.
+     *
+     * @param block The current block to check.
+     * @return true if a reorg is detected, false otherwise.
+     */
+    protected open fun isReorgDetected(block: Block): Boolean {
+        return previousBlock?.id?.let { it != block.parentID } == true
+    }
+
+    /**
+     * Handles a detected chain reorganization.
+     *
+     * @param block The block where the reorg was detected.
+     * @throws ReorgException always, after logging and rolling back.
+     */
+    protected open fun handleReorg(block: Block) {
+        val message = buildReorgMessage(block)
+        logger.error(message)
+        rollback(currentBlockNumber - 1)
+        throw ReorgException(message)
+    }
+
+    /**
+     * Builds the reorg error message.
+     *
+     * @param block The block where the reorg was detected.
+     * @return The formatted reorg message.
+     */
+    protected open fun buildReorgMessage(block: Block): String {
+        return "REORG @ Block $currentBlockNumber " +
+            "previousBlock=(id=${previousBlock?.id ?: "null"} number=${previousBlock?.number ?: "null"}) " +
+            "block=(parentID=${block.parentID} blockNumber=${block.number} id=${block.id})"
+    }
+
+    override fun shutDown() {
+        setStatus(Status.SHUT_DOWN)
+        logger.info("Indexer Shut down")
+    }
 }

@@ -1,6 +1,5 @@
 package org.vechain.indexer
 
-import kotlinx.coroutines.CoroutineScope
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
@@ -8,37 +7,60 @@ import org.vechain.indexer.thor.model.InspectionResult
 
 /** The possible states the indexer can be */
 enum class Status {
-    /** Indexer is processing blocks */
+    /** Indexer has not been initialised */
+    NOT_INITIALISED,
+
+    /** Indexer has been initialised but not started */
+    INITIALISED,
+
+    /** Indexer is performing a fast sync to catch up to the best block */
+    FAST_SYNCING,
+
+    /** Indexer is syncing */
     SYNCING,
 
-    /** Indexing is up to date with the latest on-chain block */
+    /** Indexer is processing blocks */
     FULLY_SYNCED,
-
-    /** A chain re-organization has been detected during processing */
-    REORG,
-
-    /** Indexer encountered an unknown exception during processing */
-    ERROR,
 
     /** Indexer is pruning old data. Records will not be processed while in this state */
     PRUNING,
 
-    /** Indexer is waiting for one or more dependent indexers to reach a synced state */
-    PENDING_DEPENDENCY
+    /** Indexer has been shut down and cannot be restarted */
+    SHUT_DOWN,
 }
 
 interface Indexer : IndexerProcessor {
+    // The name of the indexer
     val name: String
 
-    var status: Status
+    // The current status of the indexer
+    fun getStatus(): Status
 
+    // The current block number being processed
+    fun getCurrentBlockNumber(): Long
+
+    // The previous block processed by this indexer. Used to detect re-orgs.
+    fun getPreviousBlock(): BlockIdentifier?
+
+    // Initialise the indexer
+    fun initialise()
+
+    // Process a block. The onReset callback should be called if the indexer needs to reset its
+    // state
+    suspend fun processBlock(block: Block)
+
+    // Optional pruner that can be run periodically to clean up old data
     val pruner: Pruner?
 
-    fun startInCoroutine(scope: CoroutineScope)
+    // Optional parent indexers that this indexer depends on.
+    val dependsOn: Indexer?
 
-    suspend fun start()
+    // Optional fast sync phase
+    suspend fun fastSync() {
+        // Default implementation does nothing
+    }
 
-    val dependsOn: Set<Indexer>
+    fun shutDown()
 }
 
 sealed class IndexingResult {

@@ -13,6 +13,7 @@ class IndexerFactory {
     private var thorClient: ThorClient? = null
     private var processor: IndexerProcessor? = null
     private var startBlock: Long = 0L
+    private var syncLoggerInterval: Long = 1_000L
     private var abiBasePath: String? = null
     private var abiEventNames: List<String> = emptyList()
     private var abiContracts: List<String> = emptyList()
@@ -22,7 +23,6 @@ class IndexerFactory {
     private var businessEventNames: List<String> = emptyList()
     private var businessEventContracts: List<String> = emptyList()
     private var substitutionParams: Map<String, String> = emptyMap()
-    private var syncLoggerInterval: Long = 1_000L
     private var blockBatchSize: Long = 100L //  Block batch size
     private var logFetchLimit: Long = 1000L //  Limits logs per API call (pagination)
     private var pruner: Pruner? = null
@@ -30,11 +30,10 @@ class IndexerFactory {
     private var eventCriteriaSet: List<EventCriteria>? = null
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
-    private var channelBatchSize: Int = 2 // Default batch size for channel indexer
-    private var dependsOn = emptySet<Indexer>()
+    private var dependsOn: Indexer? = null
     private var callDataClauses: List<Clause>? = null
 
-    fun build(): Indexer {
+    fun build(): BlockIndexer {
         requireNotNull(name)
         requireNotNull(thorClient) { "Thor client must be set using thorClient() method." }
         requireNotNull(processor) { "Processor must be set using processor() method." }
@@ -58,8 +57,8 @@ class IndexerFactory {
             )
 
         // If `includeFullBlock` is true, return a `BlockIndexer`
-        return if (includeFullBlock) {
-            ChannelIndexer(
+        return if (includeFullBlock || dependsOn != null) {
+            BlockIndexer(
                 name = name!!,
                 thorClient = thorClient!!,
                 processor = processor!!,
@@ -68,11 +67,11 @@ class IndexerFactory {
                 pruner = pruner,
                 eventProcessor = eventProcessor,
                 prunerInterval = prunerInterval,
-                batchSize = channelBatchSize,
                 inspectionClauses = callDataClauses,
-                dependsOn = dependsOn,
+                dependsOn = dependsOn
             )
         } else {
+
             LogsIndexer(
                 name = name!!,
                 thorClient = thorClient!!,
@@ -87,7 +86,6 @@ class IndexerFactory {
                 eventProcessor = eventProcessor,
                 pruner = pruner,
                 prunerInterval = prunerInterval,
-                dependsOn = dependsOn,
             )
         }
     }
@@ -140,6 +138,18 @@ class IndexerFactory {
      * @param startBlock The block number to start indexing from.
      */
     fun startBlock(startBlock: Long) = apply { this.startBlock = startBlock }
+
+    /**
+     * Used to tune how often the indexer will log its progress when syncing.
+     *
+     * The default value is `1000` blocks
+     *
+     * @param interval The interval in `blocks` for logging progress.
+     */
+    fun syncLoggerInterval(interval: Long) = apply {
+        require(interval > 0) { "syncLoggerInterval must be > 0" }
+        this.syncLoggerInterval = interval
+    }
 
     /**
      * This function allows you to configure the ABI files for the indexer.
@@ -274,15 +284,6 @@ class IndexerFactory {
     }
 
     /**
-     * Used to tune how often the indexer will log its progress when syncing.
-     *
-     * The default value is `1000` blocks
-     *
-     * @param interval The interval in `blocks` for logging progress.
-     */
-    fun syncLoggerInterval(interval: Long) = apply { this.syncLoggerInterval = interval }
-
-    /**
      * Sets the block bach size for retrieving events logs and transfers from the Thor API.
      *
      * The default value is `100` blocks.
@@ -301,17 +302,6 @@ class IndexerFactory {
     fun logFetchLimit(limit: Long) = apply { this.logFetchLimit = limit }
 
     /**
-     * Sets the batch size for the channel indexer.
-     *
-     * This is used to control how many blocks are processed in a single batch.
-     *
-     * The default value is `100`.
-     *
-     * @param size The batch size for the channel indexer.
-     */
-    fun channelBatchSize(size: Int) = apply { this.channelBatchSize = size }
-
-    /**
      * By default, the full block object is not returned to the `process` function. This allows us
      * to sync faster by using log and vet transfer events only.
      *
@@ -322,21 +312,8 @@ class IndexerFactory {
      */
     fun includeFullBlock() = apply { this.includeFullBlock = true }
 
-    /**
-     * Allows users to build a dependency graph of indexers.
-     *
-     * Indexers listed in `dependsOn` will be fully synced before this indexer starts syncing.
-     *
-     * If an indexer in `dependsOn` falls behind, this indexer will pause syncing until the
-     * dependent indexer is fully synced again.
-     *
-     * @param dependsOn Set of indexers that this indexer depends on.
-     *
-     * **Note for developers:** Use this functionality with caution. Where possible, avoid building
-     * strong interdependencies between indexers, as this can lead to complex sync issues and
-     * reduced system resilience.
-     */
-    fun dependsOn(dependsOn: Set<Indexer>) = apply { this.dependsOn = dependsOn }
+    /** Sets a parent indexer that this indexer depends on. */
+    fun dependsOn(indexer: Indexer) = apply { this.dependsOn = indexer }
 
     /**
      * Sets the clauses to be used for call data inspection. This requires a block by block indexer

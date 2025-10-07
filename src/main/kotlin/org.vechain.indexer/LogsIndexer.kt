@@ -3,7 +3,6 @@ package org.vechain.indexer
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import org.vechain.indexer.event.CombinedEventProcessor
-import org.vechain.indexer.exception.RestartIndexerException
 import org.vechain.indexer.thor.client.LogClient
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.*
@@ -16,24 +15,13 @@ import org.vechain.indexer.thor.model.*
  *
  * This indexer iterates through blockchain transactions, extracts logs based on criteria, and
  * processes them accordingly.
- *
- * @param thorClient The Thor blockchain client instance.
- * @param startBlock The starting block number for indexing.
- * @param syncLoggerInterval Frequency of log sync status updates.
- * @param excludeVetTransfers If true, excludes VET transfer logs from processing.
- * @param blockBatchSize Number of blocks fetched per batch.
- * @param logFetchLimit Maximum number of logs fetched per API call.
- * @param pruner Optional pruner for cleaning up old data.
- * @param eventCriteriaSet Filtering criteria for event logs.
- * @param transferCriteriaSet Filtering criteria for transfer logs.
- * @param eventProcessor Optional event processor for handling indexed events. events.
  */
 open class LogsIndexer(
     name: String,
     override val thorClient: ThorClient,
     processor: IndexerProcessor,
     startBlock: Long,
-    private val syncLoggerInterval: Long,
+    syncLoggerInterval: Long,
     private val excludeVetTransfers: Boolean,
     private val blockBatchSize: Long,
     private val logFetchLimit: Long,
@@ -41,103 +29,186 @@ open class LogsIndexer(
     private var transferCriteriaSet: List<TransferCriteria>?,
     eventProcessor: CombinedEventProcessor?,
     pruner: Pruner?,
-    prunerInterval: Long,
-    dependsOn: Set<Indexer>,
+    prunerInterval: Long
 ) :
-    PreSyncIndexer(
-        name,
-        thorClient,
-        processor,
-        startBlock,
-        syncLoggerInterval,
-        eventProcessor,
-        null,
-        pruner,
-        prunerInterval,
-        dependsOn
+    BlockIndexer(
+        name = name,
+        thorClient = thorClient,
+        processor = processor,
+        startBlock = startBlock,
+        syncLoggerInterval = syncLoggerInterval,
+        eventProcessor = eventProcessor,
+        inspectionClauses = null,
+        pruner = pruner,
+        prunerInterval = prunerInterval,
+        dependsOn = null,
     ) {
+    init {
+        require(blockBatchSize >= 1) { "blockBatchSize must be >= 1" }
+        require(logFetchLimit >= 1) { "logFetchLimit must be >= 1" }
+    }
 
     protected open val logClient = LogClient(thorClient)
+
+    override suspend fun fastSync() {
+
+        setStatus(Status.FAST_SYNCING)
+        logger.info("Starting fast sync from block ${getCurrentBlockNumber()}")
+
+        val finalizedBlock = thorClient.getFinalizedBlock()
+
+        if (getCurrentBlockNumber() < finalizedBlock.number) {
+            sync(BlockIdentifier(finalizedBlock.number, finalizedBlock.id))
+        }
+
+        logger.info("Fast sync complete")
+
+        setStatus(Status.INITIALISED)
+    }
 
     /**
      * Synchronizes logs from the current block to the target block.
      *
-     * @param toBlock The block number to sync up to.
+     * This method processes blocks in batches determined by [blockBatchSize]. For each batch:
+     * 1. Fetches event logs (if ABIs are configured)
+     * 2. Fetches transfer logs (if not excluded)
+     * 3. Processes and indexes the logs
+     * 4. Updates the current block number
+     *
+     * The sync continues until [getCurrentBlockNumber] reaches [toBlock].number.
+     *
+     * @param toBlock The block identifier to sync up to (inclusive).
+     *
+     * Note: This method is internal to allow for testing via TestableLogsIndexer.
      */
-    override suspend fun sync(toBlock: Long) {
-        while (currentBlockNumber < toBlock) {
-            waitForDependencies()
-            try {
-                val batchEndBlock = minOf(currentBlockNumber + blockBatchSize, toBlock)
+    internal suspend fun sync(toBlock: BlockIdentifier) {
+        while (getCurrentBlockNumber() < toBlock.number) {
+            checkIfShuttingDown()
+            processBatch(toBlock.number)
+        }
+        setPreviousBlock(toBlock)
+    }
 
-                // Log sync status
-                if (
-                    logger.isTraceEnabled ||
-                        hasMultipleInRange(currentBlockNumber, batchEndBlock, syncLoggerInterval)
-                ) {
-                    logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
-                }
+    /**
+     * Processes a single batch of blocks, fetching and indexing logs.
+     *
+     * @param toBlockNumber The target block number for the overall sync operation.
+     */
+    protected open suspend fun processBatch(toBlockNumber: Long) {
+        val batchEndBlock = calculateBatchEndBlock(toBlockNumber)
+        logSyncStatus(getCurrentBlockNumber(), batchEndBlock, getStatus())
 
-                // Fetch both event logs and VET transfers
-                // Only fetch event logs if we have ABI definitions
-                val eventLogs =
-                    if (eventProcessor?.hasAbis() == true) {
-                        logClient.fetchEventLogs(
-                            currentBlockNumber,
-                            batchEndBlock,
-                            logFetchLimit,
-                            eventCriteriaSet
-                        )
-                    } else emptyList()
+        val eventLogs = fetchEventLogsIfNeeded(batchEndBlock)
+        val transferLogs = fetchTransferLogsIfNeeded(batchEndBlock)
 
-                val transferLogs =
-                    if (!excludeVetTransfers)
-                        logClient.fetchTransfers(
-                            currentBlockNumber,
-                            batchEndBlock,
-                            logFetchLimit,
-                            transferCriteriaSet
-                        )
-                    else emptyList()
+        if (hasNoLogs(eventLogs, transferLogs)) {
+            updateBlockNumberAndTime(batchEndBlock)
+            return
+        }
 
-                if (eventLogs.isEmpty() && transferLogs.isEmpty()) {
-                    currentBlockNumber = batchEndBlock + 1
-                    timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
-                    continue
-                }
+        processAndIndexEvents(eventLogs, transferLogs, batchEndBlock)
+        updateBlockNumberAndTime(batchEndBlock)
+    }
 
-                // Process events and transfers
-                val indexedEvents =
-                    eventProcessor?.processEvents(eventLogs, transferLogs) ?: emptyList()
-                if (indexedEvents.isNotEmpty())
-                    process(IndexingResult.EventsOnly(batchEndBlock, indexedEvents))
+    /**
+     * Calculates the end block number for the current batch.
+     *
+     * @param toBlockNumber The target block number for the overall sync operation.
+     * @return The batch end block number (will not exceed toBlockNumber).
+     */
+    protected open fun calculateBatchEndBlock(toBlockNumber: Long): Long {
+        return minOf(getCurrentBlockNumber() + blockBatchSize - 1, toBlockNumber)
+    }
 
-                // Update last processed block
-                currentBlockNumber = batchEndBlock + 1
-                timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
-            } catch (e: Exception) {
-                logger.error(
-                    "Restarting sync due to error syncing at block $currentBlockNumber: ${e.message}"
-                )
-                throw RestartIndexerException()
-            }
+    /**
+     * Checks if both event logs and transfer logs are empty.
+     *
+     * @return true if no logs were fetched, false otherwise.
+     */
+    protected open fun hasNoLogs(
+        eventLogs: List<EventLog>,
+        transferLogs: List<TransferLog>
+    ): Boolean {
+        return eventLogs.isEmpty() && transferLogs.isEmpty()
+    }
+
+    /**
+     * Fetches event logs if the event processor has ABI definitions configured.
+     *
+     * @param batchEndBlock The end block number for this batch.
+     * @return List of event logs, or empty list if no ABIs are configured.
+     */
+    protected open suspend fun fetchEventLogsIfNeeded(batchEndBlock: Long): List<EventLog> {
+        if (!shouldFetchEventLogs()) return emptyList()
+
+        return logClient.fetchEventLogs(
+            getCurrentBlockNumber(),
+            batchEndBlock,
+            logFetchLimit,
+            eventCriteriaSet
+        )
+    }
+
+    /**
+     * Determines whether event logs should be fetched based on ABI configuration.
+     *
+     * @return true if event logs should be fetched, false otherwise.
+     */
+    protected open fun shouldFetchEventLogs(): Boolean = eventProcessor?.hasAbis() == true
+
+    /**
+     * Fetches transfer logs if VET transfers are not excluded.
+     *
+     * @param batchEndBlock The end block number for this batch.
+     * @return List of transfer logs, or empty list if transfers are excluded.
+     */
+    protected open suspend fun fetchTransferLogsIfNeeded(batchEndBlock: Long): List<TransferLog> {
+        if (!shouldFetchTransferLogs()) return emptyList()
+
+        return logClient.fetchTransfers(
+            getCurrentBlockNumber(),
+            batchEndBlock,
+            logFetchLimit,
+            transferCriteriaSet
+        )
+    }
+
+    /**
+     * Determines whether transfer logs should be fetched.
+     *
+     * @return true if transfer logs should be fetched, false otherwise.
+     */
+    protected open fun shouldFetchTransferLogs(): Boolean = !excludeVetTransfers
+
+    /**
+     * Processes the fetched logs and creates indexed events.
+     *
+     * @param eventLogs The event logs to process.
+     * @param transferLogs The transfer logs to process.
+     * @param batchEndBlock The end block number for this batch.
+     */
+    protected open suspend fun processAndIndexEvents(
+        eventLogs: List<EventLog>,
+        transferLogs: List<TransferLog>,
+        batchEndBlock: Long
+    ) {
+        val indexedEvents = eventProcessor?.processEvents(eventLogs, transferLogs) ?: emptyList()
+        if (indexedEvents.isNotEmpty()) {
+            process(IndexingResult.EventsOnly(batchEndBlock, indexedEvents))
         }
     }
 
     /**
-     * @param startBlock The start of the block range.
-     * @param endBlock The end of the block range.
-     * @param x The number to check for multiples.
-     * @notice Determines if any multiples of `x` exist in the range `[startBlock, endBlock]`.
+     * Updates the current block number and last processed time.
+     *
+     * @param batchEndBlock The end block number for this batch.
      */
-    private fun hasMultipleInRange(
-        startBlock: Long,
-        endBlock: Long,
-        x: Long,
-    ): Boolean {
-        if (x == 0L) return false // Prevent division by zero
+    protected open fun updateBlockNumberAndTime(batchEndBlock: Long) {
+        setCurrentBlockNumber(batchEndBlock + 1)
+        timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
+    }
 
-        val firstMultiple = if (startBlock % x == 0L) startBlock else (startBlock / x + 1) * x
-        return firstMultiple in startBlock..endBlock
+    private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long, status: Status) {
+        logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
     }
 }

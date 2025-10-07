@@ -1,6 +1,7 @@
 package org.vechain.indexer.fixtures
 
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.Transaction
 import org.vechain.indexer.utils.JsonUtils
 
 object BlockFixtures {
@@ -30,4 +31,27 @@ object BlockFixtures {
             objectMapper.readValue(inputStream, Block::class.java)
         }
     }
+
+    fun testBlock(number: Long): Block =
+        Block(
+            number = number,
+            id = "block-$number",
+            size = 1,
+            parentID = "parent-${number - 1}",
+            timestamp = number,
+            gasLimit = 1,
+            baseFeePerGas = null,
+            beneficiary = "beneficiary",
+            gasUsed = 1,
+            totalScore = 1,
+            txsRoot = "root",
+            txsFeatures = 0,
+            stateRoot = "state",
+            receiptsRoot = "receipts",
+            com = false,
+            signer = "signer",
+            isTrunk = true,
+            isFinalized = true,
+            transactions = emptyList<Transaction>(),
+        )
 }
