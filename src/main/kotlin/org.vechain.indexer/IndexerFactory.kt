@@ -146,7 +146,10 @@ class IndexerFactory {
      *
      * @param interval The interval in `blocks` for logging progress.
      */
-    fun syncLoggerInterval(interval: Long) = apply { this.syncLoggerInterval = interval }
+    fun syncLoggerInterval(interval: Long) = apply {
+        require(interval > 0) { "syncLoggerInterval must be > 0" }
+        this.syncLoggerInterval = interval
+    }
 
     /**
      * This function allows you to configure the ABI files for the indexer.

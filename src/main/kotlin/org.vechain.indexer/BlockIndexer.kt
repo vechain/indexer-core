@@ -26,6 +26,10 @@ open class BlockIndexer(
     private val prunerInterval: Long,
     override val dependsOn: Indexer?,
 ) : Indexer {
+    init {
+        require(prunerInterval > 0) { "prunerInterval must be > 0" }
+    }
+
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
 
