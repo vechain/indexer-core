@@ -18,6 +18,7 @@ import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.*
 import strikt.api.expect
 import strikt.assertions.isEqualTo
+import strikt.assertions.isGreaterThan
 import strikt.assertions.isNull
 
 internal class TestableLogsIndexer(
@@ -57,6 +58,46 @@ internal class TestableLogsIndexer(
 
     suspend fun publicSync(toBlock: BlockIdentifier) {
         super.sync(toBlock)
+    }
+
+    suspend fun publicProcessBatch(toBlockNumber: Long) {
+        super.processBatch(toBlockNumber)
+    }
+
+    fun publicCalculateBatchEndBlock(toBlockNumber: Long): Long {
+        return super.calculateBatchEndBlock(toBlockNumber)
+    }
+
+    fun publicHasNoLogs(eventLogs: List<EventLog>, transferLogs: List<TransferLog>): Boolean {
+        return super.hasNoLogs(eventLogs, transferLogs)
+    }
+
+    suspend fun publicFetchEventLogsIfNeeded(batchEndBlock: Long): List<EventLog> {
+        return super.fetchEventLogsIfNeeded(batchEndBlock)
+    }
+
+    fun publicShouldFetchEventLogs(): Boolean {
+        return super.shouldFetchEventLogs()
+    }
+
+    suspend fun publicFetchTransferLogsIfNeeded(batchEndBlock: Long): List<TransferLog> {
+        return super.fetchTransferLogsIfNeeded(batchEndBlock)
+    }
+
+    fun publicShouldFetchTransferLogs(): Boolean {
+        return super.shouldFetchTransferLogs()
+    }
+
+    suspend fun publicProcessAndIndexEvents(
+        eventLogs: List<EventLog>,
+        transferLogs: List<TransferLog>,
+        batchEndBlock: Long
+    ) {
+        super.processAndIndexEvents(eventLogs, transferLogs, batchEndBlock)
+    }
+
+    fun publicUpdateBlockNumberAndTime(batchEndBlock: Long) {
+        super.updateBlockNumberAndTime(batchEndBlock)
     }
 
     fun publicSetStatus(newStatus: Status) {
@@ -438,6 +479,230 @@ internal class LogsIndexerTest {
             coVerify(exactly = 1) { logClient.fetchTransfers(10L, 19L, 100L, null) }
             coVerify(exactly = 1) { logClient.fetchTransfers(20L, 26L, 100L, null) }
             expect { that(indexer.getCurrentBlockNumber()).isEqualTo(27L) }
+        }
+    }
+
+    @Nested
+    inner class HelperMethods {
+        private lateinit var indexer: TestableLogsIndexer
+
+        @BeforeEach
+        fun setupIndexer() {
+            indexer =
+                TestableLogsIndexer(
+                    name = "TestLogsIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    startBlock = 0L,
+                    syncLoggerInterval = 1L,
+                    excludeVetTransfers = false,
+                    blockBatchSize = 10L,
+                    logFetchLimit = 100L,
+                    eventCriteriaSet = null,
+                    transferCriteriaSet = null,
+                    eventProcessor = eventProcessor,
+                    pruner = null,
+                    prunerInterval = 10000L,
+                    mockLogClient = logClient,
+                )
+        }
+
+        @Test
+        fun `calculateBatchEndBlock should return minimum of batch size and target`() {
+            indexer.publicSetCurrentBlockNumber(0L)
+
+            val result1 = indexer.publicCalculateBatchEndBlock(100L)
+            expect { that(result1).isEqualTo(9L) } // 0 + 10 - 1 = 9
+
+            indexer.publicSetCurrentBlockNumber(50L)
+            val result2 = indexer.publicCalculateBatchEndBlock(55L)
+            expect { that(result2).isEqualTo(55L) } // min(59, 55) = 55
+        }
+
+        @Test
+        fun `hasNoLogs should return true when both lists are empty`() {
+            val result1 = indexer.publicHasNoLogs(emptyList(), emptyList())
+            expect { that(result1).isEqualTo(true) }
+
+            val result2 = indexer.publicHasNoLogs(EventLogFixtures.LOGS_STRINGS, emptyList())
+            expect { that(result2).isEqualTo(false) }
+
+            val result3 =
+                indexer.publicHasNoLogs(emptyList(), TransferLogFixtures.LOGS_VET_TRANSFER)
+            expect { that(result3).isEqualTo(false) }
+
+            val result4 =
+                indexer.publicHasNoLogs(
+                    EventLogFixtures.LOGS_STRINGS,
+                    TransferLogFixtures.LOGS_VET_TRANSFER
+                )
+            expect { that(result4).isEqualTo(false) }
+        }
+
+        @Test
+        fun `shouldFetchEventLogs should return true when eventProcessor has ABIs`() {
+            every { eventProcessor.hasAbis() } returns true
+            expect { that(indexer.publicShouldFetchEventLogs()).isEqualTo(true) }
+
+            every { eventProcessor.hasAbis() } returns false
+            expect { that(indexer.publicShouldFetchEventLogs()).isEqualTo(false) }
+        }
+
+        @Test
+        fun `shouldFetchTransferLogs should return true when not excluded`() = runBlocking {
+            val indexerWithTransfers =
+                TestableLogsIndexer(
+                    name = "TestLogsIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    startBlock = 0L,
+                    syncLoggerInterval = 1L,
+                    excludeVetTransfers = false,
+                    blockBatchSize = 10L,
+                    logFetchLimit = 100L,
+                    eventCriteriaSet = null,
+                    transferCriteriaSet = null,
+                    eventProcessor = eventProcessor,
+                    pruner = null,
+                    prunerInterval = 10000L,
+                    mockLogClient = logClient,
+                )
+            expect { that(indexerWithTransfers.publicShouldFetchTransferLogs()).isEqualTo(true) }
+
+            val indexerWithoutTransfers =
+                TestableLogsIndexer(
+                    name = "TestLogsIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    startBlock = 0L,
+                    syncLoggerInterval = 1L,
+                    excludeVetTransfers = true,
+                    blockBatchSize = 10L,
+                    logFetchLimit = 100L,
+                    eventCriteriaSet = null,
+                    transferCriteriaSet = null,
+                    eventProcessor = eventProcessor,
+                    pruner = null,
+                    prunerInterval = 10000L,
+                    mockLogClient = logClient,
+                )
+            expect {
+                that(indexerWithoutTransfers.publicShouldFetchTransferLogs()).isEqualTo(false)
+            }
+        }
+
+        @Test
+        fun `fetchEventLogsIfNeeded should fetch when ABIs are configured`() = runBlocking {
+            val eventLogs = EventLogFixtures.LOGS_STRINGS
+            every { eventProcessor.hasAbis() } returns true
+            coEvery { logClient.fetchEventLogs(0L, 10L, 100L, null) } returns eventLogs
+
+            indexer.publicSetCurrentBlockNumber(0L)
+            val result = indexer.publicFetchEventLogsIfNeeded(10L)
+
+            expect { that(result).isEqualTo(eventLogs) }
+            coVerify(exactly = 1) { logClient.fetchEventLogs(0L, 10L, 100L, null) }
+        }
+
+        @Test
+        fun `fetchEventLogsIfNeeded should return empty list when no ABIs`() = runBlocking {
+            every { eventProcessor.hasAbis() } returns false
+
+            indexer.publicSetCurrentBlockNumber(0L)
+            val result = indexer.publicFetchEventLogsIfNeeded(10L)
+
+            expect { that(result).isEqualTo(emptyList()) }
+            coVerify(exactly = 0) { logClient.fetchEventLogs(any(), any(), any(), any()) }
+        }
+
+        @Test
+        fun `fetchTransferLogsIfNeeded should fetch when not excluded`() = runBlocking {
+            val transferLogs = TransferLogFixtures.LOGS_VET_TRANSFER
+            coEvery { logClient.fetchTransfers(0L, 10L, 100L, null) } returns transferLogs
+
+            indexer.publicSetCurrentBlockNumber(0L)
+            val result = indexer.publicFetchTransferLogsIfNeeded(10L)
+
+            expect { that(result).isEqualTo(transferLogs) }
+            coVerify(exactly = 1) { logClient.fetchTransfers(0L, 10L, 100L, null) }
+        }
+
+        @Test
+        fun `fetchTransferLogsIfNeeded should return empty list when excluded`() = runBlocking {
+            val indexerWithoutTransfers =
+                TestableLogsIndexer(
+                    name = "TestLogsIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    startBlock = 0L,
+                    syncLoggerInterval = 1L,
+                    excludeVetTransfers = true,
+                    blockBatchSize = 10L,
+                    logFetchLimit = 100L,
+                    eventCriteriaSet = null,
+                    transferCriteriaSet = null,
+                    eventProcessor = eventProcessor,
+                    pruner = null,
+                    prunerInterval = 10000L,
+                    mockLogClient = logClient,
+                )
+
+            indexerWithoutTransfers.publicSetCurrentBlockNumber(0L)
+            val result = indexerWithoutTransfers.publicFetchTransferLogsIfNeeded(10L)
+
+            expect { that(result).isEqualTo(emptyList()) }
+            coVerify(exactly = 0) { logClient.fetchTransfers(any(), any(), any(), any()) }
+        }
+
+        @Test
+        fun `processAndIndexEvents should process when events are not empty`() = runBlocking {
+            val eventLogs = EventLogFixtures.LOGS_STRINGS
+            val transferLogs = TransferLogFixtures.LOGS_VET_TRANSFER
+            val indexedEvents = listOf(IndexedEventFixture.create())
+
+            every {
+                eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
+            } returns indexedEvents
+            every { processor.process(any()) } just Runs
+
+            indexer.publicProcessAndIndexEvents(eventLogs, transferLogs, 10L)
+
+            verify(exactly = 1) {
+                eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
+            }
+            verify(exactly = 1) {
+                processor.process(match { it is IndexingResult.EventsOnly && it.endBlock == 10L })
+            }
+        }
+
+        @Test
+        fun `processAndIndexEvents should not process when events are empty`() = runBlocking {
+            val eventLogs = listOf<EventLog>()
+            val transferLogs = listOf<TransferLog>()
+
+            every {
+                eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
+            } returns emptyList()
+
+            indexer.publicProcessAndIndexEvents(eventLogs, transferLogs, 10L)
+
+            verify(exactly = 1) {
+                eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
+            }
+            verify(exactly = 0) { processor.process(any()) }
+        }
+
+        @Test
+        fun `updateBlockNumberAndTime should increment block number`() {
+            indexer.publicSetCurrentBlockNumber(10L)
+            val timeBefore = indexer.timeLastProcessed
+
+            indexer.publicUpdateBlockNumberAndTime(19L)
+
+            expect {
+                that(indexer.getCurrentBlockNumber()).isEqualTo(20L)
+                that(indexer.timeLastProcessed).isGreaterThan(timeBefore)
+            }
         }
     }
 }
