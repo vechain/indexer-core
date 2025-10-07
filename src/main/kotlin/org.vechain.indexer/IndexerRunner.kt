@@ -122,9 +122,9 @@ open class IndexerRunner {
 
     private suspend fun processGroupBlocks(group: List<Indexer>, channel: Channel<Block>) {
         for (block in channel) {
-            // Process all indexers in the group in parallel
-            coroutineScope {
-                group.map { indexer -> async { processIndexerBlock(indexer, block) } }.awaitAll()
+            // Process indexers in the group sequentially to preserve order
+            for (indexer in group) {
+                processIndexerBlock(indexer, block)
             }
         }
     }

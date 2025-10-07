@@ -100,7 +100,7 @@ The `IndexerRunner` coordinates multiple indexers:
 1. **Initialization Phase**: All indexers are initialized and fast-synced concurrently
 2. **Execution Phase**: Indexers are organized into dependency groups and process blocks in parallel
    - Groups are determined by topological sorting based on `dependsOn` relationships
-   - Within each group, indexers process the same block concurrently
+   - Within each group, indexers process the same block **sequentially** in list order
    - Different groups can work on different blocks simultaneously (e.g., Group 2 on block N+1 while Group 1 on block N+2)
 
 ### Performance Optimizations
