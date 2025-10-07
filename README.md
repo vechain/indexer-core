@@ -103,14 +103,6 @@ The `IndexerRunner` coordinates multiple indexers:
    - Within each group, indexers process the same block **sequentially** in list order
    - Different groups can work on different blocks simultaneously (e.g., Group 2 on block N+1 while Group 1 on block N+2)
 
-### Performance Optimizations
-
-- **Concurrent Initialization**: All indexers initialize in parallel
-- **Parallel Group Processing**: Independent groups process different blocks concurrently
-- **Intra-Group Parallelism**: Indexers within the same group process blocks concurrently
-- **Block Buffering**: Channels buffer blocks to prevent slow indexers from blocking fast ones
-- **Automatic Retry**: Failed operations automatically retry with exponential backoff
-
 ### Dependency Management
 
 The `IndexerOrderUtils` provides topological sorting to determine the correct processing order:
