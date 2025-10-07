@@ -49,29 +49,22 @@ class PrefetchingBlockStream(
 ) : BlockStream {
 
     private val mutex = Mutex()
-    private var channel: Channel<Block>? = null
-    private var fetchJob: Job? = null
-    private var currentStartBlock: Long = currentBlockProvider()
-    private var subscriptionActive = false
+    private var state: StreamState = StreamState.Idle
 
     override suspend fun subscribe(): BlockStreamSubscription {
         mutex.withLock {
-            if (subscriptionActive) {
-                throw IllegalStateException(
-                    "Only one active subscription is supported. Close the existing subscription first."
-                )
+            check(state is StreamState.Idle) {
+                "Only one active subscription is supported. Close the existing subscription first."
             }
 
-            val newChannel = Channel<Block>(capacity = batchSize)
-            channel = newChannel
-            subscriptionActive = true
-            currentStartBlock = currentBlockProvider()
+            val startBlock = currentBlockProvider()
+            val channel = Channel<Block>(capacity = batchSize)
+            val fetchJob = startBlockFetcher(startBlock, channel)
 
-            startFetcher(currentStartBlock, newChannel)
+            state = StreamState.Active(channel, fetchJob, startBlock)
 
-            return SingleSubscription(
-                channel = newChannel,
-                startBlock = currentStartBlock,
+            return DefaultBlockStreamSubscription(
+                streamState = { state },
                 onClose = { handleSubscriptionClose() }
             )
         }
@@ -79,111 +72,113 @@ class PrefetchingBlockStream(
 
     override suspend fun reset() {
         mutex.withLock {
-            // Cancel existing fetch job
-            fetchJob?.cancelAndJoin()
-            fetchJob = null
+            when (val current = state) {
+                is StreamState.Active -> {
+                    current.fetchJob.cancelAndJoin()
+                    current.channel.close()
 
-            // Close existing channel if any
-            channel?.close()
+                    val newStartBlock = currentBlockProvider()
+                    val newChannel = Channel<Block>(capacity = batchSize)
+                    val newFetchJob = startBlockFetcher(newStartBlock, newChannel)
 
-            // Update start block
-            currentStartBlock = currentBlockProvider()
-
-            // If there's an active subscription, restart fetcher with new channel
-            if (subscriptionActive) {
-                val newChannel = Channel<Block>(capacity = batchSize)
-                channel = newChannel
-                startFetcher(currentStartBlock, newChannel)
+                    state = StreamState.Active(newChannel, newFetchJob, newStartBlock)
+                }
+                is StreamState.Idle -> {
+                    // Nothing to reset
+                }
             }
         }
     }
 
     override suspend fun close() {
         mutex.withLock {
-            fetchJob?.cancelAndJoin()
-            fetchJob = null
-            channel?.close()
-            channel = null
-            subscriptionActive = false
+            when (val current = state) {
+                is StreamState.Active -> {
+                    current.fetchJob.cancelAndJoin()
+                    current.channel.close()
+                    state = StreamState.Idle
+                }
+                is StreamState.Idle -> {
+                    // Already closed
+                }
+            }
         }
     }
 
-    private fun startFetcher(startBlock: Long, targetChannel: Channel<Block>) {
-        val job =
-            scope.launch {
-                var nextBlock = startBlock
-                try {
-                    while (isActive) {
-                        val block = thorClient.waitForBlock(nextBlock)
-                        targetChannel.send(block)
-                        nextBlock++
-                    }
-                } catch (_: CancellationException) {
-                    // Fetcher cancelled - this is expected during reset or close
-                } finally {
-                    targetChannel.close()
+    private fun startBlockFetcher(startBlock: Long, channel: Channel<Block>): Job {
+        return scope.launch {
+            var nextBlock = startBlock
+            try {
+                while (isActive) {
+                    val block = thorClient.waitForBlock(nextBlock)
+                    channel.send(block)
+                    nextBlock++
                 }
+            } catch (_: CancellationException) {
+                // Fetcher cancelled - this is expected during reset or close
+            } finally {
+                channel.close()
             }
-        fetchJob = job
+        }
     }
 
     private suspend fun handleSubscriptionClose() {
         mutex.withLock {
-            subscriptionActive = false
-            fetchJob?.cancelAndJoin()
-            fetchJob = null
-            channel?.close()
-            channel = null
+            when (val current = state) {
+                is StreamState.Active -> {
+                    current.fetchJob.cancelAndJoin()
+                    current.channel.close()
+                    state = StreamState.Idle
+                }
+                is StreamState.Idle -> {
+                    // Already closed
+                }
+            }
         }
     }
 
-    private inner class SingleSubscription(
-        private var channel: Channel<Block>,
-        startBlock: Long,
+    private sealed interface StreamState {
+        data object Idle : StreamState
+
+        data class Active(val channel: Channel<Block>, val fetchJob: Job, val startBlock: Long) :
+            StreamState
+    }
+
+    private class DefaultBlockStreamSubscription(
+        private val streamState: () -> StreamState,
         private val onClose: suspend () -> Unit,
     ) : BlockStreamSubscription {
-        private var expectedBlock: Long = startBlock
+        private var expectedBlockNumber: Long? = null
 
         override val nextBlockNumber: Long
-            get() = expectedBlock
+            get() =
+                expectedBlockNumber
+                    ?: when (val state = streamState()) {
+                        is StreamState.Active -> state.startBlock
+                        is StreamState.Idle -> throw IllegalStateException("Stream is not active")
+                    }
 
         override suspend fun next(): Block {
+            val state = streamState()
+            val (channel, startBlock) =
+                when (state) {
+                    is StreamState.Active -> state.channel to state.startBlock
+                    is StreamState.Idle -> throw CancellationException("Subscription closed")
+                }
+
             val block =
                 try {
                     channel.receive()
                 } catch (e: ClosedReceiveChannelException) {
-                    // Channel was closed, check if there's a new one (after reset)
-                    mutex.withLock {
-                        val newChannel = this@PrefetchingBlockStream.channel
-                        if (newChannel != null && newChannel != channel) {
-                            // Reset happened, use new channel and update expected block
-                            channel = newChannel
-                            expectedBlock = currentStartBlock
-                            // Try to receive from new channel
-                            return try {
-                                val newBlock = channel.receive()
-                                if (newBlock.number != expectedBlock) {
-                                    throw IllegalStateException(
-                                        "Received block ${newBlock.number} but expected $expectedBlock"
-                                    )
-                                }
-                                expectedBlock = newBlock.number + 1
-                                newBlock
-                            } catch (e: ClosedReceiveChannelException) {
-                                throw CancellationException("Subscription closed", e)
-                            }
-                        }
-                    }
                     throw CancellationException("Subscription closed", e)
                 }
 
-            if (block.number != expectedBlock) {
-                throw IllegalStateException(
-                    "Received block ${block.number} but expected $expectedBlock"
-                )
+            val expected = expectedBlockNumber ?: startBlock
+            check(block.number == expected) {
+                "Received block ${block.number} but expected $expected"
             }
 
-            expectedBlock = block.number + 1
+            expectedBlockNumber = block.number + 1
             return block
         }
 

@@ -12,14 +12,13 @@ import kotlinx.coroutines.launch
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.orchestration.OrchestrationUtils.topologicalOrder
+import org.vechain.indexer.thor.BlockStreamSubscription
 import org.vechain.indexer.thor.PrefetchingBlockStream
 import org.vechain.indexer.thor.client.ThorClient
+import org.vechain.indexer.thor.model.Block
 
 open class IndexerRunner {
-    protected val logger: Logger =
-        LoggerFactory.getLogger(
-            this::class.java,
-        )
+    protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     companion object {
         @Suppress("unused")
@@ -50,10 +49,7 @@ open class IndexerRunner {
     ): Unit = coroutineScope {
         require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-        // 1. Initialise all indexers and perform fast sync
         fastSyncAll(indexers)
-
-        // 2. Start processing blocks
         runAllIndexers(indexers, thorClient, batchSize)
     }
 
@@ -65,29 +61,14 @@ open class IndexerRunner {
      *
      * @param indexers The list of indexers to initialise and fast sync.
      */
-    suspend fun fastSyncAll(
-        indexers: List<Indexer>,
-    ) {
+    suspend fun fastSyncAll(indexers: List<Indexer>) {
         coroutineScope {
             val tasks =
                 indexers.map { indexer ->
                     async {
-                        while (true) {
-                            try {
-                                indexer.initialise()
-                                indexer.fastSync()
-                                break // Success, exit loop
-                            } catch (e: CancellationException) {
-                                // Shutdown was requested so don't retry
-                                return@async
-                            } catch (e: Exception) {
-                                // An error occurred, log, backoff and retry
-                                logger.error(
-                                    "Error during sync for ${indexer.name}, retrying...",
-                                    e,
-                                )
-                                delay(1000L) // 1 second backoff
-                            }
+                        retryUntilSuccess {
+                            indexer.initialise()
+                            indexer.fastSync()
                         }
                     }
                 }
@@ -101,71 +82,104 @@ open class IndexerRunner {
         batchSize: Int,
     ) {
         coroutineScope {
-            // 1. Arrange the indexers into groups based on their dependencies
             val executionGroups = topologicalOrder(indexers)
+            if (executionGroups.isEmpty()) return@coroutineScope
 
-            // 2. Start the block stream
-            val stream =
-                PrefetchingBlockStream(
-                        scope = this,
-                        batchSize = batchSize,
-                        currentBlockProvider = {
-                            executionGroups.flatten().minOf { it.getCurrentBlockNumber() }
-                        },
-                        thorClient = thorClient,
-                    )
-                    .subscribe()
+            val blockStream = createBlockStream(this, executionGroups, thorClient, batchSize)
+            val subscription = blockStream.subscribe()
 
-            // 3. Start processing blocks
             launch {
-                while (isActive) {
-                    // i) Get the next block from the stream
-                    val block =
-                        try {
-                            stream.next()
-                        } catch (e: Exception) {
-                            // An error occurred, log, backoff and retry
-                            logger.error("Error fetching next block from stream", e)
-                            delay(1000L)
-                            return@launch
-                        }
-
-                    // ii) Process the block with all indexer groups in parallel
-                    coroutineScope {
-                        executionGroups.forEach { group ->
-                            launch {
-                                // Throw an error if any of the indexers are behind the current
-                                // block
-                                group.forEach { indexer ->
-                                    require(indexer.getCurrentBlockNumber() >= block.number) {
-                                        "Indexer ${indexer.name} is behind the current block ${block.number}"
-                                    }
-                                }
-
-                                group
-                                    .filter { it.getCurrentBlockNumber() == block.number }
-                                    .forEach { indexer ->
-                                        while (true) {
-                                            try {
-                                                indexer.processBlock(block)
-                                                break // Success, exit retry loop
-                                            } catch (e: CancellationException) {
-                                                // Shutdown was requested so don't retry
-                                                return@launch
-                                            } catch (e: Exception) {
-                                                // An error occurred, log, backoff and retry
-                                                logger.error(
-                                                    "Error processing block ${block.number} for ${indexer.name}, retrying...",
-                                                    e,
-                                                )
-                                                delay(1000L) // 1 second backoff before retry
-                                            }
-                                        }
-                                    }
-                            }
-                        }
-                    }
+                try {
+                    processBlocks(subscription, executionGroups)
+                } finally {
+                    subscription.close()
                 }
+            }
+        }
+    }
+
+    private fun createBlockStream(
+        scope: CoroutineScope,
+        executionGroups: List<List<Indexer>>,
+        thorClient: ThorClient,
+        batchSize: Int
+    ): PrefetchingBlockStream {
+        return PrefetchingBlockStream(
+            scope = scope,
+            batchSize = batchSize,
+            currentBlockProvider = {
+                executionGroups.flatten().minOf { it.getCurrentBlockNumber() }
+            },
+            thorClient = thorClient,
+        )
+    }
+
+    private suspend fun processBlocks(
+        subscription: BlockStreamSubscription,
+        executionGroups: List<List<Indexer>>
+    ) = coroutineScope {
+        while (isActive) {
+            val block = fetchNextBlock(subscription) ?: continue
+            processBlockAcrossGroups(block, executionGroups)
+        }
+    }
+
+    private suspend fun fetchNextBlock(subscription: BlockStreamSubscription): Block? {
+        return try {
+            subscription.next()
+        } catch (e: Exception) {
+            logger.error("Error fetching next block from stream", e)
+            delay(1000L)
+            null
+        }
+    }
+
+    private suspend fun processBlockAcrossGroups(
+        block: Block,
+        executionGroups: List<List<Indexer>>
+    ) {
+        for (group in executionGroups) {
+            processGroupBlock(group, block)
+        }
+    }
+
+    private suspend fun processGroupBlock(
+        group: List<Indexer>,
+        block: Block,
+    ) {
+        for (indexer in group) {
+            processIndexerBlock(indexer, block)
+        }
+    }
+
+    private suspend fun processIndexerBlock(indexer: Indexer, block: Block) {
+        val currentNumber = indexer.getCurrentBlockNumber()
+
+        when {
+            currentNumber == block.number -> {
+                retryUntilSuccess { indexer.processBlock(block) }
+            }
+            currentNumber > block.number -> {
+                // Indexer already processed this block, skip
+            }
+            else -> {
+                throw IllegalStateException(
+                    "Indexer ${indexer.name} is behind the current block ${block.number}"
+                )
+            }
+        }
+    }
+
+    private suspend fun retryUntilSuccess(operation: suspend () -> Unit) {
+        while (true) {
+            try {
+                operation()
+                return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logger.error("Operation failed, retrying...", e)
+                delay(1000L)
             }
         }
     }
