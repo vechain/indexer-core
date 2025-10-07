@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -12,8 +13,6 @@ import kotlinx.coroutines.launch
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.orchestration.OrchestrationUtils.topologicalOrder
-import org.vechain.indexer.thor.BlockStreamSubscription
-import org.vechain.indexer.thor.PrefetchingBlockStream
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 
@@ -85,70 +84,44 @@ open class IndexerRunner {
             val executionGroups = topologicalOrder(indexers)
             if (executionGroups.isEmpty()) return@coroutineScope
 
-            val blockStream = createBlockStream(this, executionGroups, thorClient, batchSize)
-            val subscription = blockStream.subscribe()
+            // Create a channel for each group to receive blocks
+            val groupChannels = executionGroups.map { Channel<Block>(capacity = batchSize) }
 
+            // Launch a coroutine for each group to process blocks
+            executionGroups.forEachIndexed { groupIndex, group ->
+                launch { processGroupBlocks(group, groupChannels[groupIndex]) }
+            }
+
+            // Main block fetcher and distributor
             launch {
                 try {
-                    processBlocks(subscription, executionGroups)
+                    var blockNumber = executionGroups.flatten().minOf { it.getCurrentBlockNumber() }
+
+                    while (isActive) {
+                        val block = fetchBlock(thorClient, blockNumber)
+
+                        // Send block to all groups in parallel
+                        groupChannels.forEach { channel -> channel.send(block) }
+
+                        blockNumber++
+                    }
                 } finally {
-                    subscription.close()
+                    groupChannels.forEach { it.close() }
                 }
             }
         }
     }
 
-    private fun createBlockStream(
-        scope: CoroutineScope,
-        executionGroups: List<List<Indexer>>,
-        thorClient: ThorClient,
-        batchSize: Int
-    ): PrefetchingBlockStream {
-        return PrefetchingBlockStream(
-            scope = scope,
-            batchSize = batchSize,
-            currentBlockProvider = {
-                executionGroups.flatten().minOf { it.getCurrentBlockNumber() }
-            },
-            thorClient = thorClient,
-        )
+    private suspend fun fetchBlock(thorClient: ThorClient, blockNumber: Long): Block {
+        return retryUntilSuccess { thorClient.waitForBlock(blockNumber) }
     }
 
-    private suspend fun processBlocks(
-        subscription: BlockStreamSubscription,
-        executionGroups: List<List<Indexer>>
-    ) = coroutineScope {
-        while (isActive) {
-            val block = fetchNextBlock(subscription) ?: continue
-            processBlockAcrossGroups(block, executionGroups)
-        }
-    }
-
-    private suspend fun fetchNextBlock(subscription: BlockStreamSubscription): Block? {
-        return try {
-            subscription.next()
-        } catch (e: Exception) {
-            logger.error("Error fetching next block from stream", e)
-            delay(1000L)
-            null
-        }
-    }
-
-    private suspend fun processBlockAcrossGroups(
-        block: Block,
-        executionGroups: List<List<Indexer>>
-    ) {
-        for (group in executionGroups) {
-            processGroupBlock(group, block)
-        }
-    }
-
-    private suspend fun processGroupBlock(
-        group: List<Indexer>,
-        block: Block,
-    ) {
-        for (indexer in group) {
-            processIndexerBlock(indexer, block)
+    private suspend fun processGroupBlocks(group: List<Indexer>, channel: Channel<Block>) {
+        for (block in channel) {
+            // Process all indexers in the group in parallel
+            coroutineScope {
+                group.map { indexer -> async { processIndexerBlock(indexer, block) } }.awaitAll()
+            }
         }
     }
 
@@ -170,11 +143,10 @@ open class IndexerRunner {
         }
     }
 
-    private suspend fun retryUntilSuccess(operation: suspend () -> Unit) {
+    private suspend fun <T> retryUntilSuccess(operation: suspend () -> T): T {
         while (true) {
             try {
-                operation()
-                return
+                return operation()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
