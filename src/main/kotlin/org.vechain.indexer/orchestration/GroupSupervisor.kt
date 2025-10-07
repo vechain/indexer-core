@@ -5,7 +5,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -135,14 +134,25 @@ internal suspend fun runGroupForBlock(
     group: List<Indexer>,
     block: Block,
     interruptController: InterruptController,
-) = coroutineScope {
-    group
-        .filter { it.getCurrentBlockNumber() == block.number }
-        .forEach { indexer ->
-            launch {
+) {
+    for (indexer in group) {
+        if (interruptController.isRequested()) {
+            return
+        }
+
+        val currentBlock = indexer.getCurrentBlockNumber()
+        when {
+            currentBlock == block.number ->
                 runWithInterruptHandling(interruptController, suppressException = true) {
                     indexer.processBlock(block)
                 }
+            currentBlock > block.number -> Unit
+            else -> {
+                interruptController.request(InterruptReason.Error)
+                throw IllegalStateException(
+                    "Indexer ${indexer.name} is behind: current block $currentBlock, processing ${block.number}",
+                )
             }
         }
+    }
 }

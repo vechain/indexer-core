@@ -1,11 +1,13 @@
 package org.vechain.indexer.orchestration
 
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
@@ -116,6 +118,55 @@ class GroupSupervisorTest {
         Assertions.assertTrue(controller.isRequested())
         Assertions.assertEquals(listOf(InterruptReason.Error), interrupts)
         Assertions.assertEquals(InterruptReason.Error, controller.currentReason())
+    }
+
+    @Test
+    fun `runGroupForBlock processes indexers sequentially in group order`() = runTest {
+        val controller = InterruptController {}
+        val block = testBlock(9)
+        val indexer1 = mockBlockIndexer()
+        val indexer2 = mockBlockIndexer()
+        val firstCompleted = AtomicBoolean(false)
+
+        every { indexer1.getCurrentBlockNumber() } returns block.number
+        every { indexer2.getCurrentBlockNumber() } returns block.number
+
+        coEvery { indexer1.processBlock(block) } coAnswers
+            {
+                delay(10)
+                firstCompleted.set(true)
+            }
+
+        coEvery { indexer2.processBlock(block) } coAnswers
+            {
+                Assertions.assertTrue(firstCompleted.get())
+            }
+
+        runGroupForBlock(
+            group = listOf(indexer1, indexer2),
+            block = block,
+            interruptController = controller,
+        )
+
+        Assertions.assertTrue(firstCompleted.get())
+    }
+
+    @Test
+    fun `runGroupForBlock skips indexer that already processed block`() = runTest {
+        val controller = InterruptController {}
+        val block = testBlock(10)
+        val indexer = mockBlockIndexer()
+
+        every { indexer.getCurrentBlockNumber() } returns block.number + 1
+
+        runGroupForBlock(
+            group = listOf(indexer),
+            block = block,
+            interruptController = controller,
+        )
+
+        coVerify(exactly = 0) { indexer.processBlock(any()) }
+        Assertions.assertFalse(controller.isRequested())
     }
 
     @Test
