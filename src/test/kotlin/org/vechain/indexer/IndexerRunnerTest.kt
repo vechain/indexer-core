@@ -9,8 +9,6 @@ import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
-import org.vechain.indexer.orchestration.InterruptController
-import org.vechain.indexer.orchestration.InterruptReason
 import org.vechain.indexer.thor.client.ThorClient
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -22,28 +20,6 @@ class IndexerRunnerTest {
     @BeforeEach
     fun setup() {
         MockKAnnotations.init(this)
-    }
-
-    @Test
-    fun `initialiseAndSyncPhase requests error when fast sync fails`() = runTest {
-        val interrupts = mutableListOf<InterruptReason>()
-        val controller = InterruptController { interrupts.add(it) }
-        val indexer = mockIndexer()
-        coEvery { indexer.fastSync() } throws RuntimeException("boom")
-
-        val thrown =
-            runCatching {
-                    initialiseAndSyncPhase(
-                        scope = this,
-                        indexers = listOf(indexer),
-                        interruptController = controller,
-                    )
-                }
-                .exceptionOrNull()
-
-        Assertions.assertTrue(thrown is RuntimeException)
-        Assertions.assertEquals(listOf(InterruptReason.Error), interrupts)
-        Assertions.assertEquals(InterruptReason.Error, controller.currentReason())
     }
 
     @Test

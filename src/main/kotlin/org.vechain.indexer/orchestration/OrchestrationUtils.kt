@@ -1,27 +1,8 @@
 package org.vechain.indexer.orchestration
 
-import kotlinx.coroutines.CancellationException
 import org.vechain.indexer.Indexer
 
 internal object OrchestrationUtils {
-
-    // Helper for interrupt handling
-    suspend fun runWithInterruptHandling(
-        interruptController: InterruptController,
-        suppressException: Boolean = false,
-        block: suspend () -> Unit
-    ) {
-        try {
-            block()
-        } catch (e: CancellationException) {
-            interruptController.request(InterruptReason.Shutdown)
-            throw e
-        } catch (e: Throwable) {
-            interruptController.request(InterruptReason.Error)
-            if (!suppressException) throw e
-            // else, suppress
-        }
-    }
 
     /**
      * Order the indexers topologically based on their dependencies. The returned grouped lists
