@@ -107,28 +107,27 @@ internal class BlockIndexerTest {
         }
 
         @Test
-        fun `Should initialise with rolling back last synced block if no start block provided`() =
-            runBlocking {
-                every { processor.getLastSyncedBlock() } returns
-                    BlockIdentifier(number = 100L, id = "0x100") andThen
-                    BlockIdentifier(number = 99L, id = "0x99")
+        fun `Should initialise with rolling back last synced block`() = runBlocking {
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(number = 100L, id = "0x100") andThen
+                BlockIdentifier(number = 99L, id = "0x99")
 
-                indexer.initialise()
+            indexer.initialise()
 
-                // Verify the rollback is performed once
-                verify(exactly = 1) { processor.rollback(100L) }
-                verify(exactly = 2) { processor.getLastSyncedBlock() }
+            // Verify the rollback is performed once
+            verify(exactly = 1) { processor.rollback(100L) }
+            verify(exactly = 2) { processor.getLastSyncedBlock() }
 
-                expect {
-                    // Verify the status is SYNCING
-                    that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
-                    // previousBlock should equal the second last synced block returned
-                    that(indexer.getPreviousBlock())
-                        .isEqualTo(BlockIdentifier(number = 99L, id = "0x99"))
-                    // currentBlockNumber should equal the last synced block number
-                    that(indexer.getCurrentBlockNumber()).isEqualTo(100L)
-                }
+            expect {
+                // Verify the status is INITIALISED
+                that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
+                // previousBlock should equal the second last synced block returned
+                that(indexer.getPreviousBlock())
+                    .isEqualTo(BlockIdentifier(number = 99L, id = "0x99"))
+                // currentBlockNumber should equal the last synced block number
+                that(indexer.getCurrentBlockNumber()).isEqualTo(100L)
             }
+        }
 
         @Test
         fun `Should initialise with startBlock when no last synced block `() = runBlocking {
@@ -142,7 +141,7 @@ internal class BlockIndexerTest {
             verify(exactly = 1) { processor.rollback(0L) }
 
             expect {
-                // Verify the status is SYNCING
+                // Verify the status is INITIALISED
                 that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
                 // getLastSyncedBlock should be called once
                 // previousBlock should equal null when no last synced block found
@@ -153,7 +152,7 @@ internal class BlockIndexerTest {
         }
 
         @Test
-        fun `Previous block should be null if last synced block doesn't match current block`() {
+        fun `Previous block should be null if last synced block doesn't match current block - 1`() {
             every { processor.getLastSyncedBlock() } returns
                 BlockIdentifier(number = 100L, id = "0x100") andThen
                 BlockIdentifier(number = 98L, id = "0x98")
@@ -161,7 +160,7 @@ internal class BlockIndexerTest {
             indexer.initialise()
 
             expect {
-                // Verify the status is SYNCING
+                // Verify the status is INITIALISED
                 that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
                 // previousBlock should equal null when last synced block number doesn't match
                 // current block number - 1

@@ -53,14 +53,11 @@ open class LogsIndexer(
 
         val finalizedBlock = thorClient.getFinalizedBlock()
 
-        if (getCurrentBlockNumber() <= finalizedBlock.number) {
-            sync(finalizedBlock.number)
+        if (getCurrentBlockNumber() < finalizedBlock.number) {
+            sync(BlockIdentifier(finalizedBlock.number, finalizedBlock.id))
         }
 
         logger.info("Fast sync complete")
-
-        // Set previous block to the finalized block
-        setPreviousBlock(BlockIdentifier(number = finalizedBlock.number, id = finalizedBlock.id))
 
         setStatus(Status.INITIALISED)
     }
@@ -70,10 +67,10 @@ open class LogsIndexer(
      *
      * @param toBlock The block number to sync up to.
      */
-    internal suspend fun sync(toBlock: Long) {
-        while (getCurrentBlockNumber() < toBlock) {
+    internal suspend fun sync(toBlock: BlockIdentifier) {
+        while (getCurrentBlockNumber() < toBlock.number) {
             checkIfShuttingDown()
-            val batchEndBlock = minOf(getCurrentBlockNumber() + blockBatchSize - 1, toBlock)
+            val batchEndBlock = minOf(getCurrentBlockNumber() + blockBatchSize - 1, toBlock.number)
 
             logSyncStatus(getCurrentBlockNumber(), batchEndBlock, getStatus())
 
@@ -116,6 +113,9 @@ open class LogsIndexer(
 
             timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
         }
+
+        // Set previous block to toBlock
+        setPreviousBlock(toBlock)
     }
 
     private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long, status: Status) {

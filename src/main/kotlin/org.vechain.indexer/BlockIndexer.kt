@@ -171,7 +171,7 @@ open class BlockIndexer(
                 previousBlock?.id?.let { it != block.parentID } == true
         ) {
             val message =
-                "REORG @ Block $currentBlockNumber previousBlock=(id=${previousBlock?.id ?: "null"} number=${previousBlock?.number ?: "null"})  parentID=${block.parentID}"
+                "REORG @ Block $currentBlockNumber previousBlock=(id=${previousBlock?.id ?: "null"} number=${previousBlock?.number ?: "null"})  block=(parentID=${block.parentID} blockNumber=${block.number} id=${block.id})"
             logger.error(message)
             // Rollback and set the status to error
             rollback(currentBlockNumber - 1)
