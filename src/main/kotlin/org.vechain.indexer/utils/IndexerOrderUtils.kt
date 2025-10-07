@@ -1,8 +1,8 @@
-package org.vechain.indexer.orchestration
+package org.vechain.indexer.utils
 
 import org.vechain.indexer.Indexer
 
-internal object OrchestrationUtils {
+internal object IndexerOrderUtils {
 
     /**
      * Order the indexers topologically based on their dependencies. The returned grouped lists

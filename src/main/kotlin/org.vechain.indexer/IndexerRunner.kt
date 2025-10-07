@@ -12,9 +12,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.vechain.indexer.orchestration.OrchestrationUtils.topologicalOrder
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
 
 open class IndexerRunner {
     protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
@@ -48,7 +48,9 @@ open class IndexerRunner {
     ): Unit = coroutineScope {
         require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-        fastSyncAll(indexers)
+        logger.info("Starting ${indexers.size} Indexer ${indexers.map { it.name }}")
+
+        initialiseAndSyncAll(indexers)
         runAllIndexers(indexers, thorClient, batchSize)
     }
 
@@ -60,7 +62,8 @@ open class IndexerRunner {
      *
      * @param indexers The list of indexers to initialise and fast sync.
      */
-    suspend fun fastSyncAll(indexers: List<Indexer>) {
+    suspend fun initialiseAndSyncAll(indexers: List<Indexer>) {
+        logger.info("Initialising and syncing indexers...")
         coroutineScope {
             val tasks =
                 indexers.map { indexer ->
@@ -80,6 +83,7 @@ open class IndexerRunner {
         thorClient: ThorClient,
         batchSize: Int,
     ) {
+        logger.info("Running indexers...")
         coroutineScope {
             val executionGroups = topologicalOrder(indexers)
             if (executionGroups.isEmpty()) return@coroutineScope
