@@ -1,18 +1,11 @@
 package org.vechain.indexer.thor
 
-import java.util.UUID
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -36,6 +29,18 @@ interface BlockStreamSubscription {
     suspend fun close()
 }
 
+/**
+ * A block stream that prefetches blocks from the blockchain and provides them through a single
+ * subscription.
+ *
+ * This implementation supports only one active subscription at a time. The stream fetches blocks in
+ * the background and buffers them based on the configured batch size.
+ *
+ * @param scope The coroutine scope for launching background jobs
+ * @param batchSize The number of blocks to buffer
+ * @param currentBlockProvider Provider function that returns the current block number to start from
+ * @param thorClient The client for fetching blocks from the blockchain
+ */
 class PrefetchingBlockStream(
     private val scope: CoroutineScope,
     private val batchSize: Int,
@@ -43,182 +48,147 @@ class PrefetchingBlockStream(
     private val thorClient: ThorClient,
 ) : BlockStream {
 
-    private sealed interface StreamEvent {
-        val resetToken: String
-
-        data class Reset(override val resetToken: String, val startBlock: Long) : StreamEvent
-
-        data class Block(
-            override val resetToken: String,
-            val block: org.vechain.indexer.thor.model.Block
-        ) : StreamEvent
-    }
-
-    private data class SubscriptionState(
-        val id: Int,
-        val channel: Channel<StreamEvent>,
-        val collectorJob: Job,
-        var expectedBlock: Long,
-        var resetToken: String,
-    )
-
     private val mutex = Mutex()
-    private val subscriptions = mutableMapOf<Int, SubscriptionState>()
-    private val stream =
-        MutableSharedFlow<StreamEvent>(
-            replay = 0,
-            extraBufferCapacity = maxOf(batchSize - 1, 0),
-            onBufferOverflow = BufferOverflow.SUSPEND,
-        )
-    private var supervisor: CompletableJob = newSupervisor()
-    private var streamScope = CoroutineScope(scope.coroutineContext + supervisor)
+    private var channel: Channel<Block>? = null
     private var fetchJob: Job? = null
-    private val subscriptionSequence = AtomicInteger(0)
-    private var latestReset =
-        StreamEvent.Reset(resetToken = newResetToken(), startBlock = currentBlockProvider())
-
-    init {
-        startFetcher(latestReset)
-    }
+    private var currentStartBlock: Long = currentBlockProvider()
+    private var subscriptionActive = false
 
     override suspend fun subscribe(): BlockStreamSubscription {
-        val (state, reset) =
-            mutex.withLock {
-                val id = subscriptionSequence.incrementAndGet()
-                val channel = Channel<StreamEvent>(capacity = batchSize)
-                val resetSnapshot = latestReset
-                val collectorJob = startCollector(channel)
-                val subscriptionState =
-                    SubscriptionState(
-                        id = id,
-                        channel = channel,
-                        collectorJob = collectorJob,
-                        expectedBlock = resetSnapshot.startBlock,
-                        resetToken = resetSnapshot.resetToken,
-                    )
-                subscriptions[id] = subscriptionState
-                subscriptionState to resetSnapshot
+        mutex.withLock {
+            if (subscriptionActive) {
+                throw IllegalStateException(
+                    "Only one active subscription is supported. Close the existing subscription first."
+                )
             }
 
-        // Send the latest reset event outside the lock to avoid potential suspension.
-        state.channel.trySend(reset).getOrThrow()
+            val newChannel = Channel<Block>(capacity = batchSize)
+            channel = newChannel
+            subscriptionActive = true
+            currentStartBlock = currentBlockProvider()
 
-        return Subscription(state)
+            startFetcher(currentStartBlock, newChannel)
+
+            return SingleSubscription(
+                channel = newChannel,
+                startBlock = currentStartBlock,
+                onClose = { handleSubscriptionClose() }
+            )
+        }
     }
 
     override suspend fun reset() {
-        val (resetEvent, previousJob) =
-            mutex.withLock {
-                val newReset =
-                    StreamEvent.Reset(
-                        resetToken = newResetToken(),
-                        startBlock = currentBlockProvider()
-                    )
-                val existingJob = fetchJob
-                fetchJob = null
-                latestReset = newReset
-                newReset to existingJob
-            }
+        mutex.withLock {
+            // Cancel existing fetch job
+            fetchJob?.cancelAndJoin()
+            fetchJob = null
 
-        previousJob?.cancelAndJoin()
-        startFetcher(resetEvent)
+            // Close existing channel if any
+            channel?.close()
+
+            // Update start block
+            currentStartBlock = currentBlockProvider()
+
+            // If there's an active subscription, restart fetcher with new channel
+            if (subscriptionActive) {
+                val newChannel = Channel<Block>(capacity = batchSize)
+                channel = newChannel
+                startFetcher(currentStartBlock, newChannel)
+            }
+        }
     }
 
     override suspend fun close() {
-        val states =
-            mutex.withLock {
-                val existing = subscriptions.values.toList()
-                subscriptions.clear()
-                existing
-            }
-
-        states.forEach { state ->
-            state.collectorJob.cancel()
-            state.channel.cancel()
+        mutex.withLock {
+            fetchJob?.cancelAndJoin()
+            fetchJob = null
+            channel?.close()
+            channel = null
+            subscriptionActive = false
         }
-
-        val job = fetchJob
-        fetchJob = null
-        job?.cancelAndJoin()
-        supervisor.cancel()
     }
 
-    private fun startCollector(channel: Channel<StreamEvent>): Job =
-        streamScope.launch {
-            try {
-                stream.collect { event -> channel.send(event) }
-            } catch (_: CancellationException) {
-                // Collector cancelled by subscription closing/reset.
-            } finally {
-                channel.close()
-            }
-        }
-
-    private fun startFetcher(resetEvent: StreamEvent.Reset) {
+    private fun startFetcher(startBlock: Long, targetChannel: Channel<Block>) {
         val job =
-            streamScope.launch {
-                // Ensure at least one collector is active before emitting to avoid dropping events.
-                stream.subscriptionCount.first { count -> count > 0 }
-                stream.emit(resetEvent)
-                var nextBlock = resetEvent.startBlock
-                val resetToken = resetEvent.resetToken
-                while (isActive) {
-                    val block = thorClient.waitForBlock(nextBlock)
-                    stream.emit(StreamEvent.Block(resetToken, block))
-                    nextBlock++
+            scope.launch {
+                var nextBlock = startBlock
+                try {
+                    while (isActive) {
+                        val block = thorClient.waitForBlock(nextBlock)
+                        targetChannel.send(block)
+                        nextBlock++
+                    }
+                } catch (_: CancellationException) {
+                    // Fetcher cancelled - this is expected during reset or close
+                } finally {
+                    targetChannel.close()
                 }
             }
         fetchJob = job
     }
 
-    private fun newSupervisor(): CompletableJob {
-        val parentJob = scope.coroutineContext[Job]
-        return SupervisorJob(parentJob)
+    private suspend fun handleSubscriptionClose() {
+        mutex.withLock {
+            subscriptionActive = false
+            fetchJob?.cancelAndJoin()
+            fetchJob = null
+            channel?.close()
+            channel = null
+        }
     }
 
-    private inner class Subscription(
-        private val state: SubscriptionState,
+    private inner class SingleSubscription(
+        private var channel: Channel<Block>,
+        startBlock: Long,
+        private val onClose: suspend () -> Unit,
     ) : BlockStreamSubscription {
+        private var expectedBlock: Long = startBlock
+
         override val nextBlockNumber: Long
-            get() = state.expectedBlock
+            get() = expectedBlock
 
         override suspend fun next(): Block {
-            while (true) {
-                val event =
-                    try {
-                        state.channel.receive()
-                    } catch (e: ClosedReceiveChannelException) {
-                        throw CancellationException("Subscription closed", e)
-                    }
-                when (event) {
-                    is StreamEvent.Reset -> {
-                        if (event.resetToken == state.resetToken) continue
-                        state.resetToken = event.resetToken
-                        state.expectedBlock = event.startBlock
-                    }
-                    is StreamEvent.Block -> {
-                        if (event.resetToken != state.resetToken) continue
-                        val expected = state.expectedBlock
-                        if (event.block.number != expected) {
-                            throw IllegalStateException(
-                                "Received block ${event.block.number} but expected $expected"
-                            )
+            val block =
+                try {
+                    channel.receive()
+                } catch (e: ClosedReceiveChannelException) {
+                    // Channel was closed, check if there's a new one (after reset)
+                    mutex.withLock {
+                        val newChannel = this@PrefetchingBlockStream.channel
+                        if (newChannel != null && newChannel != channel) {
+                            // Reset happened, use new channel and update expected block
+                            channel = newChannel
+                            expectedBlock = currentStartBlock
+                            // Try to receive from new channel
+                            return try {
+                                val newBlock = channel.receive()
+                                if (newBlock.number != expectedBlock) {
+                                    throw IllegalStateException(
+                                        "Received block ${newBlock.number} but expected $expectedBlock"
+                                    )
+                                }
+                                expectedBlock = newBlock.number + 1
+                                newBlock
+                            } catch (e: ClosedReceiveChannelException) {
+                                throw CancellationException("Subscription closed", e)
+                            }
                         }
-                        state.expectedBlock = event.block.number + 1
-                        return event.block
                     }
+                    throw CancellationException("Subscription closed", e)
                 }
+
+            if (block.number != expectedBlock) {
+                throw IllegalStateException(
+                    "Received block ${block.number} but expected $expectedBlock"
+                )
             }
+
+            expectedBlock = block.number + 1
+            return block
         }
 
         override suspend fun close() {
-            val stateToClose = mutex.withLock { subscriptions.remove(state.id) }
-            if (stateToClose != null) {
-                state.collectorJob.cancel()
-                state.channel.cancel()
-            }
+            onClose()
         }
     }
-
-    private fun newResetToken(): String = UUID.randomUUID().toString()
 }

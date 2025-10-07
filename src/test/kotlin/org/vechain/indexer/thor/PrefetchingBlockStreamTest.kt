@@ -22,6 +22,7 @@ import strikt.api.expectThat
 import strikt.assertions.contains
 import strikt.assertions.containsExactly
 import strikt.assertions.isEqualTo
+import strikt.assertions.isGreaterThan
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PrefetchingBlockStreamTest {
@@ -61,24 +62,15 @@ class PrefetchingBlockStreamTest {
             expectThat(client.requests.take(2)).containsExactly(5L, 6L)
         } finally {
             subscription.close()
-            stream.close()
             advanceUntilIdle()
         }
     }
 
     @Test
-    fun `reset restarts fetcher from new starting block`() = runTest {
-        val responses = mutableMapOf<Long, Block>()
+    fun `reset restarts fetcher from new starting block and allows new subscription`() = runTest {
         var currentStart = 3L
-        val client = TestThorClient { number ->
-            responses.remove(number) ?: throw CancellationException("No block for $number")
-        }
-
-        fun enqueue(block: Block) {
-            responses[block.number] = block
-        }
-
-        enqueue(block(3))
+        var blockCounter = 3L
+        val client = TestThorClient { _ -> block(blockCounter++) }
 
         val stream =
             PrefetchingBlockStream(
@@ -88,37 +80,42 @@ class PrefetchingBlockStreamTest {
                 thorClient = client,
             )
 
-        val subscription = stream.subscribe()
+        // First subscription
+        val subscription1 = stream.subscribe()
         advanceUntilIdle()
 
-        try {
-            val first = awaitNext(subscription)
-            expectThat(first.number).isEqualTo(3)
-            expectThat(subscription.nextBlockNumber).isEqualTo(4)
+        val first = awaitNext(subscription1)
+        expectThat(first.number).isEqualTo(3)
+        expectThat(subscription1.nextBlockNumber).isEqualTo(4)
 
-            currentStart = 10
-            enqueue(block(10))
+        subscription1.close()
+        advanceUntilIdle()
 
-            stream.reset()
-            advanceUntilIdle()
+        // Change start block and reset
+        currentStart = 10
+        blockCounter = 10
+        stream.reset()
+        advanceUntilIdle()
 
-            val second = awaitNext(subscription)
-            expectThat(second.number).isEqualTo(10)
-            expectThat(subscription.nextBlockNumber).isEqualTo(11)
+        // New subscription after reset should start at 10
+        val subscription2 = stream.subscribe()
+        advanceUntilIdle()
 
-            expectThat(client.requests.count { it == 3L }).isEqualTo(1)
-            expectThat(client.requests.count { it == 10L }).isEqualTo(1)
-        } finally {
-            subscription.close()
-            stream.close()
-            advanceUntilIdle()
-        }
+        val second = awaitNext(subscription2)
+        expectThat(second.number).isEqualTo(10)
+        expectThat(subscription2.nextBlockNumber).isEqualTo(11)
+
+        subscription2.close()
+        advanceUntilIdle()
     }
 
     @Test
     fun `new subscription sees latest reset state`() = runTest {
         var currentStart = 4L
-        val client = TestThorClient { throw CancellationException("Terminate fetch") }
+        val blocks = ArrayDeque<Block>()
+        val client = TestThorClient { number ->
+            blocks.removeFirstOrNull() ?: throw CancellationException("No block for $number")
+        }
 
         val stream =
             PrefetchingBlockStream(
@@ -128,10 +125,21 @@ class PrefetchingBlockStreamTest {
                 thorClient = client,
             )
 
+        // First subscription to initialize
+        blocks.addLast(block(4))
+        val firstSub = stream.subscribe()
+        advanceUntilIdle()
+        awaitNext(firstSub)
+        firstSub.close()
+        advanceUntilIdle()
+
+        // Reset to new start block
         currentStart = 20
+        blocks.addLast(block(20))
         stream.reset()
         advanceUntilIdle()
 
+        // New subscription should start at 20
         val subscriber = stream.subscribe()
 
         try {
@@ -139,13 +147,12 @@ class PrefetchingBlockStreamTest {
             expectThat(subscriber.nextBlockNumber).isEqualTo(20)
         } finally {
             subscriber.close()
-            stream.close()
             advanceUntilIdle()
         }
     }
 
     @Test
-    fun `multiple subscribers receive same blocks`() = runTest {
+    fun `only one subscription is allowed at a time`() = runTest {
         val blocks = ArrayDeque(listOf(block(1), block(2), block(3)))
         val client = TestThorClient { _ ->
             blocks.removeFirstOrNull() ?: throw CancellationException("No block")
@@ -160,33 +167,27 @@ class PrefetchingBlockStreamTest {
             )
 
         val subA = stream.subscribe()
-        val subB = stream.subscribe()
         advanceUntilIdle()
 
         try {
-            val a1 = awaitNext(subA)
-            val b1 = awaitNext(subB)
-            val a2 = awaitNext(subA)
-            val b2 = awaitNext(subB)
+            // Attempting to create a second subscription should fail
+            assertFailsWith<IllegalStateException> { stream.subscribe() }
 
-            expectThat(a1.number).isEqualTo(1)
-            expectThat(b1.number).isEqualTo(1)
-            expectThat(a2.number).isEqualTo(2)
-            expectThat(b2.number).isEqualTo(2)
-            expectThat(client.requests.take(3)).containsExactly(1L, 2L, 3L)
+            // First subscription should still work
+            val first = awaitNext(subA)
+            expectThat(first.number).isEqualTo(1)
         } finally {
             subA.close()
-            subB.close()
-            stream.close()
             advanceUntilIdle()
         }
     }
 
     @Test
-    fun `closing a subscription does not affect others`() = runTest {
-        val blocks = ArrayDeque(createListOfBlocks(8, 3))
-        val client = TestThorClient { _ ->
-            blocks.removeFirstOrNull() ?: throw CancellationException("No block")
+    fun `can create new subscription after closing previous one`() = runTest {
+        var requestCount = 0
+        val client = TestThorClient { blockNum ->
+            requestCount++
+            block(blockNum)
         }
 
         val stream =
@@ -197,28 +198,30 @@ class PrefetchingBlockStreamTest {
                 thorClient = client,
             )
 
+        // First subscription
         val subA = stream.subscribe()
+        advanceUntilIdle()
+
+        val firstBlock = awaitNext(subA)
+        expectThat(firstBlock.number).isEqualTo(8)
+
+        subA.close()
+        advanceUntilIdle()
+
+        // After closing, should be able to create a new subscription
+        // It will start from block 8 again (based on currentBlockProvider)
         val subB = stream.subscribe()
         advanceUntilIdle()
 
-        try {
-            awaitNext(subA) // consume first block
-            subA.close()
+        val secondBlock = awaitNext(subB)
+        expectThat(secondBlock.number).isEqualTo(8)
+        expectThat(subB.nextBlockNumber).isEqualTo(9)
 
-            val remainingARequestCount = client.requests.size
+        subB.close()
+        advanceUntilIdle()
 
-            val firstForB = awaitNext(subB)
-            expectThat(firstForB.number).isEqualTo(8)
-
-            val nextForB = awaitNext(subB)
-            expectThat(nextForB.number).isEqualTo(9)
-            expectThat(subB.nextBlockNumber).isEqualTo(10)
-            expectThat(client.requests.size).isEqualTo(remainingARequestCount + 1)
-        } finally {
-            subB.close()
-            stream.close()
-            advanceUntilIdle()
-        }
+        // Should have made at least 2 requests for block 8
+        expectThat(requestCount).isGreaterThan(1)
     }
 
     @Test
@@ -248,36 +251,49 @@ class PrefetchingBlockStreamTest {
             assertFailsWith<IllegalStateException> { awaitNext(subscription) }
         } finally {
             subscription.close()
-            stream.close()
             advanceUntilIdle()
         }
     }
 
     @Test
     fun `closing stream cancels active subscriptions`() = runTest {
-        val client = TestThorClient { throw CancellationException("Stop fetch") }
+        var blockNum = 0L
+        val client = TestThorClient { requested -> block(blockNum++) }
 
         val stream =
             PrefetchingBlockStream(
                 scope = backgroundScope,
-                batchSize = 1,
+                batchSize = 10,
                 currentBlockProvider = { 0 },
                 thorClient = client,
             )
 
         val subscription = stream.subscribe()
+        advanceUntilIdle()
 
+        // Get first block to ensure subscription is working
+        val first = awaitNext(subscription)
+        expectThat(first.number).isEqualTo(0)
+
+        stream.close()
+        advanceUntilIdle()
+
+        // After stream close, channel should be closed
+        // If there were buffered blocks, they might still be available
+        // But eventually we should get a cancellation
+        var receivedCancellation = false
         try {
-            stream.close()
-            advanceUntilIdle()
-
-            val error = assertFailsWith<CancellationException> { awaitNext(subscription) }
-            expectThat(error.message.orEmpty().lowercase()).contains("cancelled")
+            // Try to get next blocks, eventually channel will be closed
+            repeat(20) { awaitNext(subscription) }
+        } catch (e: CancellationException) {
+            receivedCancellation = true
+            expectThat(e.message.orEmpty().lowercase()).contains("closed")
         } finally {
             subscription.close()
-            stream.close()
             advanceUntilIdle()
         }
+
+        expectThat(receivedCancellation).isEqualTo(true)
     }
 
     private suspend fun TestScope.awaitNext(subscription: BlockStreamSubscription): Block {
