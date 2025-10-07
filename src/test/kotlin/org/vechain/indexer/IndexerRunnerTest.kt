@@ -582,28 +582,6 @@ internal class IndexerRunnerTest {
             coVerify(atLeast = 1) { indexer.processBlock(block100) }
         }
 
-        // Commented out due to JVM agent issues with large batch sizes in tests
-        //        @Test
-        //        fun `should handle very large batch size`() = runTest {
-        //            val thorClient = mockk<ThorClient>()
-        //            val block0 = buildBlock(num = 0L)
-        //
-        //            val indexer = createMockIndexer("indexer1", currentBlock = 0L)
-        //
-        //            coEvery { thorClient.waitForBlock(any()) } returns block0
-        //
-        //            val runner = IndexerRunner()
-        //            val job = launch {
-        //                runner.runAllIndexers(listOf(indexer), thorClient, batchSize = 100)
-        //            }
-        //
-        //            delay(200)
-        //            job.cancelAndJoin()
-        //
-        //            // Should work normally
-        //            coVerify(atLeast = 1) { indexer.processBlock(block0) }
-        //        }
-
         @Test
         fun `should handle single indexer in multiple groups scenario`() = runTest {
             val thorClient = mockk<ThorClient>()
