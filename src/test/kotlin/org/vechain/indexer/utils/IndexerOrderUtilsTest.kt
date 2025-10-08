@@ -102,7 +102,8 @@ internal class IndexerOrderUtilsTest {
                 )
 
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0]).containsExactly(indexer1, indexer2, indexer3, indexer4, indexer5, indexer6)
+            expectThat(result[0])
+                .containsExactly(indexer1, indexer2, indexer3, indexer4, indexer5, indexer6)
         }
 
         @Test
@@ -238,7 +239,8 @@ internal class IndexerOrderUtilsTest {
                 )
 
             expectThat(result.size).isEqualTo(1)
-            expectThat(result[0]).containsExactly(root, child1, child2, child3, child4, grandchild1, grandchild2)
+            expectThat(result[0])
+                .containsExactly(root, child1, child2, child3, child4, grandchild1, grandchild2)
         }
     }
 }
