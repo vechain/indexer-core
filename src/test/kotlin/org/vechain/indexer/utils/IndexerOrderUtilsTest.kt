@@ -53,42 +53,38 @@ internal class IndexerOrderUtilsTest {
         }
 
         @Test
-        fun `should return two groups for simple linear dependency`() {
+        fun `should return one group for simple linear dependency`() {
             val indexer1 = createMockIndexer("indexer1")
             val indexer2 = createMockIndexer("indexer2", dependsOn = indexer1)
 
             val result = IndexerOrderUtils.topologicalOrder(listOf(indexer1, indexer2))
 
-            expectThat(result.size).isEqualTo(2)
-            expectThat(result[0]).containsExactly(indexer1)
-            expectThat(result[1]).containsExactly(indexer2)
+            expectThat(result.size).isEqualTo(1)
+            expectThat(result[0]).containsExactly(indexer1, indexer2)
         }
 
         @Test
-        fun `should return three groups for chain of dependencies`() {
+        fun `should return one group for chain of dependencies`() {
             val indexer1 = createMockIndexer("indexer1")
             val indexer2 = createMockIndexer("indexer2", dependsOn = indexer1)
             val indexer3 = createMockIndexer("indexer3", dependsOn = indexer2)
 
             val result = IndexerOrderUtils.topologicalOrder(listOf(indexer1, indexer2, indexer3))
 
-            expectThat(result.size).isEqualTo(3)
-            expectThat(result[0]).containsExactly(indexer1)
-            expectThat(result[1]).containsExactly(indexer2)
-            expectThat(result[2]).containsExactly(indexer3)
+            expectThat(result.size).isEqualTo(1)
+            expectThat(result[0]).containsExactly(indexer1, indexer2, indexer3)
         }
 
         @Test
-        fun `should group independent indexers with same dependency in same tier`() {
+        fun `should group independent indexers with same dependency in same group`() {
             val indexer1 = createMockIndexer("indexer1")
             val indexer2 = createMockIndexer("indexer2", dependsOn = indexer1)
             val indexer3 = createMockIndexer("indexer3", dependsOn = indexer1)
 
             val result = IndexerOrderUtils.topologicalOrder(listOf(indexer1, indexer2, indexer3))
 
-            expectThat(result.size).isEqualTo(2)
-            expectThat(result[0]).containsExactly(indexer1)
-            expectThat(result[1]).containsExactly(indexer2, indexer3)
+            expectThat(result.size).isEqualTo(1)
+            expectThat(result[0]).containsExactly(indexer1, indexer2, indexer3)
         }
 
         @Test
@@ -105,10 +101,9 @@ internal class IndexerOrderUtilsTest {
                     listOf(indexer1, indexer2, indexer3, indexer4, indexer5, indexer6)
                 )
 
-            expectThat(result.size).isEqualTo(3)
-            expectThat(result[0]).containsExactly(indexer1, indexer2)
-            expectThat(result[1]).containsExactly(indexer3, indexer4)
-            expectThat(result[2]).containsExactly(indexer5, indexer6)
+            expectThat(result.size).isEqualTo(1)
+            expectThat(result[0])
+                .containsExactly(indexer1, indexer2, indexer3, indexer4, indexer5, indexer6)
         }
 
         @Test
@@ -121,10 +116,8 @@ internal class IndexerOrderUtilsTest {
             val result =
                 IndexerOrderUtils.topologicalOrder(listOf(indexer1, indexer2, indexer3, indexer4))
 
-            expectThat(result.size).isEqualTo(3)
-            expectThat(result[0]).containsExactly(indexer1)
-            expectThat(result[1]).containsExactly(indexer2, indexer3)
-            expectThat(result[2]).containsExactly(indexer4)
+            expectThat(result.size).isEqualTo(1)
+            expectThat(result[0]).containsExactly(indexer1, indexer2, indexer3, indexer4)
         }
 
         @Test
@@ -136,10 +129,8 @@ internal class IndexerOrderUtilsTest {
             // Pass in reverse order
             val result = IndexerOrderUtils.topologicalOrder(listOf(indexer3, indexer2, indexer1))
 
-            expectThat(result.size).isEqualTo(3)
-            expectThat(result[0]).containsExactly(indexer1)
-            expectThat(result[1]).containsExactly(indexer2)
-            expectThat(result[2]).containsExactly(indexer3)
+            expectThat(result.size).isEqualTo(1)
+            expectThat(result[0]).containsExactly(indexer1, indexer2, indexer3)
         }
 
         @Test
@@ -211,9 +202,8 @@ internal class IndexerOrderUtilsTest {
             val result =
                 IndexerOrderUtils.topologicalOrder(listOf(indexer1, indexer2, indexer3, indexer4))
 
-            expectThat(result.size).isEqualTo(2)
-            expectThat(result[0]).containsExactly(indexer1, indexer2, indexer4)
-            expectThat(result[1]).containsExactly(indexer3)
+            expectThat(result.size).isEqualTo(1)
+            expectThat(result[0]).containsExactly(indexer1, indexer2, indexer3, indexer4)
         }
 
         @Test
@@ -229,12 +219,8 @@ internal class IndexerOrderUtilsTest {
                     listOf(indexer1, indexer2, indexer3, indexer4, indexer5)
                 )
 
-            expectThat(result.size).isEqualTo(5)
-            expectThat(result[0]).containsExactly(indexer1)
-            expectThat(result[1]).containsExactly(indexer2)
-            expectThat(result[2]).containsExactly(indexer3)
-            expectThat(result[3]).containsExactly(indexer4)
-            expectThat(result[4]).containsExactly(indexer5)
+            expectThat(result.size).isEqualTo(1)
+            expectThat(result[0]).containsExactly(indexer1, indexer2, indexer3, indexer4, indexer5)
         }
 
         @Test
@@ -252,10 +238,9 @@ internal class IndexerOrderUtilsTest {
                     listOf(root, child1, child2, child3, child4, grandchild1, grandchild2)
                 )
 
-            expectThat(result.size).isEqualTo(3)
-            expectThat(result[0]).containsExactly(root)
-            expectThat(result[1]).containsExactly(child1, child2, child3, child4)
-            expectThat(result[2]).containsExactly(grandchild1, grandchild2)
+            expectThat(result.size).isEqualTo(1)
+            expectThat(result[0])
+                .containsExactly(root, child1, child2, child3, child4, grandchild1, grandchild2)
         }
     }
 }

@@ -12,6 +12,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
@@ -50,8 +51,15 @@ open class IndexerRunner {
 
         logger.info("Starting ${indexers.size} Indexer ${indexers.map { it.name }}")
 
-        initialiseAndSyncAll(indexers)
-        runAllIndexers(indexers, thorClient, batchSize)
+        while (isActive) {
+            try {
+                initialiseAndSyncAll(indexers)
+                runAllIndexers(indexers, thorClient, batchSize)
+            } catch (e: ReorgException) {
+                logger.error("Reorg detected, restarting all indexers", e)
+                // Exception caught, job will complete normally and loop will restart
+            }
+        }
     }
 
     /**
@@ -153,6 +161,9 @@ open class IndexerRunner {
             try {
                 return operation()
             } catch (e: CancellationException) {
+                throw e
+            } catch (e: ReorgException) {
+                logger.error("Reorg detected, propagating to restart indexers", e)
                 throw e
             } catch (e: Exception) {
                 logger.error("Operation failed, retrying...", e)
