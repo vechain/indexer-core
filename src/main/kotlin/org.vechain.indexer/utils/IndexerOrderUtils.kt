@@ -5,19 +5,29 @@ import org.vechain.indexer.Indexer
 internal object IndexerOrderUtils {
 
     /**
-     * Order the indexers topologically based on their dependencies. The returned grouped lists
-     * represent dependency tiers that can be processed in parallel with other tiers. If there is a
-     * circular dependency, an exception is thrown.
+     * Orders indexers into groups based on their dependencies. Each group contains indexers that
+     * are ordered sequentially (dependencies before dependents). Groups can be processed in
+     * parallel with each other.
+     *
+     * The algorithm creates a single group that contains all indexers in topological order,
+     * ensuring that: 1. Dependencies always appear before their dependents 2. The order is stable
+     * and deterministic 3. Circular dependencies are detected and rejected
+     *
+     * @param indexers The list of indexers to order
+     * @return A list containing a single group with all indexers in dependency order
+     * @throws IllegalStateException if a circular dependency is detected
+     * @throws IllegalArgumentException if a dependency is not in the provided indexers list
      */
     fun topologicalOrder(indexers: List<Indexer>): List<List<Indexer>> {
-        val ordered = mutableListOf<Indexer>()
+        if (indexers.isEmpty()) return emptyList()
+
         val indexerSet = indexers.toSet()
         val visitState = mutableMapOf<Indexer, VisitState>()
-        val depthMap = mutableMapOf<Indexer, Int>()
+        val ordered = mutableListOf<Indexer>()
 
-        fun visit(indexer: Indexer): Int =
+        fun visit(indexer: Indexer) {
             when (visitState[indexer]) {
-                VisitState.VISITED -> depthMap.getValue(indexer)
+                VisitState.VISITED -> return
                 VisitState.VISITING -> {
                     throw IllegalStateException(
                         "Circular dependency detected involving indexer ${indexer.name}",
@@ -27,33 +37,24 @@ internal object IndexerOrderUtils {
                     visitState[indexer] = VisitState.VISITING
 
                     val dependency = indexer.dependsOn
-                    val depth =
-                        if (dependency != null) {
-                            require(dependency in indexerSet) {
-                                "Dependency ${dependency.name} for ${indexer.name} is not part of the provided indexers"
-                            }
-
-                            visit(dependency) + 1
-                        } else {
-                            0
+                    if (dependency != null) {
+                        require(dependency in indexerSet) {
+                            "Dependency ${dependency.name} for ${indexer.name} is not part of the provided indexers"
                         }
+                        visit(dependency)
+                    }
 
                     visitState[indexer] = VisitState.VISITED
-                    depthMap[indexer] = depth
                     ordered.add(indexer)
-                    depth
                 }
             }
-
-        indexers.forEach { visit(it) }
-
-        val depthToIndexers = mutableMapOf<Int, MutableList<Indexer>>()
-        ordered.forEach { indexer ->
-            val depth = depthMap.getValue(indexer)
-            depthToIndexers.getOrPut(depth) { mutableListOf() }.add(indexer)
         }
 
-        return depthToIndexers.toSortedMap().values.map { it.toList() }
+        // Visit all indexers in the order they were provided
+        indexers.forEach { visit(it) }
+
+        // Return all indexers in a single group, properly ordered
+        return listOf(ordered)
     }
 
     private enum class VisitState {
