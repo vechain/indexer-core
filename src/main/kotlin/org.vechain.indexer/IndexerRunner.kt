@@ -52,17 +52,13 @@ open class IndexerRunner {
         logger.info("Starting ${indexers.size} Indexer ${indexers.map { it.name }}")
 
         while (isActive) {
-            initialiseAndSyncAll(indexers)
-
-            val runnerJob = launch {
-                try {
-                    runAllIndexers(indexers, thorClient, batchSize)
-                } catch (e: ReorgException) {
-                    logger.error("Reorg detected, restarting all indexers", e)
-                    // Exception caught, job will complete normally and loop will restart
-                }
+            try {
+                initialiseAndSyncAll(indexers)
+                runAllIndexers(indexers, thorClient, batchSize)
+            } catch (e: ReorgException) {
+                logger.error("Reorg detected, restarting all indexers", e)
+                // Exception caught, job will complete normally and loop will restart
             }
-            runnerJob.join()
         }
     }
 
