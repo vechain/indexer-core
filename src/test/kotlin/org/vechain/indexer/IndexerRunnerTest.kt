@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.vechain.indexer.BlockTestBuilder.Companion.buildBlock
+import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import strikt.api.expectThat
@@ -646,6 +647,145 @@ internal class IndexerRunnerTest {
 
             coVerify(atLeast = 1) { indexer.initialise() }
             coVerify(atLeast = 1) { indexer.fastSync() }
+        }
+    }
+
+    @Nested
+    inner class ReorgHandling {
+
+        @Test
+        fun `should not retry when ReorgException is thrown during processBlock`() = runTest {
+            val thorClient = mockk<ThorClient>()
+            val block0 = buildBlock(num = 0L)
+            var processAttempts = 0
+            var currentBlockNum = 0L
+
+            val indexer =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    coEvery { initialise() } just Runs
+                    coEvery { fastSync() } just Runs
+                    coEvery { processBlock(any()) } coAnswers
+                        {
+                            processAttempts++
+                            throw org.vechain.indexer.exception.ReorgException("Reorg at block 0")
+                        }
+                }
+
+            coEvery { thorClient.waitForBlock(any()) } returns block0
+
+            val runner = IndexerRunner()
+
+            val job = launch {
+                try {
+                    runner.runAllIndexers(listOf(indexer), thorClient, 1)
+                } catch (e: org.vechain.indexer.exception.ReorgException) {
+                    // Expected - ReorgException should propagate
+                }
+            }
+
+            delay(200) // Let it process and throw
+            job.cancelAndJoin()
+
+            // Should have attempted only once - ReorgException should propagate without retry
+            expectThat(processAttempts).isEqualTo(1)
+        }
+
+        @Test
+        fun `run method should restart initialization when ReorgException occurs`() = runTest {
+            val thorClient = mockk<ThorClient>()
+            val block0 = buildBlock(num = 0L)
+            var initCount = 0
+            var syncCount = 0
+            var processAttempts = 0
+            var currentBlockNum = 0L
+
+            val indexer =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    coEvery { initialise() } coAnswers { initCount++ }
+                    coEvery { fastSync() } coAnswers { syncCount++ }
+                    coEvery { processBlock(any()) } coAnswers
+                        {
+                            processAttempts++
+                            if (processAttempts == 1) {
+                                throw org.vechain.indexer.exception.ReorgException(
+                                    "Reorg at block 0"
+                                )
+                            }
+                            // After reorg, delay to allow cancellation
+                            delay(5000)
+                        }
+                }
+
+            coEvery { thorClient.waitForBlock(any()) } returns block0
+
+            val runner = IndexerRunner()
+            val job = launch { runner.run(listOf(indexer), 1, thorClient) }
+
+            delay(500) // Let it process, throw reorg, and restart
+            job.cancelAndJoin()
+
+            // Should have initialized at least twice (once initially, once after reorg)
+            expectThat(initCount).isGreaterThanOrEqualTo(2)
+            // Should have synced at least twice
+            expectThat(syncCount).isGreaterThanOrEqualTo(2)
+            // Should have attempted processing at least once
+            expectThat(processAttempts).isGreaterThanOrEqualTo(1)
+        }
+
+        @Test
+        fun `should restart all indexers when one throws ReorgException`() = runTest {
+            val thorClient = mockk<ThorClient>()
+            val block0 = buildBlock(num = 0L)
+            var indexer1InitCount = 0
+            var indexer2InitCount = 0
+            var processAttempts = 0
+            var currentBlockNum1 = 0L
+            var currentBlockNum2 = 0L
+
+            val indexer1 =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } answers { currentBlockNum1 }
+                    coEvery { initialise() } coAnswers { indexer1InitCount++ }
+                    coEvery { fastSync() } just Runs
+                    coEvery { processBlock(any()) } coAnswers
+                        {
+                            processAttempts++
+                            if (processAttempts == 1) {
+                                throw ReorgException("Reorg detected")
+                            }
+                            delay(5000)
+                        }
+                }
+
+            val indexer2 =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer2"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } answers { currentBlockNum2 }
+                    coEvery { initialise() } coAnswers { indexer2InitCount++ }
+                    coEvery { fastSync() } just Runs
+                    coEvery { processBlock(any()) } just Runs
+                }
+
+            coEvery { thorClient.waitForBlock(any()) } returns block0
+
+            val runner = IndexerRunner()
+            val job = launch { runner.run(listOf(indexer1, indexer2), 1, thorClient) }
+
+            delay(500) // Let it process, throw reorg, and restart
+            job.cancelAndJoin()
+
+            // Both indexers should be reinitialized after reorg
+            expectThat(indexer1InitCount).isGreaterThanOrEqualTo(2)
+            expectThat(indexer2InitCount).isGreaterThanOrEqualTo(2)
         }
     }
 
