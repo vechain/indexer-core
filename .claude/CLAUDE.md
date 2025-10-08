@@ -143,3 +143,4 @@ During pruning, status becomes `PRUNING` and processing pauses.
 Be extremely concise. Sacrifice grammar for the sake of concision.
 Always prefer simple solution over complex ones.
 When unsure, ask for clarification.
+run `make format` after making code changes to ensure proper formatting.
