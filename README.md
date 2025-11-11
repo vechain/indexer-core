@@ -73,8 +73,11 @@ An example of an `IndexerProcessor` implementation:
 open class MyProcessor(
   private val myService: Service,
 ) : IndexerProcessor {
-    override fun process(events: List<IndexedEvent>, block: Block?) {
-        myService.processEvents(events)
+    override fun process(entry: IndexingResult) {
+        if (entry.events().isEmpty()) {
+            return
+        }
+        myService.processEvents(entry.events())
     }
 
     override fun rollback(blockNumber: Long) {
