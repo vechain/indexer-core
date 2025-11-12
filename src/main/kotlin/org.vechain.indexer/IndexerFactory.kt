@@ -103,7 +103,7 @@ class IndexerFactory {
     /**
      * Sets the Thor client to be used by the indexer.
      *
-     * We recommend providing a header to identify your application, such as: ``"X-Project_Id" to
+     * We recommend providing a header to identify your application, such as: ``"X-Project-Id" to
      * "your-project-id"``
      *
      * @param baseUrl The base URL of the Thor client.
