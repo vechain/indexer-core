@@ -136,6 +136,8 @@ open class BlockIndexer(
     ): IndexingResult {
         val events = eventProcessor?.processEvents(block) ?: emptyList()
         return IndexingResult.Normal(block, events, callResults)
+
+        return IndexingResult.Normal(block, events, callResults, status)
     }
 
     protected fun checkIfShuttingDown() {
