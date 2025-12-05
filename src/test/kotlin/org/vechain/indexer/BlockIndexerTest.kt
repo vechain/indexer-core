@@ -316,6 +316,7 @@ internal class BlockIndexerTest {
                         block = block,
                         events = emptyList(),
                         callResults = callResults,
+                        status = Status.NOT_INITIALISED,
                     )
                 val indexer =
                     TestableBlockIndexer(
@@ -392,6 +393,7 @@ internal class BlockIndexerTest {
                         block = block,
                         events = indexedEvents,
                         callResults = callResults,
+                        status = Status.NOT_INITIALISED,
                     )
                 val indexer =
                     TestableBlockIndexer(

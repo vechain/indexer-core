@@ -64,18 +64,25 @@ interface Indexer : IndexerProcessor {
 }
 
 sealed class IndexingResult {
+    abstract val status: Status
+
     /** Represents a full block of data including all events and call results */
     data class Normal(
         val block: Block,
         val events: List<IndexedEvent>,
-        val callResults: List<InspectionResult>
+        val callResults: List<InspectionResult>,
+        override val status: Status
     ) : IndexingResult()
 
     /**
      * Represents a batch of events without the full block data. This is used when indexing via
      * smart contract events using a [LogsIndexer]
      */
-    data class EventsOnly(val endBlock: Long, val events: List<IndexedEvent>) : IndexingResult()
+    data class EventsOnly(
+        val endBlock: Long,
+        val events: List<IndexedEvent>,
+        override val status: Status
+    ) : IndexingResult()
 
     fun latestBlockNumber(): Long =
         when (this) {
