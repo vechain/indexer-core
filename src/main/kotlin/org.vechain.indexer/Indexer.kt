@@ -3,6 +3,7 @@ package org.vechain.indexer
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
+import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.thor.model.InspectionResult
 
 /** The possible states the indexer can be */
@@ -49,11 +50,20 @@ interface Indexer : IndexerProcessor {
     // state
     suspend fun processBlock(block: Block)
 
+    // Process a block with pre-computed inspection results (for pipelining)
+    suspend fun processBlock(block: Block, inspectionResults: List<InspectionResult>) {
+        // Default implementation ignores pre-computed results and calls the regular method
+        processBlock(block)
+    }
+
     // Optional pruner that can be run periodically to clean up old data
     val pruner: Pruner?
 
     // Optional parent indexers that this indexer depends on.
     val dependsOn: Indexer?
+
+    // Optional inspection clauses for contract calls during block processing
+    fun getInspectionClauses(): List<Clause>? = null
 
     // Optional fast sync phase
     suspend fun fastSync() {

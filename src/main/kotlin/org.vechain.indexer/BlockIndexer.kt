@@ -21,11 +21,14 @@ open class BlockIndexer(
     protected val startBlock: Long,
     private val syncLoggerInterval: Long,
     protected val eventProcessor: CombinedEventProcessor?,
-    protected val inspectionClauses: List<Clause>?,
+    private val inspectionClauses: List<Clause>?,
     override val pruner: Pruner?,
     private val prunerInterval: Long,
     override val dependsOn: Indexer?,
 ) : Indexer {
+
+    override fun getInspectionClauses(): List<Clause>? = inspectionClauses
+
     init {
         require(prunerInterval > 0) { "prunerInterval must be > 0" }
     }
@@ -124,8 +127,14 @@ open class BlockIndexer(
     protected suspend fun buildIndexingResult(block: Block): IndexingResult {
         val callResults =
             inspectionClauses?.let { thorClient.inspectClauses(it, block.id) } ?: emptyList()
-        val events = eventProcessor?.processEvents(block) ?: emptyList()
+        return buildIndexingResultWithCallResults(block, callResults)
+    }
 
+    protected suspend fun buildIndexingResultWithCallResults(
+        block: Block,
+        callResults: List<org.vechain.indexer.thor.model.InspectionResult>
+    ): IndexingResult {
+        val events = eventProcessor?.processEvents(block) ?: emptyList()
         return IndexingResult.Normal(block, events, callResults)
     }
 
@@ -143,6 +152,18 @@ open class BlockIndexer(
         checkForReorg(block)
 
         processAndUpdateState(block)
+    }
+
+    override suspend fun processBlock(
+        block: Block,
+        inspectionResults: List<org.vechain.indexer.thor.model.InspectionResult>
+    ) {
+        validateProcessingState()
+        validateBlockNumber(block)
+        updateSyncStatus(block)
+        checkForReorg(block)
+
+        processAndUpdateStateWithResults(block, inspectionResults)
     }
 
     /**
@@ -178,6 +199,22 @@ open class BlockIndexer(
     protected open suspend fun processAndUpdateState(block: Block) {
         logProcessingBlock()
         process(buildIndexingResult(block))
+        updateBlockState(block)
+        runPruner()
+    }
+
+    /**
+     * Processes the block with pre-computed inspection results and updates the indexer state.
+     *
+     * @param block The block to process.
+     * @param inspectionResults Pre-computed inspection results from pipelined fetch.
+     */
+    protected open suspend fun processAndUpdateStateWithResults(
+        block: Block,
+        inspectionResults: List<org.vechain.indexer.thor.model.InspectionResult>
+    ) {
+        logProcessingBlock()
+        process(buildIndexingResultWithCallResults(block, inspectionResults))
         updateBlockState(block)
         runPruner()
     }
