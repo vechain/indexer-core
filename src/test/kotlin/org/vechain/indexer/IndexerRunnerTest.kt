@@ -42,6 +42,7 @@ internal class IndexerRunnerTest {
             every { this@mockk.name } returns name
             every { this@mockk.dependsOn } returns dependsOn
             every { getCurrentBlockNumber() } answers { currentBlockNumber }
+            every { getInspectionClauses() } returns null
 
             if (initializeBlock != null) {
                 coEvery { initialise() } coAnswers { initializeBlock() }
@@ -117,6 +118,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } returns 0L
+                    every { getInspectionClauses() } returns null
                     coEvery { initialise() } just Runs
                     coEvery { fastSync() } coAnswers
                         {
@@ -232,6 +234,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { block1Num }
+                    every { getInspectionClauses() } returns null
                     coEvery { processBlock(any()) } coAnswers
                         {
                             delay(50)
@@ -244,6 +247,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer2"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { block2Num }
+                    every { getInspectionClauses() } returns null
                     coEvery { processBlock(any()) } coAnswers
                         {
                             delay(50)
@@ -351,6 +355,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    every { getInspectionClauses() } returns null
                     coEvery { processBlock(any()) } coAnswers
                         {
                             processAttempts++
@@ -392,6 +397,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "slow"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    every { getInspectionClauses() } returns null
                     coEvery { processBlock(any()) } coAnswers
                         {
                             delay(100)
@@ -429,6 +435,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    every { getInspectionClauses() } returns null
                     coEvery { processBlock(any()) } coAnswers
                         {
                             val block = firstArg<Block>()
@@ -470,6 +477,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { block1Num }
+                    every { getInspectionClauses() } returns null
                     coEvery { processBlock(any()) } coAnswers
                         {
                             synchronized(startTimes) {
@@ -488,6 +496,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer2"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { block2Num }
+                    every { getInspectionClauses() } returns null
                     coEvery { processBlock(any()) } coAnswers
                         {
                             synchronized(startTimes) {
@@ -572,6 +581,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    every { getInspectionClauses() } returns null
                     coEvery { initialise() } coAnswers
                         {
                             synchronized(callOrder) { callOrder.add("init") }
@@ -622,6 +632,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    every { getInspectionClauses() } returns null
                     coEvery { initialise() } just Runs
                     coEvery { fastSync() } just Runs
                     coEvery { processBlock(any()) } coAnswers { currentBlockNum++ }
@@ -665,6 +676,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    every { getInspectionClauses() } returns null
                     coEvery { initialise() } just Runs
                     coEvery { fastSync() } just Runs
                     coEvery { processBlock(any()) } coAnswers
@@ -707,6 +719,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    every { getInspectionClauses() } returns null
                     coEvery { initialise() } coAnswers { initCount++ }
                     coEvery { fastSync() } coAnswers { syncCount++ }
                     coEvery { processBlock(any()) } coAnswers
@@ -753,6 +766,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum1 }
+                    every { getInspectionClauses() } returns null
                     coEvery { initialise() } coAnswers { indexer1InitCount++ }
                     coEvery { fastSync() } just Runs
                     coEvery { processBlock(any()) } coAnswers
@@ -770,6 +784,7 @@ internal class IndexerRunnerTest {
                     every { name } returns "indexer2"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum2 }
+                    every { getInspectionClauses() } returns null
                     coEvery { initialise() } coAnswers { indexer2InitCount++ }
                     coEvery { fastSync() } just Runs
                     coEvery { processBlock(any()) } just Runs
