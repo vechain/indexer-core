@@ -1,5 +1,6 @@
 package org.vechain.indexer
 
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -15,7 +16,15 @@ import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.Clause
+import org.vechain.indexer.thor.model.InspectionResult
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
+
+/**
+ * Data class holding a block with its pre-fetched inspection results. Used to pipeline block
+ * fetching and contract calls ahead of processing.
+ */
+data class PreparedBlock(val block: Block, val inspectionResults: List<InspectionResult>)
 
 open class IndexerRunner {
     protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
@@ -97,27 +106,31 @@ open class IndexerRunner {
             val executionGroups = topologicalOrder(indexers)
             if (executionGroups.isEmpty()) return@coroutineScope
 
-            // Create a channel for each group to receive blocks
-            val groupChannels = executionGroups.map { Channel<Block>(capacity = batchSize) }
+            // Collect all unique inspection clauses from all indexers
+            val allClauses = indexers.mapNotNull { it.getInspectionClauses() }.flatten().distinct()
+
+            // Create a channel for each group to receive prepared blocks
+            val groupChannels = executionGroups.map { Channel<PreparedBlock>(capacity = batchSize) }
 
             // Launch a coroutine for each group to process blocks
             executionGroups.forEachIndexed { groupIndex, group ->
                 launch { processGroupBlocks(group, groupChannels[groupIndex]) }
             }
 
-            // Main block fetcher and distributor
+            // Pipelined block fetcher and distributor
             launch {
                 try {
-                    var blockNumber = executionGroups.flatten().minOf { it.getCurrentBlockNumber() }
+                    val startBlock = executionGroups.flatten().minOf { it.getCurrentBlockNumber() }
+                    val nextBlockNumber = AtomicLong(startBlock)
 
-                    while (isActive) {
-                        val block = fetchBlock(thorClient, blockNumber)
-
-                        // Send block to all groups in parallel
-                        groupChannels.forEach { channel -> channel.send(block) }
-
-                        blockNumber++
-                    }
+                    // Launch parallel prefetch workers that maintain order
+                    prefetchBlocksInOrder(
+                        thorClient = thorClient,
+                        allClauses = allClauses,
+                        nextBlockNumber = nextBlockNumber,
+                        batchSize = batchSize,
+                        groupChannels = groupChannels,
+                    )
                 } finally {
                     groupChannels.forEach { it.close() }
                 }
@@ -125,25 +138,82 @@ open class IndexerRunner {
         }
     }
 
-    private suspend fun fetchBlock(thorClient: ThorClient, blockNumber: Long): Block {
-        return retryUntilSuccess { thorClient.waitForBlock(blockNumber) }
-    }
+    /**
+     * Prefetches blocks and their inspection results in parallel while maintaining order. Uses a
+     * sliding window of concurrent fetches to hide network latency.
+     */
+    private suspend fun prefetchBlocksInOrder(
+        thorClient: ThorClient,
+        allClauses: List<Clause>,
+        nextBlockNumber: AtomicLong,
+        batchSize: Int,
+        groupChannels: List<Channel<PreparedBlock>>,
+    ) = coroutineScope {
+        // Use batchSize as the prefetch window size
+        val prefetchSize = maxOf(batchSize, 1)
 
-    private suspend fun processGroupBlocks(group: List<Indexer>, channel: Channel<Block>) {
-        for (block in channel) {
-            // Process indexers in the group sequentially to preserve order
-            for (indexer in group) {
-                processIndexerBlock(indexer, block)
+        while (isActive) {
+            val currentBlock = nextBlockNumber.get()
+            // Launch prefetch for next batch of blocks in parallel
+            val deferredBlocks =
+                (0 until prefetchSize).map { offset ->
+                    val blockNum = currentBlock + offset
+                    async { fetchAndPrepareBlock(thorClient, blockNum, allClauses) }
+                }
+
+            // Await and send in order
+            for (deferred in deferredBlocks) {
+                val preparedBlock = deferred.await()
+                groupChannels.forEach { channel -> channel.send(preparedBlock) }
+                nextBlockNumber.incrementAndGet()
             }
         }
     }
 
-    private suspend fun processIndexerBlock(indexer: Indexer, block: Block) {
+    /**
+     * Fetches a block and performs inspection calls, returning a PreparedBlock. This combines the
+     * network calls so they can be pipelined.
+     */
+    private suspend fun fetchAndPrepareBlock(
+        thorClient: ThorClient,
+        blockNumber: Long,
+        allClauses: List<Clause>,
+    ): PreparedBlock {
+        return retryUntilSuccess {
+            val block = thorClient.waitForBlock(blockNumber)
+            val inspectionResults =
+                if (allClauses.isNotEmpty()) {
+                    thorClient.inspectClauses(allClauses, block.id)
+                } else {
+                    emptyList()
+                }
+            PreparedBlock(block, inspectionResults)
+        }
+    }
+
+    private suspend fun processGroupBlocks(group: List<Indexer>, channel: Channel<PreparedBlock>) {
+        for (preparedBlock in channel) {
+            // Process indexers in the group sequentially to preserve order
+            for (indexer in group) {
+                processIndexerBlock(indexer, preparedBlock)
+            }
+        }
+    }
+
+    private suspend fun processIndexerBlock(indexer: Indexer, preparedBlock: PreparedBlock) {
         val currentNumber = indexer.getCurrentBlockNumber()
+        val block = preparedBlock.block
 
         when {
             currentNumber == block.number -> {
-                retryUntilSuccess { indexer.processBlock(block) }
+                retryUntilSuccess {
+                    // Use pre-computed inspection results if indexer has clauses
+                    if (indexer.getInspectionClauses() != null) {
+                        indexer.processBlock(block, preparedBlock.inspectionResults)
+                    } else {
+                        indexer.processBlock(block)
+                    }
+                }
             }
             currentNumber > block.number -> {
                 // Indexer already processed this block, skip
