@@ -158,6 +158,7 @@ open class IndexerRunner {
         while (isActive) {
             val currentBlock = nextBlockNumber
             val windowSize = calculateWindowSize(lastBlockTimestamp, maxBatchSize)
+            logger.debug("Block fetch window size: $windowSize")
             // Launch prefetch for next batch of blocks in parallel
             val deferredBlocks =
                 (0 ..< windowSize).map { offset ->
