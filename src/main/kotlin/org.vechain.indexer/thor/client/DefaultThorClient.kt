@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.BlockNotFoundException
+import org.vechain.indexer.exception.RateLimitException
 import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.JsonUtils
 
@@ -15,6 +16,8 @@ private const val TIP_POLL_MIN_DELAY_MS = 1_000L
 private const val TIP_POLL_INITIAL_DELAY_MS = 4_000L
 private const val TIP_POLL_DELAY_STEP_MS = 500L
 private const val TIP_POLL_ERROR_DELAY_MS = 10_000L
+private const val RATE_LIMIT_DELAY_MS = 30_000L
+private const val HTTP_TOO_MANY_REQUESTS = 429
 
 /**
  * Default implementation of the {@link org.vechain.indexer.thor.client.ThorClient.class ThorClient}
@@ -32,10 +35,14 @@ class DefaultThorClient(
 
     override suspend fun getBlock(blockNumber: Long): Block =
         withContext(Dispatchers.IO) {
-            val (_, _, result) =
+            val (_, response, result) =
                 Fuel.get("$baseUrl/blocks/$blockNumber?expanded=true")
                     .appendHeader(*headers)
                     .response()
+
+            if (response.statusCode == HTTP_TOO_MANY_REQUESTS) {
+                throw RateLimitException("Rate limited fetching block $blockNumber")
+            }
 
             val responseBody =
                 when (result) {
@@ -54,15 +61,48 @@ class DefaultThorClient(
         }
 
     override suspend fun waitForBlock(blockNumber: Long): Block {
+        val startTime = System.currentTimeMillis()
         var delayMs = TIP_POLL_INITIAL_DELAY_MS
+        var attempts = 0
         while (true) {
+            attempts++
             try {
-                return getBlock(blockNumber)
+                val block = getBlock(blockNumber)
+                val totalTime = System.currentTimeMillis() - startTime
+                if (attempts > 1) {
+                    logger.info(
+                        "Block {} fetched after {} attempts, total wait: {}ms",
+                        blockNumber,
+                        attempts,
+                        totalTime
+                    )
+                }
+                return block
             } catch (e: BlockNotFoundException) {
+                logger.info(
+                    "Block {} not yet available, waiting {}ms (attempt {})",
+                    blockNumber,
+                    delayMs,
+                    attempts
+                )
                 delay(delayMs)
                 delayMs = (delayMs - TIP_POLL_DELAY_STEP_MS).coerceAtLeast(TIP_POLL_MIN_DELAY_MS)
+            } catch (e: RateLimitException) {
+                logger.warn(
+                    "Rate limited on block {}, backing off {}ms (attempt {})",
+                    blockNumber,
+                    RATE_LIMIT_DELAY_MS,
+                    attempts
+                )
+                delay(RATE_LIMIT_DELAY_MS)
             } catch (e: Exception) {
-                logger.warn("Error fetching block $blockNumber, retrying...", e)
+                logger.warn(
+                    "Error fetching block {} (attempt {}), retrying in {}ms...",
+                    blockNumber,
+                    attempts,
+                    TIP_POLL_ERROR_DELAY_MS,
+                    e
+                )
                 delay(TIP_POLL_ERROR_DELAY_MS)
             }
         }
