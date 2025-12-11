@@ -852,4 +852,64 @@ internal class IndexerRunnerTest {
             coVerify(atLeast = 1) { indexer.processBlock(block0) }
         }
     }
+
+    @Nested
+    inner class CalculateWindowSize {
+        private val runner = TestIndexerRunner()
+
+        @Test
+        fun `returns max prefetch size when timestamp is missing`() {
+            val result =
+                runner.exposedWindowSize(lastBlockTimestampSeconds = null, maxPrefetchSize = 5)
+
+            expectThat(result).isEqualTo(5)
+        }
+
+        @Test
+        fun `reduces window to one block when nearly caught up`() {
+            val recentTimestamp = (System.currentTimeMillis() / 1000) - 5
+
+            val result =
+                runner.exposedWindowSize(
+                    lastBlockTimestampSeconds = recentTimestamp,
+                    maxPrefetchSize = 10,
+                )
+
+            expectThat(result).isEqualTo(1)
+        }
+
+        @Test
+        fun `caps window at max prefetch size when far behind`() {
+            val oldTimestamp = (System.currentTimeMillis() / 1000) - 500
+
+            val result =
+                runner.exposedWindowSize(
+                    lastBlockTimestampSeconds = oldTimestamp,
+                    maxPrefetchSize = 8,
+                )
+
+            expectThat(result).isEqualTo(8)
+        }
+
+        @Test
+        fun `scales window proportionally when moderately behind`() {
+            val secondsBehind = 35L
+            val timestamp = (System.currentTimeMillis() / 1000) - secondsBehind
+
+            val result =
+                runner.exposedWindowSize(
+                    lastBlockTimestampSeconds = timestamp,
+                    maxPrefetchSize = 10,
+                )
+
+            expectThat(result).isEqualTo(4)
+        }
+    }
+
+    private class TestIndexerRunner : IndexerRunner() {
+        fun exposedWindowSize(
+            lastBlockTimestampSeconds: Long?,
+            maxPrefetchSize: Int,
+        ): Int = calculateWindowSize(lastBlockTimestampSeconds, maxPrefetchSize)
+    }
 }

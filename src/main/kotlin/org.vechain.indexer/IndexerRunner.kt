@@ -1,6 +1,5 @@
 package org.vechain.indexer
 
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -30,6 +29,8 @@ open class IndexerRunner {
     protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     companion object {
+        private const val BLOCK_INTERVAL_SECONDS = 10L
+
         @Suppress("unused")
         fun launch(
             scope: CoroutineScope,
@@ -121,14 +122,13 @@ open class IndexerRunner {
             launch {
                 try {
                     val startBlock = executionGroups.flatten().minOf { it.getCurrentBlockNumber() }
-                    val nextBlockNumber = AtomicLong(startBlock)
 
                     // Launch parallel prefetch workers that maintain order
                     prefetchBlocksInOrder(
                         thorClient = thorClient,
                         allClauses = allClauses,
-                        nextBlockNumber = nextBlockNumber,
-                        batchSize = batchSize,
+                        startBlock = startBlock,
+                        maxBatchSize = batchSize,
                         groupChannels = groupChannels,
                     )
                 } finally {
@@ -142,30 +142,36 @@ open class IndexerRunner {
      * Prefetches blocks and their inspection results in parallel while maintaining order. Uses a
      * sliding window of concurrent fetches to hide network latency.
      */
-    private suspend fun prefetchBlocksInOrder(
+    protected suspend fun prefetchBlocksInOrder(
         thorClient: ThorClient,
         allClauses: List<Clause>,
-        nextBlockNumber: AtomicLong,
-        batchSize: Int,
+        startBlock: Long,
+        maxBatchSize: Int,
         groupChannels: List<Channel<PreparedBlock>>,
     ) = coroutineScope {
-        // Use batchSize as the prefetch window size
-        val prefetchSize = maxOf(batchSize, 1)
+        require(startBlock >= 0) { "startBlock must be >= 0" }
+        require(maxBatchSize >= 1) { "maxBatchSize must be >= 1" }
+
+        var nextBlockNumber = startBlock
+        var lastBlockTimestamp: Long? = null
 
         while (isActive) {
-            val currentBlock = nextBlockNumber.get()
+            val currentBlock = nextBlockNumber
+            val windowSize = calculateWindowSize(lastBlockTimestamp, maxBatchSize)
+            logger.debug("Block fetch window size: $windowSize")
             // Launch prefetch for next batch of blocks in parallel
             val deferredBlocks =
-                (0 until prefetchSize).map { offset ->
+                (0 ..< windowSize).map { offset ->
                     val blockNum = currentBlock + offset
                     async { fetchAndPrepareBlock(thorClient, blockNum, allClauses) }
                 }
 
             // Await and send in order
-            for (deferred in deferredBlocks) {
+            deferredBlocks.forEach { deferred ->
                 val preparedBlock = deferred.await()
                 groupChannels.forEach { channel -> channel.send(preparedBlock) }
-                nextBlockNumber.incrementAndGet()
+                nextBlockNumber++
+                lastBlockTimestamp = preparedBlock.block.timestamp
             }
         }
     }
@@ -174,7 +180,7 @@ open class IndexerRunner {
      * Fetches a block and performs inspection calls, returning a PreparedBlock. This combines the
      * network calls so they can be pipelined.
      */
-    private suspend fun fetchAndPrepareBlock(
+    protected suspend fun fetchAndPrepareBlock(
         thorClient: ThorClient,
         blockNumber: Long,
         allClauses: List<Clause>,
@@ -240,5 +246,19 @@ open class IndexerRunner {
                 delay(1000L)
             }
         }
+    }
+
+    protected fun calculateWindowSize(
+        lastBlockTimestampSeconds: Long?,
+        maxPrefetchSize: Int,
+    ): Int {
+        if (lastBlockTimestampSeconds == null) {
+            return maxPrefetchSize
+        }
+        val nowSeconds = System.currentTimeMillis() / 1000
+        val secondsBehind = (nowSeconds - lastBlockTimestampSeconds).coerceAtLeast(0)
+        val estimatedBlocksBehind =
+            (secondsBehind / BLOCK_INTERVAL_SECONDS).toInt().coerceAtLeast(0) + 1
+        return minOf(maxPrefetchSize, estimatedBlocksBehind)
     }
 }
