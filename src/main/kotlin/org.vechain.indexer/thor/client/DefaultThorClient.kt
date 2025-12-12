@@ -25,7 +25,7 @@ private const val HTTP_TOO_MANY_REQUESTS = 429
  *
  * @see <a href="https://github.com/kittinunf/fuel">Fuel Library</a>
  */
-class DefaultThorClient(
+open class DefaultThorClient(
     private val baseUrl: String,
     private vararg val headers: Pair<String, Any>,
 ) : ThorClient {
