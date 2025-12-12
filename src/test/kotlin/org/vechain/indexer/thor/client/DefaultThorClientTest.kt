@@ -89,9 +89,9 @@ class DefaultThorClientTest {
         val endpoint = "${baseUrl}/blocks/9?expanded=true"
         stubFuelGet(endpoint, HttpResult.Failure(IllegalStateException("boom")))
 
-        val exception = assertFailsWith<Exception> { client.getBlock(9) }
+        val exception = assertFailsWith<FuelError> { client.getBlock(9) }
 
-        expectThat(exception.message.orEmpty()).containsIgnoringCase("request failed")
+        expectThat(exception.message.orEmpty()).containsIgnoringCase("boom")
     }
 
     @Test
@@ -159,9 +159,9 @@ class DefaultThorClientTest {
         val endpoint = "${baseUrl}/blocks/best?expanded=true"
         stubFuelGet(endpoint, HttpResult.Failure(IllegalArgumentException("bad")))
 
-        val exception = assertFailsWith<Exception> { client.getBestBlock() }
+        val exception = assertFailsWith<FuelError> { client.getBestBlock() }
 
-        expectThat(exception.message.orEmpty()).containsIgnoringCase("request failed")
+        expectThat(exception.message.orEmpty()).containsIgnoringCase("bad")
     }
 
     @Test
@@ -180,9 +180,9 @@ class DefaultThorClientTest {
         val endpoint = "${baseUrl}/blocks/finalized?expanded=true"
         stubFuelGet(endpoint, HttpResult.Failure(RuntimeException("oops")))
 
-        val exception = assertFailsWith<Exception> { client.getFinalizedBlock() }
+        val exception = assertFailsWith<FuelError> { client.getFinalizedBlock() }
 
-        expectThat(exception.message.orEmpty()).containsIgnoringCase("request failed")
+        expectThat(exception.message.orEmpty()).containsIgnoringCase("oops")
     }
 
     @Test
@@ -231,9 +231,9 @@ class DefaultThorClientTest {
         val endpoint = "${baseUrl}/logs/event"
         stubFuelPost(endpoint, HttpResult.Failure(IllegalStateException("boom")))
 
-        val exception = assertFailsWith<Exception> { client.getEventLogs(sampleEventLogsRequest()) }
+        val exception = assertFailsWith<FuelError> { client.getEventLogs(sampleEventLogsRequest()) }
 
-        expectThat(exception.message.orEmpty()).containsIgnoringCase("request failed")
+        expectThat(exception.message.orEmpty()).containsIgnoringCase("boom")
     }
 
     @Test
@@ -285,9 +285,9 @@ class DefaultThorClientTest {
         stubFuelPost(endpoint, HttpResult.Failure(RuntimeException("failure")))
 
         val exception =
-            assertFailsWith<Exception> { client.getVetTransfers(sampleTransferLogsRequest()) }
+            assertFailsWith<FuelError> { client.getVetTransfers(sampleTransferLogsRequest()) }
 
-        expectThat(exception.message.orEmpty()).containsIgnoringCase("request failed")
+        expectThat(exception.message.orEmpty()).containsIgnoringCase("failure")
     }
 
     @Test
@@ -326,9 +326,9 @@ class DefaultThorClientTest {
         val endpoint = "${baseUrl}/accounts/*?revision=0xabc"
         stubFuelPost(endpoint, HttpResult.Failure(IllegalStateException("nope")))
 
-        val exception = assertFailsWith<Exception> { client.inspectClauses(emptyList(), "0xabc") }
+        val exception = assertFailsWith<FuelError> { client.inspectClauses(emptyList(), "0xabc") }
 
-        expectThat(exception.message.orEmpty()).containsIgnoringCase("request failed")
+        expectThat(exception.message.orEmpty()).containsIgnoringCase("nope")
     }
 
     private fun sampleBlock(number: Long): Block =
@@ -386,7 +386,8 @@ class DefaultThorClientTest {
                 val payload =
                     when (result) {
                         is HttpResult.Success -> Result.Success(result.body)
-                        is HttpResult.Failure -> Result.Failure(mockFuelError(result.throwable))
+                        is HttpResult.Failure ->
+                            Result.Failure(FuelError.wrap(result.throwable, response))
                     }
                 every { request.response() } returns Triple(request, response, payload)
                 request
@@ -411,11 +412,9 @@ class DefaultThorClientTest {
         val payload =
             when (result) {
                 is HttpResult.Success -> Result.Success(result.body)
-                is HttpResult.Failure -> Result.Failure(mockFuelError(result.throwable))
+                is HttpResult.Failure ->
+                    Result.Failure(FuelError.wrap(result.throwable, response))
             }
         every { request.response() } returns Triple(request, response, payload)
     }
-
-    private fun mockFuelError(@Suppress("UNUSED_PARAMETER") cause: Throwable): FuelError =
-        mockk(relaxed = true)
 }

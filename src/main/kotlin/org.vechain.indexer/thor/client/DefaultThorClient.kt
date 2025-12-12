@@ -47,10 +47,7 @@ class DefaultThorClient(
             val responseBody =
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
-                    is Result.Failure ->
-                        throw Exception(
-                            "Get block $blockNumber request failed with error: ${result.error}",
-                        )
+                    is Result.Failure -> throw result.error
                 }
 
             if (responseBody.isEmpty() || responseBody.trim() == "null") {
@@ -116,8 +113,7 @@ class DefaultThorClient(
             val responseBody =
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
-                    is Result.Failure ->
-                        throw Exception("Get best block request failed with error: ${result.error}")
+                    is Result.Failure -> throw result.error
                 }
 
             return@withContext objectMapper.readValue(responseBody, Block::class.java)
@@ -133,10 +129,7 @@ class DefaultThorClient(
             val responseBody =
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
-                    is Result.Failure ->
-                        throw Exception(
-                            "Get best finalized request failed with error: ${result.error}"
-                        )
+                    is Result.Failure -> throw result.error
                 }
 
             return@withContext objectMapper.readValue(responseBody, Block::class.java)
@@ -153,8 +146,7 @@ class DefaultThorClient(
             val responseBody =
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
-                    is Result.Failure ->
-                        throw Exception("Get logs request failed with error: ${result.error}")
+                    is Result.Failure -> throw result.error
                 }
 
             return@withContext objectMapper.readValue(
@@ -174,10 +166,7 @@ class DefaultThorClient(
             val responseBody =
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
-                    is Result.Failure ->
-                        throw Exception(
-                            "Get transfer logs request failed with error: ${result.error}"
-                        )
+                    is Result.Failure -> throw result.error
                 }
 
             return@withContext objectMapper.readValue(
@@ -202,10 +191,7 @@ class DefaultThorClient(
             val responseBody =
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
-                    is Result.Failure ->
-                        throw Exception(
-                            "Inspect clauses request failed with error: ${result.error}"
-                        )
+                    is Result.Failure -> throw result.error
                 }
 
             return@withContext objectMapper.readValue(
