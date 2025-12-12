@@ -44,7 +44,7 @@ import strikt.assertions.containsIgnoringCase
 import strikt.assertions.isEqualTo
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class DefaultThorClientTest {
+open class DefaultThorClientTest {
 
     private val baseUrl = "https://thor.node"
     private lateinit var client: DefaultThorClient
