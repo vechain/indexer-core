@@ -412,8 +412,7 @@ class DefaultThorClientTest {
         val payload =
             when (result) {
                 is HttpResult.Success -> Result.Success(result.body)
-                is HttpResult.Failure ->
-                    Result.Failure(FuelError.wrap(result.throwable, response))
+                is HttpResult.Failure -> Result.Failure(FuelError.wrap(result.throwable, response))
             }
         every { request.response() } returns Triple(request, response, payload)
     }
