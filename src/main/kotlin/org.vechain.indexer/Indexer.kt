@@ -118,7 +118,7 @@ interface IndexerProcessor {
 
     fun rollback(blockNumber: Long)
 
-    fun process(entry: IndexingResult)
+    suspend fun process(entry: IndexingResult)
 }
 
 interface Pruner {

@@ -10,7 +10,7 @@ class BlockTestBuilder {
             parentId: String = "0x${maxOf(num - 1, 0)}",
         ): Block =
             Block(
-                id = "0x$num",
+                id = "0x" + num.toString(16).padStart(64, '0'),
                 number = num,
                 timestamp = timestamp,
                 size = 0,

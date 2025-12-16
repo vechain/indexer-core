@@ -11,25 +11,62 @@ import org.vechain.indexer.thor.model.*
  * @see <a href="https://docs.vechain.org/thor/thorest-api">Thorest API</a>
  */
 interface ThorClient {
-    suspend fun getBlock(revision: BlockRevision, expanded: Boolean? = null): Block
+    suspend fun getBlock(revision: BlockRevision): Block
 
-    suspend fun getBlock(blockNumber: Long, expanded: Boolean? = null): Block =
-        getBlock(BlockRevision.Number(blockNumber), expanded)
+    @Deprecated(
+        message = "Use getBlock(BlockRevision.Number(blockNumber)) instead.",
+        replaceWith = ReplaceWith("getBlock(BlockRevision.Number(blockNumber))"),
+    )
+    suspend fun getBlock(blockNumber: Long): Block = getBlock(BlockRevision.Number(blockNumber))
 
-    suspend fun waitForBlock(revision: BlockRevision, expanded: Boolean? = null): Block
+    suspend fun getBlockUnexpanded(revision: BlockRevision): BlockUnexpanded
 
-    suspend fun waitForBlock(blockNumber: Long, expanded: Boolean? = null): Block =
-        waitForBlock(BlockRevision.Number(blockNumber), expanded)
+    suspend fun waitForBlock(revision: BlockRevision): Block
 
-    suspend fun getBestBlock(expanded: Boolean? = null): Block
+    suspend fun waitForBlockUnexpanded(revision: BlockRevision): BlockUnexpanded
 
-    suspend fun getFinalizedBlock(expanded: Boolean? = null): Block
+    @Deprecated(
+        message = "Use waitForBlock(BlockRevision.Number(blockNumber)) instead.",
+        replaceWith = ReplaceWith("waitForBlock(BlockRevision.Number(blockNumber))"),
+    )
+    suspend fun waitForBlock(blockNumber: Long): Block =
+        waitForBlock(BlockRevision.Number(blockNumber))
 
-    suspend fun getJustifiedBlock(expanded: Boolean? = null): Block
+    @Deprecated(
+        message = "Use getBlock(BlockRevision.Keyword.BEST) instead.",
+        replaceWith = ReplaceWith("getBlock(BlockRevision.Keyword.BEST)"),
+    )
+    suspend fun getBestBlock(): Block = getBlock(BlockRevision.Keyword.BEST)
+
+    @Deprecated(
+        message = "Use getBlock(BlockRevision.Keyword.FINALIZED) instead.",
+        replaceWith = ReplaceWith("getBlock(BlockRevision.Keyword.FINALIZED)"),
+    )
+    suspend fun getFinalizedBlock(): Block = getBlock(BlockRevision.Keyword.FINALIZED)
+
+    @Deprecated(
+        message = "Use getBlock(BlockRevision.Keyword.JUSTIFIED) instead.",
+        replaceWith = ReplaceWith("getBlock(BlockRevision.Keyword.JUSTIFIED)"),
+    )
+    suspend fun getJustifiedBlock(): Block = getBlock(BlockRevision.Keyword.JUSTIFIED)
 
     suspend fun getEventLogs(req: EventLogsRequest): List<EventLog>
 
     suspend fun getVetTransfers(req: TransferLogsRequest): List<TransferLog>
 
-    suspend fun inspectClauses(clauses: List<Clause>, blockID: String): List<InspectionResult>
+    suspend fun inspectClauses(
+        clauses: List<Clause>,
+        revision: BlockRevision? = null,
+    ): List<InspectionResult>
+
+    suspend fun getAccountState(
+        address: String,
+        revision: BlockRevision? = null
+    ): ExecuteAccountResponse
 }
+
+data class ExecuteAccountResponse(
+    val balance: String,
+    val energy: String,
+    val hasCode: Boolean = false
+)

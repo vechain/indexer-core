@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.thor.model.InspectionResult
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
@@ -186,10 +187,10 @@ open class IndexerRunner {
         allClauses: List<Clause>,
     ): PreparedBlock {
         return retryUntilSuccess {
-            val block = thorClient.waitForBlock(blockNumber)
+            val block = thorClient.waitForBlock(BlockRevision.Number(blockNumber))
             val inspectionResults =
                 if (allClauses.isNotEmpty()) {
-                    thorClient.inspectClauses(allClauses, block.id)
+                    thorClient.inspectClauses(allClauses, BlockRevision.Id(block.id))
                 } else {
                     emptyList()
                 }

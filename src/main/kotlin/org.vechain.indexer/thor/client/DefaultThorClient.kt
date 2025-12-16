@@ -33,11 +33,27 @@ open class DefaultThorClient(
     private val logger = LoggerFactory.getLogger(DefaultThorClient::class.java)
     private val objectMapper = JsonUtils.mapper
 
-    override suspend fun getBlock(revision: BlockRevision, expanded: Boolean?): Block =
+    override suspend fun getBlock(revision: BlockRevision): Block =
+        fetchBlock(revision = revision, expanded = true, targetClass = Block::class.java)
+
+    override suspend fun getBlockUnexpanded(revision: BlockRevision): BlockUnexpanded =
+        fetchBlock(revision = revision, expanded = false, targetClass = BlockUnexpanded::class.java)
+
+    override suspend fun waitForBlock(revision: BlockRevision): Block =
+        waitForBlockInternal(revision) { getBlock(revision) }
+
+    override suspend fun waitForBlockUnexpanded(revision: BlockRevision): BlockUnexpanded =
+        waitForBlockInternal(revision) { getBlockUnexpanded(revision) }
+
+    private suspend fun <T> fetchBlock(
+        revision: BlockRevision,
+        expanded: Boolean,
+        targetClass: Class<T>,
+    ): T =
         withContext(Dispatchers.IO) {
-            val expandedValue = expanded ?: true
+            val params = listOf("expanded" to expanded)
             val (_, response, result) =
-                Fuel.get("$baseUrl/blocks/${revision.value}?expanded=$expandedValue")
+                Fuel.get(path = "$baseUrl/blocks/${revision.value}", parameters = params)
                     .appendHeader(*headers)
                     .response()
 
@@ -55,17 +71,20 @@ open class DefaultThorClient(
                 throw BlockNotFoundException("Block ${revision.value} not found")
             }
 
-            return@withContext objectMapper.readValue(responseBody, Block::class.java)
+            return@withContext objectMapper.readValue(responseBody, targetClass)
         }
 
-    override suspend fun waitForBlock(revision: BlockRevision, expanded: Boolean?): Block {
+    private suspend fun <T> waitForBlockInternal(
+        revision: BlockRevision,
+        fetch: suspend () -> T,
+    ): T {
         val startTime = System.currentTimeMillis()
         var delayMs = TIP_POLL_INITIAL_DELAY_MS
         var attempts = 0
         while (true) {
             attempts++
             try {
-                val block = getBlock(revision, expanded)
+                val block = fetch()
                 val totalTime = System.currentTimeMillis() - startTime
                 if (attempts > 1) {
                     logger.info(
@@ -105,15 +124,6 @@ open class DefaultThorClient(
             }
         }
     }
-
-    override suspend fun getBestBlock(expanded: Boolean?): Block =
-        getBlock(BlockRevision.Keyword.BEST, expanded)
-
-    override suspend fun getFinalizedBlock(expanded: Boolean?): Block =
-        getBlock(BlockRevision.Keyword.FINALIZED, expanded)
-
-    override suspend fun getJustifiedBlock(expanded: Boolean?): Block =
-        getBlock(BlockRevision.Keyword.JUSTIFIED, expanded)
 
     override suspend fun getEventLogs(req: EventLogsRequest): List<EventLog> =
         withContext(Dispatchers.IO) {
@@ -157,13 +167,14 @@ open class DefaultThorClient(
 
     override suspend fun inspectClauses(
         clauses: List<Clause>,
-        blockID: String
+        revision: BlockRevision?
     ): List<InspectionResult> {
         return withContext(Dispatchers.IO) {
             val req = InspectionRequest(clauses)
             val body = JsonUtils.mapper.writeValueAsBytes(req)
+            val params = if (revision != null) listOf("revision" to revision.value) else emptyList()
             val (_, _, result) =
-                Fuel.post("$baseUrl/accounts/*?revision=$blockID")
+                Fuel.post(path = "$baseUrl/accounts/*", parameters = params)
                     .body(body)
                     .appendHeader(*headers)
                     .response()
@@ -177,6 +188,30 @@ open class DefaultThorClient(
             return@withContext objectMapper.readValue(
                 responseBody,
                 object : TypeReference<List<InspectionResult>>() {}
+            )
+        }
+    }
+
+    override suspend fun getAccountState(
+        address: String,
+        revision: BlockRevision?
+    ): ExecuteAccountResponse {
+        return withContext(Dispatchers.IO) {
+            val params = if (revision != null) listOf("revision" to revision.value) else emptyList()
+            val (_, _, result) =
+                Fuel.get(path = "$baseUrl/accounts/$address", parameters = params)
+                    .appendHeader(*headers)
+                    .response()
+
+            val responseBody =
+                when (result) {
+                    is Result.Success -> result.get().toString(Charsets.UTF_8)
+                    is Result.Failure -> throw result.error
+                }
+
+            return@withContext objectMapper.readValue(
+                responseBody,
+                ExecuteAccountResponse::class.java
             )
         }
     }

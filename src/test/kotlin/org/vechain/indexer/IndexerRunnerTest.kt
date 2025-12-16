@@ -20,6 +20,7 @@ import org.vechain.indexer.BlockTestBuilder.Companion.buildBlock
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.BlockRevision
 import strikt.api.expectThat
 import strikt.assertions.isEqualTo
 import strikt.assertions.isGreaterThan
@@ -194,7 +195,7 @@ internal class IndexerRunnerTest {
             runner.runAllIndexers(emptyList(), thorClient, 1)
 
             // No interactions with thor client
-            coVerify(exactly = 0) { thorClient.waitForBlock(any<Long>()) }
+            coVerify(exactly = 0) { thorClient.waitForBlock(any<BlockRevision>()) }
         }
 
         @Test
@@ -206,8 +207,8 @@ internal class IndexerRunnerTest {
             val indexer1 = createMockIndexer("indexer1", currentBlock = 50L)
             val indexer2 = createMockIndexer("indexer2", currentBlock = 75L)
 
-            coEvery { thorClient.waitForBlock(50L) } returns block50
-            coEvery { thorClient.waitForBlock(51L) } returns block51
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(50L)) } returns block50
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(51L)) } returns block51
 
             val runner = IndexerRunner()
             val job = launch { runner.runAllIndexers(listOf(indexer1, indexer2), thorClient, 1) }
@@ -216,7 +217,7 @@ internal class IndexerRunnerTest {
             job.cancelAndJoin()
 
             // Should start fetching from block 50 (the minimum)
-            coVerify(atLeast = 1) { thorClient.waitForBlock(50L) }
+            coVerify(atLeast = 1) { thorClient.waitForBlock(BlockRevision.Number(50L)) }
         }
 
         @Test
@@ -256,11 +257,11 @@ internal class IndexerRunnerTest {
                         }
                 }
 
-            coEvery { thorClient.waitForBlock(0L) } returns block0
-            coEvery { thorClient.waitForBlock(any<Long>()) } coAnswers
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
                     delay(5000)
-                    buildBlock(num = firstArg<Long>())
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
                 }
 
             val runner = IndexerRunner()
@@ -283,7 +284,7 @@ internal class IndexerRunnerTest {
             // Indexer already at block 10, should skip block 5
             val indexer = createMockIndexer("indexer1", currentBlock = 10L)
 
-            coEvery { thorClient.waitForBlock(10L) } coAnswers
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(10L)) } coAnswers
                 {
                     delay(1000) // Delay to prevent infinite loop
                     buildBlock(num = 10L)
@@ -307,7 +308,7 @@ internal class IndexerRunnerTest {
             // Indexer at block 5 but receives block 10
             val indexer = createMockIndexer("indexer1", currentBlock = 5L)
 
-            coEvery { thorClient.waitForBlock(5L) } returns block10
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(5L)) } returns block10
 
             val runner = IndexerRunner()
 
@@ -321,7 +322,7 @@ internal class IndexerRunnerTest {
             val thorClient = mockk<ThorClient>()
             var attempts = 0
 
-            coEvery { thorClient.waitForBlock(0L) } coAnswers
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } coAnswers
                 {
                     attempts++
                     if (attempts < 3) {
@@ -366,7 +367,7 @@ internal class IndexerRunnerTest {
                         }
                 }
 
-            coEvery { thorClient.waitForBlock(any<Long>()) } returns block0
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
             val job = launch { runner.runAllIndexers(listOf(indexer), thorClient, 1) }
@@ -383,9 +384,9 @@ internal class IndexerRunnerTest {
             val blocks = (0L..10L).map { buildBlock(num = it) }
 
             val fetchedBlocks = mutableListOf<Long>()
-            coEvery { thorClient.waitForBlock(any<Long>()) } coAnswers
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
-                    val blockNum = firstArg<Long>()
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
                     fetchedBlocks.add(blockNum)
                     delay(50) // Slow down to test buffering
                     blocks[blockNum.toInt()]
@@ -444,9 +445,9 @@ internal class IndexerRunnerTest {
                         }
                 }
 
-            coEvery { thorClient.waitForBlock(0L) } returns block0
-            coEvery { thorClient.waitForBlock(1L) } returns block1
-            coEvery { thorClient.waitForBlock(2L) } coAnswers
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(1L)) } returns block1
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(2L)) } coAnswers
                 {
                     delay(5000) // Prevent further fetching
                     buildBlock(num = 2L)
@@ -510,11 +511,11 @@ internal class IndexerRunnerTest {
                         }
                 }
 
-            coEvery { thorClient.waitForBlock(0L) } returns block0
-            coEvery { thorClient.waitForBlock(any<Long>()) } coAnswers
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
                     delay(5000)
-                    buildBlock(num = firstArg<Long>())
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
                 }
 
             val runner = IndexerRunner()
@@ -554,7 +555,7 @@ internal class IndexerRunnerTest {
                     synchronized(processOrder) { processOrder.add("indexer2") }
                 }
 
-            coEvery { thorClient.waitForBlock(any<Long>()) } returns block0
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
             val job = launch { runner.runAllIndexers(listOf(indexer1, indexer2), thorClient, 1) }
@@ -597,7 +598,7 @@ internal class IndexerRunnerTest {
                         }
                 }
 
-            coEvery { thorClient.waitForBlock(any<Long>()) } returns block0
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
             val job = launch { runner.run(listOf(indexer), 1, thorClient) }
@@ -638,11 +639,11 @@ internal class IndexerRunnerTest {
                     coEvery { processBlock(any()) } coAnswers { currentBlockNum++ }
                 }
 
-            coEvery { thorClient.waitForBlock(0L) } returns block0
-            coEvery { thorClient.waitForBlock(any<Long>()) } coAnswers
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
                     delay(5000)
-                    buildBlock(num = firstArg<Long>())
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
                 }
 
             val job =
@@ -686,7 +687,7 @@ internal class IndexerRunnerTest {
                         }
                 }
 
-            coEvery { thorClient.waitForBlock(any<Long>()) } returns block0
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
 
@@ -735,7 +736,7 @@ internal class IndexerRunnerTest {
                         }
                 }
 
-            coEvery { thorClient.waitForBlock(any<Long>()) } returns block0
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
             val job = launch { runner.run(listOf(indexer), 1, thorClient) }
@@ -790,7 +791,7 @@ internal class IndexerRunnerTest {
                     coEvery { processBlock(any()) } just Runs
                 }
 
-            coEvery { thorClient.waitForBlock(any<Long>()) } returns block0
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
             val job = launch { runner.run(listOf(indexer1, indexer2), 1, thorClient) }
@@ -815,7 +816,7 @@ internal class IndexerRunnerTest {
             // Indexer already fully synced
             val indexer = createMockIndexer("indexer1", currentBlock = 100L)
 
-            coEvery { thorClient.waitForBlock(100L) } returns block100
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(100L)) } returns block100
 
             val runner = IndexerRunner()
             val job = launch { runner.runAllIndexers(listOf(indexer), thorClient, 1) }
@@ -835,12 +836,12 @@ internal class IndexerRunnerTest {
 
             val indexer = createMockIndexer("indexer1", currentBlock = 0L)
 
-            coEvery { thorClient.waitForBlock(0L) } returns block0
-            coEvery { thorClient.waitForBlock(1L) } returns block1
-            coEvery { thorClient.waitForBlock(any<Long>()) } coAnswers
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(1L)) } returns block1
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
                     delay(5000) // Block future fetches to prevent OOM
-                    buildBlock(num = firstArg<Long>())
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
                 }
 
             val runner = IndexerRunner()

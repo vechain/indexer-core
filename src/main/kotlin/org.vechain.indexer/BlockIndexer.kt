@@ -11,6 +11,7 @@ import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
+import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.utils.IndexerUtils.ensureStatus
 
@@ -126,11 +127,12 @@ open class BlockIndexer(
 
     protected suspend fun buildIndexingResult(block: Block): IndexingResult {
         val callResults =
-            inspectionClauses?.let { thorClient.inspectClauses(it, block.id) } ?: emptyList()
+            inspectionClauses?.let { thorClient.inspectClauses(it, BlockRevision.Id(block.id)) }
+                ?: emptyList()
         return buildIndexingResultWithCallResults(block, callResults)
     }
 
-    protected suspend fun buildIndexingResultWithCallResults(
+    protected fun buildIndexingResultWithCallResults(
         block: Block,
         callResults: List<org.vechain.indexer.thor.model.InspectionResult>
     ): IndexingResult {
@@ -282,7 +284,7 @@ open class BlockIndexer(
 
     override fun rollback(blockNumber: Long) = processor.rollback(blockNumber)
 
-    override fun process(entry: IndexingResult) = processor.process(entry)
+    override suspend fun process(entry: IndexingResult) = processor.process(entry)
 
     private fun logProcessingBlock() {
         if (shouldLogDebug()) {

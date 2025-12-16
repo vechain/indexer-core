@@ -17,6 +17,7 @@ import org.vechain.indexer.fixtures.IndexedEventFixture
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
+import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.thor.model.InspectionResult
 import strikt.api.expect
@@ -262,11 +263,14 @@ internal class BlockIndexerTest {
                         dependsOn = null,
                     )
 
-                coEvery { thorClient.inspectClauses(clauses, block.id) } returns emptyList()
+                coEvery { thorClient.inspectClauses(clauses, BlockRevision.Id(block.id)) } returns
+                    emptyList()
 
                 indexer.publicBuildIndexingResult(block)
 
-                coVerify(exactly = 1) { thorClient.inspectClauses(clauses, block.id) }
+                coVerify(exactly = 1) {
+                    thorClient.inspectClauses(clauses, BlockRevision.Id(block.id))
+                }
             }
         }
 
@@ -307,6 +311,7 @@ internal class BlockIndexerTest {
                             data = "0xdata",
                             events = emptyList(),
                             transfers = emptyList(),
+                            gasUsed = 0,
                             reverted = false,
                             vmError = null,
                         )
@@ -332,7 +337,8 @@ internal class BlockIndexerTest {
                         dependsOn = null,
                     )
 
-                coEvery { thorClient.inspectClauses(clauses, block.id) } returns callResults
+                coEvery { thorClient.inspectClauses(clauses, BlockRevision.Id(block.id)) } returns
+                    callResults
 
                 val result = indexer.publicBuildIndexingResult(block)
 
@@ -383,6 +389,7 @@ internal class BlockIndexerTest {
                             data = "0xdata",
                             events = emptyList(),
                             transfers = emptyList(),
+                            gasUsed = 0,
                             reverted = false,
                             vmError = null,
                         )
@@ -409,12 +416,15 @@ internal class BlockIndexerTest {
                         dependsOn = null,
                     )
 
-                coEvery { thorClient.inspectClauses(clauses, block.id) } returns callResults
+                coEvery { thorClient.inspectClauses(clauses, BlockRevision.Id(block.id)) } returns
+                    callResults
                 coEvery { eventProcessor.processEvents(block) } returns indexedEvents
 
                 val result = indexer.publicBuildIndexingResult(block)
 
-                coVerify(exactly = 1) { thorClient.inspectClauses(clauses, block.id) }
+                coVerify(exactly = 1) {
+                    thorClient.inspectClauses(clauses, BlockRevision.Id(block.id))
+                }
                 coVerify(exactly = 1) { eventProcessor.processEvents(block) }
 
                 expect { that(result).isEqualTo(expectedResult) }
@@ -593,11 +603,11 @@ internal class BlockIndexerTest {
             indexer.publicSetCurrentBlockNumber(block.number)
             val previousTime = indexer.timeLastProcessed
 
-            every { processor.process(any()) } just Runs
+            coEvery { processor.process(any()) } just Runs
 
             runBlocking { indexer.processBlock(block) }
 
-            verify(exactly = 1) {
+            coVerify(exactly = 1) {
                 processor.process(
                     match {
                         it is IndexingResult.Normal &&
