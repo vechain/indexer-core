@@ -33,15 +33,16 @@ open class DefaultThorClient(
     private val logger = LoggerFactory.getLogger(DefaultThorClient::class.java)
     private val objectMapper = JsonUtils.mapper
 
-    override suspend fun getBlock(blockNumber: Long): Block =
+    override suspend fun getBlock(revision: BlockRevision, expanded: Boolean?): Block =
         withContext(Dispatchers.IO) {
+            val expandedValue = expanded ?: true
             val (_, response, result) =
-                Fuel.get("$baseUrl/blocks/$blockNumber?expanded=true")
+                Fuel.get("$baseUrl/blocks/${revision.value}?expanded=$expandedValue")
                     .appendHeader(*headers)
                     .response()
 
             if (response.statusCode == HTTP_TOO_MANY_REQUESTS) {
-                throw RateLimitException("Rate limited fetching block $blockNumber")
+                throw RateLimitException("Rate limited fetching block ${revision.value}")
             }
 
             val responseBody =
@@ -51,25 +52,25 @@ open class DefaultThorClient(
                 }
 
             if (responseBody.isEmpty() || responseBody.trim() == "null") {
-                throw BlockNotFoundException("Block $blockNumber not found")
+                throw BlockNotFoundException("Block ${revision.value} not found")
             }
 
             return@withContext objectMapper.readValue(responseBody, Block::class.java)
         }
 
-    override suspend fun waitForBlock(blockNumber: Long): Block {
+    override suspend fun waitForBlock(revision: BlockRevision, expanded: Boolean?): Block {
         val startTime = System.currentTimeMillis()
         var delayMs = TIP_POLL_INITIAL_DELAY_MS
         var attempts = 0
         while (true) {
             attempts++
             try {
-                val block = getBlock(blockNumber)
+                val block = getBlock(revision, expanded)
                 val totalTime = System.currentTimeMillis() - startTime
                 if (attempts > 1) {
                     logger.info(
                         "Block {} fetched after {} attempts, total wait: {}ms",
-                        blockNumber,
+                        revision.value,
                         attempts,
                         totalTime
                     )
@@ -78,7 +79,7 @@ open class DefaultThorClient(
             } catch (e: BlockNotFoundException) {
                 logger.info(
                     "Block {} not yet available, waiting {}ms (attempt {})",
-                    blockNumber,
+                    revision.value,
                     delayMs,
                     attempts
                 )
@@ -87,7 +88,7 @@ open class DefaultThorClient(
             } catch (e: RateLimitException) {
                 logger.warn(
                     "Rate limited on block {}, backing off {}ms (attempt {})",
-                    blockNumber,
+                    revision.value,
                     RATE_LIMIT_DELAY_MS,
                     attempts
                 )
@@ -95,7 +96,7 @@ open class DefaultThorClient(
             } catch (e: Exception) {
                 logger.warn(
                     "Error fetching block {} (attempt {}), retrying in {}ms...",
-                    blockNumber,
+                    revision.value,
                     attempts,
                     TIP_POLL_ERROR_DELAY_MS,
                     e
@@ -105,35 +106,14 @@ open class DefaultThorClient(
         }
     }
 
-    override suspend fun getBestBlock(): Block =
-        withContext(Dispatchers.IO) {
-            val (_, _, result) =
-                Fuel.get("$baseUrl/blocks/best?expanded=true").appendHeader(*headers).response()
+    override suspend fun getBestBlock(expanded: Boolean?): Block =
+        getBlock(BlockRevision.Keyword.BEST, expanded)
 
-            val responseBody =
-                when (result) {
-                    is Result.Success -> result.get().toString(Charsets.UTF_8)
-                    is Result.Failure -> throw result.error
-                }
+    override suspend fun getFinalizedBlock(expanded: Boolean?): Block =
+        getBlock(BlockRevision.Keyword.FINALIZED, expanded)
 
-            return@withContext objectMapper.readValue(responseBody, Block::class.java)
-        }
-
-    override suspend fun getFinalizedBlock(): Block =
-        withContext(Dispatchers.IO) {
-            val (_, _, result) =
-                Fuel.get("$baseUrl/blocks/finalized?expanded=true")
-                    .appendHeader(*headers)
-                    .response()
-
-            val responseBody =
-                when (result) {
-                    is Result.Success -> result.get().toString(Charsets.UTF_8)
-                    is Result.Failure -> throw result.error
-                }
-
-            return@withContext objectMapper.readValue(responseBody, Block::class.java)
-        }
+    override suspend fun getJustifiedBlock(expanded: Boolean?): Block =
+        getBlock(BlockRevision.Keyword.JUSTIFIED, expanded)
 
     override suspend fun getEventLogs(req: EventLogsRequest): List<EventLog> =
         withContext(Dispatchers.IO) {

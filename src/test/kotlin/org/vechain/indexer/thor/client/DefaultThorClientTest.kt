@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.thor.model.EventCriteria
 import org.vechain.indexer.thor.model.EventLog
@@ -47,7 +48,7 @@ import strikt.assertions.isEqualTo
 open class DefaultThorClientTest {
 
     private val baseUrl = "https://thor.node"
-    private lateinit var client: DefaultThorClient
+    private lateinit var client: ThorClient
 
     @BeforeEach
     fun setUp() {
@@ -67,7 +68,7 @@ open class DefaultThorClientTest {
         val endpoint = "${baseUrl}/blocks/${block.number}?expanded=true"
         stubFuelGet(endpoint, HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)))
 
-        val result = client.getBlock(block.number)
+        val result = client.getBlock(BlockRevision.Number(block.number))
 
         expectThat(result).isEqualTo(block)
         verify(exactly = 1) { Fuel.get(endpoint) }
@@ -78,7 +79,8 @@ open class DefaultThorClientTest {
         val endpoint = "${baseUrl}/blocks/42?expanded=true"
         stubFuelGet(endpoint, HttpResult.Success(ByteArray(0)))
 
-        val exception = assertFailsWith<BlockNotFoundException> { client.getBlock(42) }
+        val exception =
+            assertFailsWith<BlockNotFoundException> { client.getBlock(BlockRevision.Number(42)) }
 
         expectThat(exception.message.orEmpty()).containsIgnoringCase("not found")
         verify(exactly = 1) { Fuel.get(endpoint) }
@@ -89,7 +91,7 @@ open class DefaultThorClientTest {
         val endpoint = "${baseUrl}/blocks/9?expanded=true"
         stubFuelGet(endpoint, HttpResult.Failure(IllegalStateException("boom")))
 
-        val exception = assertFailsWith<FuelError> { client.getBlock(9) }
+        val exception = assertFailsWith<FuelError> { client.getBlock(BlockRevision.Number(9)) }
 
         expectThat(exception.message.orEmpty()).containsIgnoringCase("boom")
     }

@@ -11,13 +11,21 @@ import org.vechain.indexer.thor.model.*
  * @see <a href="https://docs.vechain.org/thor/thorest-api">Thorest API</a>
  */
 interface ThorClient {
-    suspend fun getBlock(blockNumber: Long): Block
+    suspend fun getBlock(revision: BlockRevision, expanded: Boolean? = null): Block
 
-    suspend fun waitForBlock(blockNumber: Long): Block
+    suspend fun getBlock(blockNumber: Long, expanded: Boolean? = null): Block =
+        getBlock(BlockRevision.Number(blockNumber), expanded)
 
-    suspend fun getBestBlock(): Block
+    suspend fun waitForBlock(revision: BlockRevision, expanded: Boolean? = null): Block
 
-    suspend fun getFinalizedBlock(): Block
+    suspend fun waitForBlock(blockNumber: Long, expanded: Boolean? = null): Block =
+        waitForBlock(BlockRevision.Number(blockNumber), expanded)
+
+    suspend fun getBestBlock(expanded: Boolean? = null): Block
+
+    suspend fun getFinalizedBlock(expanded: Boolean? = null): Block
+
+    suspend fun getJustifiedBlock(expanded: Boolean? = null): Block
 
     suspend fun getEventLogs(req: EventLogsRequest): List<EventLog>
 
