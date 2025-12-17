@@ -55,7 +55,7 @@ open class LogsIndexer(
         setStatus(Status.FAST_SYNCING)
         logger.info("Starting fast sync from block ${getCurrentBlockNumber()}")
 
-        val finalizedBlock = thorClient.getFinalizedBlock()
+        val finalizedBlock = thorClient.getBlock(BlockRevision.Keyword.FINALIZED)
 
         if (getCurrentBlockNumber() < finalizedBlock.number) {
             sync(BlockIdentifier(finalizedBlock.number, finalizedBlock.id))

@@ -3,6 +3,7 @@ package org.vechain.indexer
 import io.mockk.*
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
+import kotlin.text.toString
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -163,7 +164,7 @@ internal class LogsIndexerTest {
         @Test
         fun `should sync to finalized block when current block is behind`() = runBlocking {
             val finalizedBlock = buildBlock(num = 100L)
-            coEvery { thorClient.getFinalizedBlock() } returns finalizedBlock
+            coEvery { thorClient.getBlock(BlockRevision.Keyword.FINALIZED) } returns finalizedBlock
 
             indexer.publicSetCurrentBlockNumber(50L)
             indexer.fastSync()
@@ -171,7 +172,12 @@ internal class LogsIndexerTest {
             expect {
                 that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
                 that(indexer.getPreviousBlock())
-                    .isEqualTo(BlockIdentifier(number = 100L, id = "0x100"))
+                    .isEqualTo(
+                        BlockIdentifier(
+                            number = 100L,
+                            id = "0x${100.toString(16).padStart(64, '0')}"
+                        )
+                    )
                 that(indexer.getCurrentBlockNumber()).isEqualTo(100L)
             }
         }
@@ -179,7 +185,7 @@ internal class LogsIndexerTest {
         @Test
         fun `should skip sync when current block is ahead of finalized block`() = runBlocking {
             val finalizedBlock = buildBlock(num = 100L)
-            coEvery { thorClient.getFinalizedBlock() } returns finalizedBlock
+            coEvery { thorClient.getBlock(BlockRevision.Keyword.FINALIZED) } returns finalizedBlock
 
             indexer.publicSetCurrentBlockNumber(150L)
             indexer.fastSync()
@@ -194,7 +200,7 @@ internal class LogsIndexerTest {
         @Test
         fun `if sync skipped should retain the existing value for previousBlock`() = runBlocking {
             val finalizedBlock = buildBlock(num = 100L)
-            coEvery { thorClient.getFinalizedBlock() } returns finalizedBlock
+            coEvery { thorClient.getBlock(BlockRevision.Keyword.FINALIZED) } returns finalizedBlock
 
             indexer.publicSetCurrentBlockNumber(150L)
             indexer.publicSetPreviousBlock(BlockIdentifier(number = 75L, id = "0x75"))
@@ -211,7 +217,7 @@ internal class LogsIndexerTest {
         @Test
         fun `should skip sync when current block equals finalized block`() = runBlocking {
             val finalizedBlock = buildBlock(num = 100L)
-            coEvery { thorClient.getFinalizedBlock() } returns finalizedBlock
+            coEvery { thorClient.getBlock(BlockRevision.Keyword.FINALIZED) } returns finalizedBlock
 
             indexer.publicSetCurrentBlockNumber(100L)
             indexer.fastSync()
@@ -267,7 +273,7 @@ internal class LogsIndexerTest {
             every {
                 eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
             } returns indexedEvents
-            every { processor.process(any()) } just Runs
+            coEvery { processor.process(any()) } just Runs
 
             indexer.publicSetCurrentBlockNumber(0L)
             indexer.publicSync(BlockIdentifier(10L, "0x10"))
@@ -277,7 +283,7 @@ internal class LogsIndexerTest {
             verify(exactly = 1) {
                 eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
             }
-            verify(exactly = 1) {
+            coVerify(exactly = 1) {
                 processor.process(match { it is IndexingResult.EventsOnly && it.endBlock == 9L })
             }
             expect { that(indexer.getCurrentBlockNumber()).isEqualTo(10L) }
@@ -361,7 +367,7 @@ internal class LogsIndexerTest {
                 indexer.publicSetCurrentBlockNumber(0L)
                 indexer.publicSync(BlockIdentifier(10L, "0x10"))
 
-                verify(exactly = 0) { processor.process(any()) }
+                coVerify(exactly = 0) { processor.process(any()) }
                 coVerify(exactly = 0) { eventProcessor.processEvents(any(), any()) }
                 expect { that(indexer.getCurrentBlockNumber()).isEqualTo(10L) }
             }
@@ -431,12 +437,12 @@ internal class LogsIndexerTest {
             every {
                 eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
             } returns indexedEvents
-            every { processor.process(any()) } just Runs
+            coEvery { processor.process(any()) } just Runs
 
             indexer.publicSetCurrentBlockNumber(0L)
             indexer.publicSync(BlockIdentifier(10L, "0x10"))
 
-            verify(exactly = 1) {
+            coVerify(exactly = 1) {
                 processor.process(
                     match {
                         it is IndexingResult.EventsOnly &&
@@ -462,7 +468,7 @@ internal class LogsIndexerTest {
             indexer.publicSetCurrentBlockNumber(0L)
             indexer.publicSync(BlockIdentifier(10L, "0x10"))
 
-            verify(exactly = 0) { processor.process(any()) }
+            coVerify(exactly = 0) { processor.process(any()) }
         }
 
         @Test
@@ -663,14 +669,14 @@ internal class LogsIndexerTest {
             every {
                 eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
             } returns indexedEvents
-            every { processor.process(any()) } just Runs
+            coEvery { processor.process(any()) } just Runs
 
             indexer.publicProcessAndIndexEvents(eventLogs, transferLogs, 10L)
 
             verify(exactly = 1) {
                 eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
             }
-            verify(exactly = 1) {
+            coVerify(exactly = 1) {
                 processor.process(match { it is IndexingResult.EventsOnly && it.endBlock == 10L })
             }
         }
@@ -689,7 +695,7 @@ internal class LogsIndexerTest {
             verify(exactly = 1) {
                 eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
             }
-            verify(exactly = 0) { processor.process(any()) }
+            coVerify(exactly = 0) { processor.process(any()) }
         }
 
         @Test

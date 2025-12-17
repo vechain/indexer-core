@@ -22,6 +22,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.exception.BlockNotFoundException
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.BlockRevision
+import org.vechain.indexer.thor.model.BlockUnexpanded
 import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.thor.model.EventCriteria
 import org.vechain.indexer.thor.model.EventLog
@@ -47,7 +49,7 @@ import strikt.assertions.isEqualTo
 open class DefaultThorClientTest {
 
     private val baseUrl = "https://thor.node"
-    private lateinit var client: DefaultThorClient
+    private lateinit var client: ThorClient
 
     @BeforeEach
     fun setUp() {
@@ -64,47 +66,84 @@ open class DefaultThorClientTest {
     @Test
     fun `getBlock returns parsed block on success`() = runTest {
         val block = sampleBlock(18)
-        val endpoint = "${baseUrl}/blocks/${block.number}?expanded=true"
-        stubFuelGet(endpoint, HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)))
+        val endpoint = "${baseUrl}/blocks/${block.number}"
+        val params = listOf("expanded" to true)
+        stubFuelGet(endpoint, params, HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)))
 
-        val result = client.getBlock(block.number)
+        val result = client.getBlock(BlockRevision.Number(block.number))
 
         expectThat(result).isEqualTo(block)
-        verify(exactly = 1) { Fuel.get(endpoint) }
+        verify(exactly = 1) { Fuel.get(endpoint, params) }
     }
 
     @Test
     fun `getBlock throws BlockNotFoundException when response body is empty`() = runTest {
-        val endpoint = "${baseUrl}/blocks/42?expanded=true"
-        stubFuelGet(endpoint, HttpResult.Success(ByteArray(0)))
+        val endpoint = "${baseUrl}/blocks/42"
+        val params = listOf("expanded" to true)
+        stubFuelGet(endpoint, params, HttpResult.Success(ByteArray(0)))
 
-        val exception = assertFailsWith<BlockNotFoundException> { client.getBlock(42) }
+        val exception =
+            assertFailsWith<BlockNotFoundException> { client.getBlock(BlockRevision.Number(42)) }
 
         expectThat(exception.message.orEmpty()).containsIgnoringCase("not found")
-        verify(exactly = 1) { Fuel.get(endpoint) }
+        verify(exactly = 1) { Fuel.get(endpoint, params) }
     }
 
     @Test
     fun `getBlock propagates failure result as exception`() = runTest {
-        val endpoint = "${baseUrl}/blocks/9?expanded=true"
-        stubFuelGet(endpoint, HttpResult.Failure(IllegalStateException("boom")))
+        val endpoint = "${baseUrl}/blocks/9"
+        val params = listOf("expanded" to true)
+        stubFuelGet(endpoint, params, HttpResult.Failure(IllegalStateException("boom")))
 
-        val exception = assertFailsWith<FuelError> { client.getBlock(9) }
+        val exception = assertFailsWith<FuelError> { client.getBlock(BlockRevision.Number(9)) }
 
         expectThat(exception.message.orEmpty()).containsIgnoringCase("boom")
     }
 
     @Test
-    fun `waitForBlock retries until block becomes available`() = runTest {
-        val block = sampleBlock(101)
-        val endpoint = "${baseUrl}/blocks/${block.number}?expanded=true"
+    fun `getBlockUnexpanded returns parsed block on success`() = runTest {
+        val block = sampleBlockUnexpanded(18)
+        val endpoint = "${baseUrl}/blocks/${block.number}"
+        val params = listOf("expanded" to false)
+        stubFuelGet(endpoint, params, HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)))
+
+        val result = client.getBlockUnexpanded(BlockRevision.Number(block.number))
+
+        expectThat(result).isEqualTo(block)
+        verify(exactly = 1) { Fuel.get(endpoint, params) }
+    }
+
+    @Test
+    fun `waitForBlockUnexpanded retries until block becomes available`() = runTest {
+        val block = sampleBlockUnexpanded(101)
+        val endpoint = "${baseUrl}/blocks/${block.number}"
+        val params = listOf("expanded" to false)
         stubFuelGet(
             endpoint,
+            params,
             HttpResult.Success(ByteArray(0)),
             HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)),
         )
 
-        val result = client.waitForBlock(block.number)
+        val result = client.waitForBlockUnexpanded(BlockRevision.Number(block.number))
+
+        expectThat(result).isEqualTo(block)
+        expectThat(currentTime).isEqualTo(4_000L)
+    }
+
+    @Test
+    fun `waitForBlock retries until block becomes available`() = runTest {
+        val block = sampleBlock(101)
+        val endpoint = "${baseUrl}/blocks/${block.number}"
+        val params = listOf("expanded" to true)
+        stubFuelGet(
+            endpoint,
+            params,
+            HttpResult.Success(ByteArray(0)),
+            HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)),
+        )
+
+        val result = client.waitForBlock(BlockRevision.Number(block.number))
 
         expectThat(result).isEqualTo(block)
         expectThat(currentTime).isEqualTo(4_000L)
@@ -113,13 +152,14 @@ open class DefaultThorClientTest {
     @Test
     fun `waitForBlock caps retry delay at minimum`() = runTest {
         val block = sampleBlock(7)
-        val endpoint = "${baseUrl}/blocks/${block.number}?expanded=true"
+        val endpoint = "${baseUrl}/blocks/${block.number}"
+        val params = listOf("expanded" to true)
         val retryResponses =
             List(8) { HttpResult.Success(ByteArray(0)) } +
                 HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block))
-        stubFuelGet(endpoint, *retryResponses.toTypedArray())
+        stubFuelGet(endpoint, params, *retryResponses.toTypedArray())
 
-        val result = client.waitForBlock(block.number)
+        val result = client.waitForBlock(BlockRevision.Number(block.number))
 
         expectThat(result).isEqualTo(block)
         expectThat(currentTime).isEqualTo(18_500L)
@@ -128,38 +168,42 @@ open class DefaultThorClientTest {
     @Test
     fun `waitForBlock uses fixed delay for unexpected errors`() = runTest {
         val block = sampleBlock(55)
-        val endpoint = "${baseUrl}/blocks/${block.number}?expanded=true"
+        val endpoint = "${baseUrl}/blocks/${block.number}"
+        val params = listOf("expanded" to true)
         stubFuelGet(
             endpoint,
+            params,
             HttpResult.Failure(IllegalStateException("boom")),
             HttpResult.Failure(RuntimeException("still boom")),
             HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)),
         )
 
-        val result = client.waitForBlock(block.number)
+        val result = client.waitForBlock(BlockRevision.Number(block.number))
 
         expectThat(result).isEqualTo(block)
         expectThat(currentTime).isEqualTo(20_000L)
-        verify(exactly = 3) { Fuel.get(endpoint) }
+        verify(exactly = 3) { Fuel.get(endpoint, params) }
     }
 
     @Test
     fun `getBestBlock returns parsed block`() = runTest {
         val block = sampleBlock(77)
-        val endpoint = "${baseUrl}/blocks/best?expanded=true"
-        stubFuelGet(endpoint, HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)))
+        val endpoint = "${baseUrl}/blocks/best"
+        val params = listOf("expanded" to true)
+        stubFuelGet(endpoint, params, HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)))
 
-        val result = client.getBestBlock()
+        val result = client.getBlock(BlockRevision.Keyword.BEST)
 
         expectThat(result).isEqualTo(block)
     }
 
     @Test
     fun `getBestBlock propagates failure`() = runTest {
-        val endpoint = "${baseUrl}/blocks/best?expanded=true"
-        stubFuelGet(endpoint, HttpResult.Failure(IllegalArgumentException("bad")))
+        val endpoint = "${baseUrl}/blocks/best"
+        val params = listOf("expanded" to true)
+        stubFuelGet(endpoint, params, HttpResult.Failure(IllegalArgumentException("bad")))
 
-        val exception = assertFailsWith<FuelError> { client.getBestBlock() }
+        val exception = assertFailsWith<FuelError> { client.getBlock(BlockRevision.Keyword.BEST) }
 
         expectThat(exception.message.orEmpty()).containsIgnoringCase("bad")
     }
@@ -167,20 +211,23 @@ open class DefaultThorClientTest {
     @Test
     fun `getFinalizedBlock returns parsed block`() = runTest {
         val block = sampleBlock(88)
-        val endpoint = "${baseUrl}/blocks/finalized?expanded=true"
-        stubFuelGet(endpoint, HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)))
+        val endpoint = "${baseUrl}/blocks/finalized"
+        val params = listOf("expanded" to true)
+        stubFuelGet(endpoint, params, HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)))
 
-        val result = client.getFinalizedBlock()
+        val result = client.getBlock(BlockRevision.Keyword.FINALIZED)
 
         expectThat(result).isEqualTo(block)
     }
 
     @Test
     fun `getFinalizedBlock propagates failure`() = runTest {
-        val endpoint = "${baseUrl}/blocks/finalized?expanded=true"
-        stubFuelGet(endpoint, HttpResult.Failure(RuntimeException("oops")))
+        val endpoint = "${baseUrl}/blocks/finalized"
+        val params = listOf("expanded" to true)
+        stubFuelGet(endpoint, params, HttpResult.Failure(RuntimeException("oops")))
 
-        val exception = assertFailsWith<FuelError> { client.getFinalizedBlock() }
+        val exception =
+            assertFailsWith<FuelError> { client.getBlock(BlockRevision.Keyword.FINALIZED) }
 
         expectThat(exception.message.orEmpty()).containsIgnoringCase("oops")
     }
@@ -215,6 +262,7 @@ open class DefaultThorClientTest {
         val bodySlot = slot<ByteArray>()
         stubFuelPost(
             endpoint,
+            null,
             HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(logs)),
             bodySlot,
         )
@@ -229,7 +277,7 @@ open class DefaultThorClientTest {
     @Test
     fun `getEventLogs propagates failure`() = runTest {
         val endpoint = "${baseUrl}/logs/event"
-        stubFuelPost(endpoint, HttpResult.Failure(IllegalStateException("boom")))
+        stubFuelPost(endpoint, null, HttpResult.Failure(IllegalStateException("boom")))
 
         val exception = assertFailsWith<FuelError> { client.getEventLogs(sampleEventLogsRequest()) }
 
@@ -266,6 +314,7 @@ open class DefaultThorClientTest {
         val bodySlot = slot<ByteArray>()
         stubFuelPost(
             endpoint,
+            null,
             HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(transfers)),
             bodySlot,
         )
@@ -282,7 +331,7 @@ open class DefaultThorClientTest {
     @Test
     fun `getVetTransfers propagates failure`() = runTest {
         val endpoint = "${baseUrl}/logs/transfer"
-        stubFuelPost(endpoint, HttpResult.Failure(RuntimeException("failure")))
+        stubFuelPost(endpoint, null, HttpResult.Failure(RuntimeException("failure")))
 
         val exception =
             assertFailsWith<FuelError> { client.getVetTransfers(sampleTransferLogsRequest()) }
@@ -293,8 +342,9 @@ open class DefaultThorClientTest {
     @Test
     fun `inspectClauses returns parsed inspection results`() = runTest {
         val clauses = listOf(Clause(to = "0xfeed", value = "0x0", data = "0xdead"))
-        val blockId = "0x456"
-        val endpoint = "${baseUrl}/accounts/*?revision=$blockId"
+        val blockId = "0x${"456".padStart(64, '0')}"
+        val endpoint = "${baseUrl}/accounts/*"
+        val parameters = listOf("revision" to blockId)
         val inspectionResults =
             listOf(
                 InspectionResult(
@@ -302,6 +352,7 @@ open class DefaultThorClientTest {
                     events = listOf(TxEvent(address = "0xfeed", topics = emptyList(), data = "0x")),
                     transfers =
                         listOf(TxTransfer(sender = "0x1", recipient = "0x2", amount = "0x1")),
+                    gasUsed = 0,
                     reverted = false,
                     vmError = null,
                 ),
@@ -309,11 +360,12 @@ open class DefaultThorClientTest {
         val bodySlot = slot<ByteArray>()
         stubFuelPost(
             endpoint,
+            parameters,
             HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(inspectionResults)),
             bodySlot,
         )
 
-        val result = client.inspectClauses(clauses, blockId)
+        val result = client.inspectClauses(clauses, BlockRevision.Id(blockId))
 
         expectThat(result).containsExactly(*inspectionResults.toTypedArray())
         val capturedRequest =
@@ -323,10 +375,13 @@ open class DefaultThorClientTest {
 
     @Test
     fun `inspectClauses propagates failure`() = runTest {
-        val endpoint = "${baseUrl}/accounts/*?revision=0xabc"
-        stubFuelPost(endpoint, HttpResult.Failure(IllegalStateException("nope")))
+        val id = "0x${123.toString(16).padStart(64, '0')}"
+        val endpoint = "${baseUrl}/accounts/*"
+        val parameters = listOf("revision" to id)
+        stubFuelPost(endpoint, parameters, HttpResult.Failure(IllegalStateException("nope")))
 
-        val exception = assertFailsWith<FuelError> { client.inspectClauses(emptyList(), "0xabc") }
+        val exception =
+            assertFailsWith<FuelError> { client.inspectClauses(emptyList(), BlockRevision.Id(id)) }
 
         expectThat(exception.message.orEmpty()).containsIgnoringCase("nope")
     }
@@ -354,6 +409,29 @@ open class DefaultThorClientTest {
             transactions = emptyList<Transaction>(),
         )
 
+    private fun sampleBlockUnexpanded(number: Long): BlockUnexpanded =
+        BlockUnexpanded(
+            number = number,
+            id = "0x$number",
+            size = 1,
+            parentID = "0x${number - 1}",
+            timestamp = 100 + number,
+            gasLimit = 10,
+            baseFeePerGas = "0x1",
+            beneficiary = "0xbeneficiary",
+            gasUsed = 5,
+            totalScore = 1,
+            txsRoot = "0xroot",
+            txsFeatures = 0,
+            stateRoot = "0xstate",
+            receiptsRoot = "0xreceipts",
+            com = false,
+            signer = "0xsigner",
+            isTrunk = true,
+            isFinalized = false,
+            transactions = listOf("0x1", "0x2"),
+        )
+
     private fun sampleEventLogsRequest(): EventLogsRequest =
         EventLogsRequest(
             range = LogsRange(unit = null, from = null, to = null),
@@ -376,7 +454,11 @@ open class DefaultThorClientTest {
         data class Failure(val throwable: Throwable) : HttpResult()
     }
 
-    private fun stubFuelGet(url: String, vararg results: HttpResult) {
+    private fun stubFuelGet(
+        url: String,
+        parameters: List<Pair<String, Any?>>?,
+        vararg results: HttpResult
+    ) {
         require(results.isNotEmpty()) { "At least one result expected" }
         val requests =
             results.map { result ->
@@ -392,17 +474,18 @@ open class DefaultThorClientTest {
                 every { request.response() } returns Triple(request, response, payload)
                 request
             }
-        every { Fuel.get(url) } returnsMany requests
+        every { Fuel.get(url, parameters) } returnsMany requests
     }
 
     private fun stubFuelPost(
-        url: String,
+        path: String,
+        parameters: List<Pair<String, Any?>>?,
         result: HttpResult,
         bodySlot: CapturingSlot<ByteArray>? = null,
     ) {
         val request = mockk<Request>(relaxed = true)
         val response = mockk<Response>(relaxed = true)
-        every { Fuel.post(url) } returns request
+        every { Fuel.post(path = path, parameters = parameters) } returns request
         every { request.appendHeader(*anyVararg()) } returns request
         if (bodySlot != null) {
             every { request.body(capture(bodySlot)) } returns request
