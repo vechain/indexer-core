@@ -30,7 +30,7 @@ open class IndexerConfig() {
             .syncLoggerInterval(1000)
             .abis("/abis")
             .businessEvents("/business-events", "/abis")
-            .excludeVetTransfers()
+            .includeVetTransfers()
             .build()
 
     @Bean

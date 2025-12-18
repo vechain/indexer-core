@@ -43,7 +43,7 @@ protected constructor(
                 }
 
             val abiEventProcessor =
-                if (abiBasePath != null) {
+                if (abiBasePath != null || includeVetTransfers) {
                     AbiEventProcessor(
                         basePath = abiBasePath,
                         eventNames = abiEventNames,
