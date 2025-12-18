@@ -215,4 +215,25 @@ open class DefaultThorClient(
             )
         }
     }
+
+    override suspend fun getAccountCode(
+        address: String,
+        revision: BlockRevision?
+    ): AccountCodeResponse {
+        return withContext(Dispatchers.IO) {
+            val params = if (revision != null) listOf("revision" to revision.value) else emptyList()
+            val (_, _, result) =
+                Fuel.get(path = "$baseUrl/accounts/$address/code", parameters = params)
+                    .appendHeader(*headers)
+                    .response()
+
+            val responseBody =
+                when (result) {
+                    is Result.Success -> result.get().toString(Charsets.UTF_8)
+                    is Result.Failure -> throw result.error
+                }
+
+            return@withContext objectMapper.readValue(responseBody, AccountCodeResponse::class.java)
+        }
+    }
 }
