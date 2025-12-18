@@ -26,6 +26,12 @@ import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
  */
 data class PreparedBlock(val block: Block, val inspectionResults: List<InspectionResult>)
 
+/**
+ * Maps each indexer to the indices of its clauses in the combined clause list. Used to extract the
+ * correct inspection results for each indexer from the batched response.
+ */
+typealias ClauseIndexMapping = Map<Indexer, List<Int>>
+
 open class IndexerRunner {
     protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
@@ -108,15 +114,15 @@ open class IndexerRunner {
             val executionGroups = topologicalOrder(indexers)
             if (executionGroups.isEmpty()) return@coroutineScope
 
-            // Collect all unique inspection clauses from all indexers
-            val allClauses = indexers.mapNotNull { it.getInspectionClauses() }.flatten().distinct()
+            // Build combined clause list and track which indices belong to which indexer
+            val (allClauses, clauseIndexMapping) = buildClauseListWithMapping(indexers)
 
             // Create a channel for each group to receive prepared blocks
             val groupChannels = executionGroups.map { Channel<PreparedBlock>(capacity = batchSize) }
 
             // Launch a coroutine for each group to process blocks
             executionGroups.forEachIndexed { groupIndex, group ->
-                launch { processGroupBlocks(group, groupChannels[groupIndex]) }
+                launch { processGroupBlocks(group, groupChannels[groupIndex], clauseIndexMapping) }
             }
 
             // Pipelined block fetcher and distributor
@@ -137,6 +143,44 @@ open class IndexerRunner {
                 }
             }
         }
+    }
+
+    /**
+     * Builds a combined list of unique clauses from all indexers and creates a mapping from each
+     * indexer to the indices of its clauses in the combined list.
+     *
+     * This is necessary because Thor returns inspection results in the same order as the clauses
+     * sent, so we need to track which results belong to which indexer.
+     */
+    internal fun buildClauseListWithMapping(
+        indexers: List<Indexer>
+    ): Pair<List<Clause>, ClauseIndexMapping> {
+        val allClauses = mutableListOf<Clause>()
+        val clauseToIndex = mutableMapOf<Clause, Int>()
+        val indexerToIndices = mutableMapOf<Indexer, List<Int>>()
+
+        for (indexer in indexers) {
+            val clauses = indexer.getInspectionClauses() ?: continue
+            val indices = mutableListOf<Int>()
+
+            for (clause in clauses) {
+                val existingIndex = clauseToIndex[clause]
+                if (existingIndex != null) {
+                    // Clause already exists, reuse its index
+                    indices.add(existingIndex)
+                } else {
+                    // New clause, add to list and record index
+                    val newIndex = allClauses.size
+                    allClauses.add(clause)
+                    clauseToIndex[clause] = newIndex
+                    indices.add(newIndex)
+                }
+            }
+
+            indexerToIndices[indexer] = indices
+        }
+
+        return Pair(allClauses, indexerToIndices)
     }
 
     /**
@@ -198,16 +242,24 @@ open class IndexerRunner {
         }
     }
 
-    private suspend fun processGroupBlocks(group: List<Indexer>, channel: Channel<PreparedBlock>) {
+    private suspend fun processGroupBlocks(
+        group: List<Indexer>,
+        channel: Channel<PreparedBlock>,
+        clauseIndexMapping: ClauseIndexMapping,
+    ) {
         for (preparedBlock in channel) {
             // Process indexers in the group sequentially to preserve order
             for (indexer in group) {
-                processIndexerBlock(indexer, preparedBlock)
+                processIndexerBlock(indexer, preparedBlock, clauseIndexMapping)
             }
         }
     }
 
-    private suspend fun processIndexerBlock(indexer: Indexer, preparedBlock: PreparedBlock) {
+    private suspend fun processIndexerBlock(
+        indexer: Indexer,
+        preparedBlock: PreparedBlock,
+        clauseIndexMapping: ClauseIndexMapping,
+    ) {
         val currentNumber = indexer.getCurrentBlockNumber()
         val block = preparedBlock.block
 
@@ -215,8 +267,12 @@ open class IndexerRunner {
             currentNumber == block.number -> {
                 retryUntilSuccess {
                     // Use pre-computed inspection results if indexer has clauses
-                    if (indexer.getInspectionClauses() != null) {
-                        indexer.processBlock(block, preparedBlock.inspectionResults)
+                    val indexerIndices = clauseIndexMapping[indexer]
+                    if (indexerIndices != null) {
+                        // Extract only this indexer's results from the batched response
+                        val indexerResults =
+                            indexerIndices.map { preparedBlock.inspectionResults[it] }
+                        indexer.processBlock(block, indexerResults)
                     } else {
                         indexer.processBlock(block)
                     }
