@@ -63,6 +63,11 @@ interface ThorClient {
         address: String,
         revision: BlockRevision? = null
     ): ExecuteAccountResponse
+
+    suspend fun getAccountCode(
+        address: String,
+        revision: BlockRevision? = null
+    ): AccountCodeResponse
 }
 
 data class ExecuteAccountResponse(
@@ -70,3 +75,5 @@ data class ExecuteAccountResponse(
     val energy: String,
     val hasCode: Boolean = false
 )
+
+data class AccountCodeResponse(val code: String)
