@@ -12,7 +12,7 @@ import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.DataUtils
 
 open class AbiEventProcessor(
-    basePath: String,
+    basePath: String?,
     eventNames: List<String>,
     private val contractAddresses: List<String>,
     private val includeVetTransfers: Boolean
@@ -20,7 +20,16 @@ open class AbiEventProcessor(
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     val eventAbis: List<AbiElement> =
-        AbiLoader.loadEvents(basePath = basePath, eventNames = eventNames)
+        if (basePath != null) {
+            AbiLoader.loadEvents(basePath = basePath, eventNames = eventNames)
+        } else {
+            if (eventNames.isNotEmpty()) {
+                throw IllegalArgumentException(
+                    "ABI base path must be provided when abiEventNames is not empty."
+                )
+            }
+            emptyList()
+        }
 
     override fun processEvents(block: Block): List<IndexedEvent> {
         val events = mutableListOf<IndexedEvent>()

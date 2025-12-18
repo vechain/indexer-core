@@ -17,7 +17,7 @@ class IndexerFactory {
     private var abiBasePath: String? = null
     private var abiEventNames: List<String> = emptyList()
     private var abiContracts: List<String> = emptyList()
-    private var includeVetTransfers: Boolean = true
+    private var includeVetTransfers: Boolean = false
     private var businessEventBasePath: String? = null
     private var businessEventAbiBasePath: String? = null
     private var businessEventNames: List<String> = emptyList()
@@ -244,8 +244,13 @@ class IndexerFactory {
     }
 
     /**
-     * Vet transfer events will be included by default. If you don't need them, you can exclude them
-     * and reduce the number of calls to the Thor API.
+     * Opts into including VET transfer events. This increases the number of calls to the Thor API.
+     */
+    fun includeVetTransfers() = apply { this.includeVetTransfers = true }
+
+    /**
+     * VET transfer events are excluded by default. If you previously enabled them, you can disable
+     * them again and reduce the number of calls to the Thor API.
      */
     fun excludeVetTransfers() = apply { this.includeVetTransfers = false }
 

@@ -7,7 +7,9 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.vechain.indexer.event.model.generic.IndexedEvent
+import org.vechain.indexer.fixtures.BlockFixtures
 import org.vechain.indexer.fixtures.IndexedEventFixture
+import org.vechain.indexer.fixtures.TransferLogFixtures
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.TransferLog
@@ -16,6 +18,7 @@ import strikt.assertions.containsExactly
 import strikt.assertions.containsExactlyInAnyOrder
 import strikt.assertions.isEmpty
 import strikt.assertions.isEqualTo
+import strikt.assertions.isNotEmpty
 
 @ExtendWith(MockKExtension::class)
 class EventProcessorTest {
@@ -198,6 +201,68 @@ class EventProcessorTest {
         val result = processor.processEvents(block)
 
         expectThat(result).isEqualTo(listOf(abiEvent, businessEvent))
+    }
+
+    @Test
+    fun `create supports transfer-only processing for logs when includeVetTransfers is true`() {
+        val processor =
+            CombinedEventProcessor.create(
+                abiBasePath = null,
+                abiEventNames = emptyList(),
+                abiContracts = emptyList(),
+                includeVetTransfers = true,
+                businessEventPath = null,
+                businessEventAbiBasePath = null,
+                businessEventNames = emptyList(),
+                businessEventContracts = emptyList(),
+                substitutionParams = emptyMap(),
+            )
+
+        val result = processor.processEvents(emptyList(), TransferLogFixtures.LOGS_VET_TRANSFER)
+
+        expectThat(result).isNotEmpty()
+        expectThat(result.map { it.eventType }.distinct()).containsExactly("VET_TRANSFER")
+    }
+
+    @Test
+    fun `create supports transfer-only processing for blocks when includeVetTransfers is true`() {
+        val processor =
+            CombinedEventProcessor.create(
+                abiBasePath = null,
+                abiEventNames = emptyList(),
+                abiContracts = emptyList(),
+                includeVetTransfers = true,
+                businessEventPath = null,
+                businessEventAbiBasePath = null,
+                businessEventNames = emptyList(),
+                businessEventContracts = emptyList(),
+                substitutionParams = emptyMap(),
+            )
+
+        val result = processor.processEvents(BlockFixtures.BLOCK_STARGATE_STAKE)
+
+        expectThat(result).isNotEmpty()
+        expectThat(result.map { it.eventType }.distinct()).containsExactly("VET_TRANSFER")
+    }
+
+    @Test
+    fun `create returns empty list when transfer-only requested but includeVetTransfers is false`() {
+        val processor =
+            CombinedEventProcessor.create(
+                abiBasePath = null,
+                abiEventNames = emptyList(),
+                abiContracts = emptyList(),
+                includeVetTransfers = false,
+                businessEventPath = null,
+                businessEventAbiBasePath = null,
+                businessEventNames = emptyList(),
+                businessEventContracts = emptyList(),
+                substitutionParams = emptyMap(),
+            )
+
+        val result = processor.processEvents(emptyList(), TransferLogFixtures.LOGS_VET_TRANSFER)
+
+        expectThat(result).isEmpty()
     }
 
     private fun createTestProcessor(
