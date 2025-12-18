@@ -913,4 +913,131 @@ internal class IndexerRunnerTest {
             maxPrefetchSize: Int,
         ): Int = calculateWindowSize(lastBlockTimestampSeconds, maxPrefetchSize)
     }
+
+    @Nested
+    inner class BuildClauseListWithMapping {
+        private val runner = IndexerRunner()
+
+        @Test
+        fun `returns empty when no indexers have clauses`() {
+            val indexer1 = createMockIndexer("indexer1")
+            val indexer2 = createMockIndexer("indexer2")
+
+            val (clauses, mapping) = runner.buildClauseListWithMapping(listOf(indexer1, indexer2))
+
+            expectThat(clauses).isEqualTo(emptyList())
+            expectThat(mapping).isEqualTo(emptyMap())
+        }
+
+        @Test
+        fun `maps each indexer to its clause indices`() {
+            val clause1 =
+                org.vechain.indexer.thor.model.Clause(
+                    to = "0xAddr1",
+                    value = "0x0",
+                    data = "0x1111"
+                )
+            val clause2 =
+                org.vechain.indexer.thor.model.Clause(
+                    to = "0xAddr2",
+                    value = "0x0",
+                    data = "0x2222"
+                )
+            val clause3 =
+                org.vechain.indexer.thor.model.Clause(
+                    to = "0xAddr3",
+                    value = "0x0",
+                    data = "0x3333"
+                )
+
+            val indexer1 =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { getInspectionClauses() } returns listOf(clause1)
+                }
+            val indexer2 =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer2"
+                    every { getInspectionClauses() } returns listOf(clause2, clause3)
+                }
+
+            val (clauses, mapping) = runner.buildClauseListWithMapping(listOf(indexer1, indexer2))
+
+            expectThat(clauses).isEqualTo(listOf(clause1, clause2, clause3))
+            expectThat(mapping[indexer1]).isEqualTo(listOf(0))
+            expectThat(mapping[indexer2]).isEqualTo(listOf(1, 2))
+        }
+
+        @Test
+        fun `deduplicates clauses and maps correctly`() {
+            // Shared clause between two indexers
+            val sharedClause =
+                org.vechain.indexer.thor.model.Clause(
+                    to = "0xShared",
+                    value = "0x0",
+                    data = "0xAAAA"
+                )
+            val uniqueClause =
+                org.vechain.indexer.thor.model.Clause(
+                    to = "0xUnique",
+                    value = "0x0",
+                    data = "0xBBBB"
+                )
+
+            val indexer1 =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { getInspectionClauses() } returns listOf(sharedClause)
+                }
+            val indexer2 =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer2"
+                    every { getInspectionClauses() } returns listOf(sharedClause, uniqueClause)
+                }
+
+            val (clauses, mapping) = runner.buildClauseListWithMapping(listOf(indexer1, indexer2))
+
+            // Only 2 unique clauses in the combined list
+            expectThat(clauses).isEqualTo(listOf(sharedClause, uniqueClause))
+            // indexer1 gets index 0 (shared clause)
+            expectThat(mapping[indexer1]).isEqualTo(listOf(0))
+            // indexer2 gets index 0 (shared) and index 1 (unique)
+            expectThat(mapping[indexer2]).isEqualTo(listOf(0, 1))
+        }
+
+        @Test
+        fun `handles mix of indexers with and without clauses`() {
+            val clause1 =
+                org.vechain.indexer.thor.model.Clause(
+                    to = "0xAddr1",
+                    value = "0x0",
+                    data = "0x1111"
+                )
+
+            val indexer1 =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { getInspectionClauses() } returns null
+                }
+            val indexer2 =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer2"
+                    every { getInspectionClauses() } returns listOf(clause1)
+                }
+            val indexer3 =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer3"
+                    every { getInspectionClauses() } returns null
+                }
+
+            val (clauses, mapping) =
+                runner.buildClauseListWithMapping(listOf(indexer1, indexer2, indexer3))
+
+            expectThat(clauses).isEqualTo(listOf(clause1))
+            // Only indexer2 should be in the mapping
+            expectThat(mapping.containsKey(indexer1)).isEqualTo(false)
+            expectThat(mapping[indexer2]).isEqualTo(listOf(0))
+            expectThat(mapping.containsKey(indexer3)).isEqualTo(false)
+        }
+    }
 }
