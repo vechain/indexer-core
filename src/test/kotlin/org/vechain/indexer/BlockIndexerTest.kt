@@ -205,10 +205,8 @@ internal class BlockIndexerTest {
 
             indexer.initialise()
 
-            verify(exactly = 2) {
-                processor.getLastSyncedBlock()
-            } // Verify the rollback is performed once
-            verify(exactly = 1) { processor.rollback(0L) }
+            verify(exactly = 2) { processor.getLastSyncedBlock() }
+            verify(exactly = 0) { processor.rollback(any()) }
 
             expect {
                 // Verify the status is INITIALISED
@@ -220,6 +218,29 @@ internal class BlockIndexerTest {
                 that(indexer.getCurrentBlockNumber()).isEqualTo(0L)
             }
         }
+
+        @Test
+        fun `Should rollback to startBlock when startBlock is greater than zero and no last synced block`() =
+            runBlocking {
+                indexer =
+                    BlockIndexer(
+                        name = "TestBlockIndexer",
+                        thorClient = thorClient,
+                        processor = processor,
+                        startBlock = 50L,
+                        eventProcessor = null,
+                        pruner = null,
+                        prunerInterval = 10000L,
+                        syncLoggerInterval = 1L,
+                        inspectionClauses = null,
+                        dependsOn = null,
+                    )
+                every { processor.getLastSyncedBlock() } returns null
+
+                indexer.initialise()
+
+                verify(exactly = 1) { processor.rollback(50L) }
+            }
 
         @Test
         fun `Previous block should be null if last synced block doesn't match current block - 1`() {
