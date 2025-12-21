@@ -88,10 +88,14 @@ open class BlockIndexer(
     /**
      * Rolls back to a safe state to ensure data integrity.
      *
+     * Only rolls back if the block number is greater than zero.
+     *
      * @param blockNumber The block number to roll back to.
      */
     protected open fun rollbackToSafeState(blockNumber: Long) {
-        rollback(blockNumber)
+        if (blockNumber > 0) {
+            rollback(blockNumber)
+        }
     }
 
     /**
