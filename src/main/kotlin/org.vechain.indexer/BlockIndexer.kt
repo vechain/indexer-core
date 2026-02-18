@@ -117,7 +117,7 @@ open class BlockIndexer(
      */
     protected open fun calculatePreviousBlock(currentBlock: Long): BlockIdentifier? {
         val lastBlock = getLastSyncedBlock()
-        return if (lastBlock?.number == currentBlock - 1L) {
+        return if (lastBlock?.id != null && lastBlock.number == currentBlock - 1L) {
             lastBlock
         } else {
             null
