@@ -13,7 +13,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -326,7 +325,6 @@ internal class IndexerRunnerTest {
         }
 
         @Test
-        @Disabled("Causes JVM instrumentation crash with byte-buddy agent")
         fun `BlockIndexer starts processing while LogsIndexer fast syncs`() = runTest {
             val processingStarted = mutableListOf<String>()
             var fastSyncCompleted = false
@@ -353,7 +351,14 @@ internal class IndexerRunnerTest {
                 )
 
             val thorClient = mockk<ThorClient>()
-            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns buildBlock(num = 0L)
+            // Register catch-all first (with delay), then specific stub (MockK LIFO)
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    delay(5000)
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
+                }
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns
+                buildBlock(num = 0L)
 
             val runner = IndexerRunner()
             runner.fastSyncWithEarlyProcessing(
@@ -372,7 +377,6 @@ internal class IndexerRunnerTest {
     inner class RunWithDynamicGroups {
 
         @Test
-        @Disabled("Causes JVM instrumentation crash with byte-buddy agent")
         fun `single group delegates to runAllIndexers`() = runTest {
             val thorClient = mockk<ThorClient>()
             val block0 = buildBlock(num = 0L)
@@ -381,7 +385,13 @@ internal class IndexerRunnerTest {
             val indexer1 = createMockIndexer("indexer1", currentBlock = 0L)
             val indexer2 = createMockIndexer("indexer2", currentBlock = 0L)
 
-            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
+            // Register catch-all with delay first, then specific (MockK LIFO)
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    delay(5000)
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
+                }
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
 
             val runner = IndexerRunner()
             val job = launch {
@@ -396,7 +406,6 @@ internal class IndexerRunnerTest {
         }
 
         @Test
-        @Disabled("Causes JVM instrumentation crash with byte-buddy agent")
         fun `multiple groups process independently`() = runTest {
             val thorClient = mockk<ThorClient>()
 
@@ -404,15 +413,16 @@ internal class IndexerRunnerTest {
             val indexer1 = createMockIndexer("indexer1", currentBlock = 0L)
             val indexer2 = createMockIndexer("indexer2", currentBlock = 200_000L)
 
-            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns
-                buildBlock(num = 0L)
-            coEvery { thorClient.waitForBlock(BlockRevision.Number(200_000L)) } returns
-                buildBlock(num = 200_000L)
+            // Register catch-all with delay first, then specific stubs (MockK LIFO)
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
                     delay(5000)
                     buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
                 }
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns
+                buildBlock(num = 0L)
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(200_000L)) } returns
+                buildBlock(num = 200_000L)
 
             val runner = IndexerRunner()
             val job = launch {
@@ -466,7 +476,6 @@ internal class IndexerRunnerTest {
         }
 
         @Test
-        @Disabled("Test timing issue - blocks not processed before cancellation")
         fun `should process blocks through all indexers in same group concurrently`() = runTest {
             val thorClient = mockk<ThorClient>()
             val block0 = buildBlock(num = 0L)
@@ -502,12 +511,13 @@ internal class IndexerRunnerTest {
                         }
                 }
 
-            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
+            // Register catch-all with delay first, then specific (MockK LIFO)
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
                     delay(5000)
                     buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
                 }
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
 
             val runner = IndexerRunner()
             val job = launch { runner.runAllIndexers(listOf(indexer1, indexer2), thorClient, 1) }
@@ -588,7 +598,6 @@ internal class IndexerRunnerTest {
         }
 
         @Test
-        @Disabled("Causes OutOfMemoryError during test execution")
         fun `should retry block processing on failure`() = runTest {
             val thorClient = mockk<ThorClient>()
             val block0 = buildBlock(num = 0L)
@@ -612,7 +621,14 @@ internal class IndexerRunnerTest {
                         }
                 }
 
-            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
+            // Return correct block numbers; delay after block 0 to prevent infinite loop
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
+                    if (blockNum > 0L) delay(5000)
+                    buildBlock(num = blockNum)
+                }
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
 
             val runner = IndexerRunner()
             val job = launch { runner.runAllIndexers(listOf(indexer), thorClient, 1) }
@@ -1020,7 +1036,6 @@ internal class IndexerRunnerTest {
         }
 
         @Test
-        @Disabled("Test timing issue - processBlock not called before cancellation")
         fun `should handle single indexer in multiple groups scenario`() = runTest {
             val thorClient = mockk<ThorClient>()
             val block0 = buildBlock(num = 0L)
@@ -1028,13 +1043,14 @@ internal class IndexerRunnerTest {
 
             val indexer = createMockIndexer("indexer1", currentBlock = 0L)
 
-            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
-            coEvery { thorClient.waitForBlock(BlockRevision.Number(1L)) } returns block1
+            // Register catch-all with delay first, then specific stubs (MockK LIFO)
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
                     delay(5000) // Block future fetches to prevent OOM
                     buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
                 }
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(1L)) } returns block1
 
             val runner = IndexerRunner()
             val job = launch { runner.runAllIndexers(listOf(indexer), thorClient, 1) }
