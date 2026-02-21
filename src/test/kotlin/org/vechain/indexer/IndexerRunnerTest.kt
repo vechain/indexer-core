@@ -11,12 +11,14 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.vechain.indexer.BlockTestBuilder.Companion.buildBlock
+import org.vechain.indexer.exception.RateLimitException
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
@@ -172,6 +174,50 @@ internal class IndexerRunnerTest {
             runner.initialiseAll(listOf(indexer))
 
             coVerify(exactly = 1) { indexer.initialise() }
+        }
+
+        @Test
+        fun `should use exponential backoff on repeated failures`() = runTest {
+            var initAttempts = 0
+            val indexer =
+                createMockIndexer(
+                    name = "indexer1",
+                    initializeBlock = {
+                        initAttempts++
+                        if (initAttempts < 4) {
+                            throw RuntimeException("Init failed")
+                        }
+                    }
+                )
+
+            val runner = IndexerRunner()
+            runner.initialiseAll(listOf(indexer))
+
+            expectThat(initAttempts).isEqualTo(4)
+            // Delays: 1s + 2s + 4s = 7s total virtual time
+            expectThat(currentTime).isEqualTo(7_000L)
+        }
+
+        @Test
+        fun `should use longer delay for RateLimitException`() = runTest {
+            var initAttempts = 0
+            val indexer =
+                createMockIndexer(
+                    name = "indexer1",
+                    initializeBlock = {
+                        initAttempts++
+                        if (initAttempts < 2) {
+                            throw RateLimitException("Rate limited")
+                        }
+                    }
+                )
+
+            val runner = IndexerRunner()
+            runner.initialiseAll(listOf(indexer))
+
+            expectThat(initAttempts).isEqualTo(2)
+            // Rate limit delay is 30s
+            expectThat(currentTime).isEqualTo(30_000L)
         }
 
         @Test
