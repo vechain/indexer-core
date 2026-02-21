@@ -11,6 +11,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.Logger
@@ -181,7 +182,7 @@ open class IndexerRunner {
         }
 
         // Wait for all fast syncs, then cancel early processing
-        fastSyncJobs.forEach { it.join() }
+        fastSyncJobs.joinAll()
         processingJob.cancel()
     }
 
