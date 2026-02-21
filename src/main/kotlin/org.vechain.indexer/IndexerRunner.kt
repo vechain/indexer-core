@@ -1,6 +1,8 @@
 package org.vechain.indexer
 
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -10,6 +12,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.ReorgException
@@ -18,6 +21,7 @@ import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.thor.model.InspectionResult
+import org.vechain.indexer.utils.IndexerOrderUtils.proximityGroups
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
 
 /**
@@ -37,6 +41,7 @@ open class IndexerRunner {
 
     companion object {
         private const val BLOCK_INTERVAL_SECONDS = 10L
+        private const val DEFAULT_RESHUFFLE_INTERVAL_MS = 300_000L
 
         @Suppress("unused")
         fun launch(
@@ -44,6 +49,8 @@ open class IndexerRunner {
             thorClient: ThorClient,
             indexers: List<Indexer>,
             blockBatchSize: Int = 1,
+            proximityThreshold: Long = 1_000_000L,
+            reshuffleIntervalMs: Long = DEFAULT_RESHUFFLE_INTERVAL_MS,
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -54,6 +61,8 @@ open class IndexerRunner {
                     indexers = indexers,
                     batchSize = blockBatchSize,
                     thorClient = thorClient,
+                    proximityThreshold = proximityThreshold,
+                    reshuffleIntervalMs = reshuffleIntervalMs,
                 )
             }
         }
@@ -63,6 +72,8 @@ open class IndexerRunner {
         indexers: List<Indexer>,
         batchSize: Int,
         thorClient: ThorClient,
+        proximityThreshold: Long = 1_000_000L,
+        reshuffleIntervalMs: Long = DEFAULT_RESHUFFLE_INTERVAL_MS,
     ): Unit = coroutineScope {
         require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -70,36 +81,144 @@ open class IndexerRunner {
 
         while (isActive) {
             try {
-                initialiseAndSyncAll(indexers)
-                runAllIndexers(indexers, thorClient, batchSize)
+                // Phase 1: Init all
+                initialiseAll(indexers)
+
+                // Phase 2: Fast sync with early block processing
+                fastSyncWithEarlyProcessing(
+                    indexers,
+                    thorClient,
+                    batchSize,
+                    proximityThreshold,
+                    reshuffleIntervalMs,
+                )
+
+                // Phase 3: All synced, dynamic grouping until converged
+                runWithDynamicGroups(
+                    indexers,
+                    thorClient,
+                    batchSize,
+                    proximityThreshold,
+                    reshuffleIntervalMs,
+                )
             } catch (e: ReorgException) {
                 logger.error("Reorg detected, restarting all indexers", e)
-                // Exception caught, job will complete normally and loop will restart
             }
         }
     }
 
     /**
-     * Initialises and fast syncs all indexers concurrently with retry logic.
+     * Initialises all indexers concurrently with retry logic.
      *
-     * If an indexer fails during initialization or fast sync, it will log the error, wait for 1
-     * second, and then retry until it succeeds or the coroutine is cancelled.
-     *
-     * @param indexers The list of indexers to initialise and fast sync.
+     * @param indexers The list of indexers to initialise.
      */
-    suspend fun initialiseAndSyncAll(indexers: List<Indexer>) {
-        logger.info("Initialising and syncing indexers...")
+    suspend fun initialiseAll(indexers: List<Indexer>) {
+        logger.info("Initialising indexers...")
         coroutineScope {
             val tasks =
-                indexers.map { indexer ->
-                    async {
-                        retryUntilSuccess {
-                            indexer.initialise()
-                            indexer.fastSync()
-                        }
+                indexers.map { indexer -> async { retryUntilSuccess { indexer.initialise() } } }
+            tasks.awaitAll()
+        }
+    }
+
+    /**
+     * Launches fast sync for FastSyncable indexers while concurrently running block processing for
+     * indexers that are already ready (non-FastSyncable). As each FastSyncable indexer completes
+     * its fast sync, it joins the ready set. When all fast syncs complete, early processing is
+     * cancelled and control returns (no progress lost since getCurrentBlockNumber() persists).
+     */
+    suspend fun fastSyncWithEarlyProcessing(
+        indexers: List<Indexer>,
+        thorClient: ThorClient,
+        batchSize: Int,
+        proximityThreshold: Long,
+        reshuffleIntervalMs: Long = DEFAULT_RESHUFFLE_INTERVAL_MS,
+    ) = coroutineScope {
+        val readyIndexers = ConcurrentHashMap.newKeySet<Indexer>()
+        val firstReady = CompletableDeferred<Unit>()
+
+        // Non-fast-syncable indexers are immediately ready
+        indexers.filter { it !is FastSyncable }.forEach { readyIndexers.add(it) }
+        if (readyIndexers.isNotEmpty()) firstReady.complete(Unit)
+
+        val fastSyncableIndexers = indexers.filterIsInstance<FastSyncable>()
+
+        if (fastSyncableIndexers.isEmpty()) {
+            // Nothing to fast sync, skip this phase
+            return@coroutineScope
+        }
+
+        // Launch fast sync for FastSyncable indexers
+        val fastSyncJobs =
+            fastSyncableIndexers.map { indexer ->
+                launch {
+                    retryUntilSuccess { indexer.fastSync() }
+                    readyIndexers.add(indexer as Indexer)
+                    firstReady.complete(Unit)
+                }
+            }
+
+        // Concurrently process blocks for ready indexers (excluding those with unresolved deps)
+        val processingJob = launch {
+            firstReady.await()
+            val snapshot = readyIndexers.toList()
+            val snapshotSet = snapshot.toSet()
+            val processable =
+                snapshot.filter { it.dependsOn == null || it.dependsOn in snapshotSet }
+            if (processable.isNotEmpty()) {
+                runWithDynamicGroups(
+                    processable,
+                    thorClient,
+                    batchSize,
+                    proximityThreshold,
+                    reshuffleIntervalMs,
+                )
+            }
+        }
+
+        // Wait for all fast syncs, then cancel early processing
+        fastSyncJobs.forEach { it.join() }
+        processingJob.cancel()
+    }
+
+    /**
+     * Runs indexers in dynamic proximity-based groups. Forms groups based on block number
+     * proximity, runs each group with its own prefetcher. Periodically reshuffles groups as they
+     * converge. When all indexers are in a single group, delegates to [runAllIndexers] (steady
+     * state).
+     */
+    suspend fun runWithDynamicGroups(
+        indexers: List<Indexer>,
+        thorClient: ThorClient,
+        batchSize: Int,
+        proximityThreshold: Long,
+        reshuffleIntervalMs: Long = DEFAULT_RESHUFFLE_INTERVAL_MS,
+    ) = coroutineScope {
+        while (isActive) {
+            val groups = proximityGroups(indexers, proximityThreshold)
+            if (groups.size <= 1) {
+                logger.info("All indexers converged into a single group, entering steady state")
+                runAllIndexers(indexers, thorClient, batchSize)
+                return@coroutineScope
+            }
+
+            logger.info(
+                "Formed ${groups.size} proximity groups (threshold=$proximityThreshold): " +
+                    groups.joinToString("; ") { g ->
+                        "[${g.joinToString { "${it.name}@${it.getCurrentBlockNumber()}" }}]"
+                    }
+            )
+
+            // Run groups concurrently, reshuffle after timeout
+            withTimeoutOrNull(reshuffleIntervalMs) {
+                coroutineScope {
+                    groups.forEach { group ->
+                        launch { runAllIndexers(group, thorClient, batchSize) }
                     }
                 }
-            tasks.awaitAll()
+            }
+
+            logger.info("Reshuffling proximity groups after ${reshuffleIntervalMs}ms")
         }
     }
 
