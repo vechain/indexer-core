@@ -21,6 +21,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.exception.BlockNotFoundException
+import org.vechain.indexer.exception.RateLimitException
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.thor.model.BlockUnexpanded
@@ -275,6 +276,19 @@ open class DefaultThorClientTest {
     }
 
     @Test
+    fun `getEventLogs throws RateLimitException on 429`() = runTest {
+        val endpoint = "${baseUrl}/logs/event"
+        stubFuelPost(
+            endpoint,
+            null,
+            HttpResult.Success(ByteArray(0)),
+            statusCode = 429,
+        )
+
+        assertFailsWith<RateLimitException> { client.getEventLogs(sampleEventLogsRequest()) }
+    }
+
+    @Test
     fun `getEventLogs propagates failure`() = runTest {
         val endpoint = "${baseUrl}/logs/event"
         stubFuelPost(endpoint, null, HttpResult.Failure(IllegalStateException("boom")))
@@ -329,6 +343,19 @@ open class DefaultThorClientTest {
     }
 
     @Test
+    fun `getVetTransfers throws RateLimitException on 429`() = runTest {
+        val endpoint = "${baseUrl}/logs/transfer"
+        stubFuelPost(
+            endpoint,
+            null,
+            HttpResult.Success(ByteArray(0)),
+            statusCode = 429,
+        )
+
+        assertFailsWith<RateLimitException> { client.getVetTransfers(sampleTransferLogsRequest()) }
+    }
+
+    @Test
     fun `getVetTransfers propagates failure`() = runTest {
         val endpoint = "${baseUrl}/logs/transfer"
         stubFuelPost(endpoint, null, HttpResult.Failure(RuntimeException("failure")))
@@ -371,6 +398,23 @@ open class DefaultThorClientTest {
         val capturedRequest =
             JsonUtils.mapper.readValue(bodySlot.captured, InspectionRequest::class.java)
         expectThat(capturedRequest.clauses).isEqualTo(clauses)
+    }
+
+    @Test
+    fun `inspectClauses throws RateLimitException on 429`() = runTest {
+        val id = "0x${123.toString(16).padStart(64, '0')}"
+        val endpoint = "${baseUrl}/accounts/*"
+        val parameters = listOf("revision" to id)
+        stubFuelPost(
+            endpoint,
+            parameters,
+            HttpResult.Success(ByteArray(0)),
+            statusCode = 429,
+        )
+
+        assertFailsWith<RateLimitException> {
+            client.inspectClauses(emptyList(), BlockRevision.Id(id))
+        }
     }
 
     @Test
@@ -482,9 +526,11 @@ open class DefaultThorClientTest {
         parameters: List<Pair<String, Any?>>?,
         result: HttpResult,
         bodySlot: CapturingSlot<ByteArray>? = null,
+        statusCode: Int = 200,
     ) {
         val request = mockk<Request>(relaxed = true)
         val response = mockk<Response>(relaxed = true)
+        every { response.statusCode } returns statusCode
         every { Fuel.post(path = path, parameters = parameters) } returns request
         every { request.appendHeader(*anyVararg()) } returns request
         if (bodySlot != null) {
