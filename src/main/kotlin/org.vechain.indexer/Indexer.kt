@@ -65,12 +65,12 @@ interface Indexer : IndexerProcessor {
     // Optional inspection clauses for contract calls during block processing
     fun getInspectionClauses(): List<Clause>? = null
 
-    // Optional fast sync phase
-    suspend fun fastSync() {
-        // Default implementation does nothing
-    }
-
     fun shutDown()
+}
+
+/** Interface for indexers that support a fast sync phase (e.g. log-based catch-up). */
+interface FastSyncable {
+    suspend fun fastSync()
 }
 
 sealed class IndexingResult {
