@@ -43,7 +43,7 @@ open class IndexerRunner {
 
     companion object {
         private const val BLOCK_INTERVAL_SECONDS = 10L
-        private const val DEFAULT_RESHUFFLE_INTERVAL_MS = 300_000L
+        private const val DEFAULT_RESHUFFLE_INTERVAL_MS = 600_000L
         private const val INITIAL_RETRY_DELAY_MS = 1_000L
         private const val MAX_RETRY_DELAY_MS = 60_000L
         private const val RATE_LIMIT_DELAY_MS = 30_000L
@@ -226,6 +226,9 @@ open class IndexerRunner {
                     }
                 }
             }
+
+            // Re-initialise to rollback any partial block processing from cancellation
+            initialiseAll(indexers)
 
             logger.info("Reshuffling proximity groups after ${reshuffleIntervalMs}ms")
         }
