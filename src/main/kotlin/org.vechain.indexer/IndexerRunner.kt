@@ -98,6 +98,10 @@ open class IndexerRunner {
                     reshuffleIntervalMs,
                 )
 
+                // Re-initialise to rollback any partial block processing from Phase 2
+                // cancellation
+                initialiseAll(indexers)
+
                 // Phase 3: All synced, dynamic grouping until converged
                 runWithDynamicGroups(
                     indexers,
