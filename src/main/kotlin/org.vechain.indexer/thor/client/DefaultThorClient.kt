@@ -127,15 +127,11 @@ open class DefaultThorClient(
 
     override suspend fun getEventLogs(req: EventLogsRequest): List<EventLog> =
         withContext(Dispatchers.IO) {
-            val (_, response, result) =
+            val (_, _, result) =
                 Fuel.post("$baseUrl/logs/event")
                     .body(JsonUtils.mapper.writeValueAsBytes(req))
                     .appendHeader(*headers)
                     .response()
-
-            if (response.statusCode == HTTP_TOO_MANY_REQUESTS) {
-                throw RateLimitException("Rate limited fetching event logs")
-            }
 
             val responseBody =
                 when (result) {
@@ -151,15 +147,11 @@ open class DefaultThorClient(
 
     override suspend fun getVetTransfers(req: TransferLogsRequest): List<TransferLog> =
         withContext(Dispatchers.IO) {
-            val (_, response, result) =
+            val (_, _, result) =
                 Fuel.post("$baseUrl/logs/transfer")
                     .body(JsonUtils.mapper.writeValueAsBytes(req))
                     .appendHeader(*headers)
                     .response()
-
-            if (response.statusCode == HTTP_TOO_MANY_REQUESTS) {
-                throw RateLimitException("Rate limited fetching VET transfers")
-            }
 
             val responseBody =
                 when (result) {
@@ -181,15 +173,11 @@ open class DefaultThorClient(
             val req = InspectionRequest(clauses)
             val body = JsonUtils.mapper.writeValueAsBytes(req)
             val params = if (revision != null) listOf("revision" to revision.value) else emptyList()
-            val (_, response, result) =
+            val (_, _, result) =
                 Fuel.post(path = "$baseUrl/accounts/*", parameters = params)
                     .body(body)
                     .appendHeader(*headers)
                     .response()
-
-            if (response.statusCode == HTTP_TOO_MANY_REQUESTS) {
-                throw RateLimitException("Rate limited inspecting clauses")
-            }
 
             val responseBody =
                 when (result) {

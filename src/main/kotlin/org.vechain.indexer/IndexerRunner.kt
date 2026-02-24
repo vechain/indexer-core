@@ -15,7 +15,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.vechain.indexer.exception.RateLimitException
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
@@ -43,9 +42,6 @@ open class IndexerRunner {
     companion object {
         private const val BLOCK_INTERVAL_SECONDS = 10L
         private const val DEFAULT_RESHUFFLE_INTERVAL_MS = 300_000L
-        private const val INITIAL_RETRY_DELAY_MS = 1_000L
-        private const val MAX_RETRY_DELAY_MS = 60_000L
-        private const val RATE_LIMIT_DELAY_MS = 30_000L
 
         @Suppress("unused")
         fun launch(
@@ -413,7 +409,6 @@ open class IndexerRunner {
     }
 
     private suspend fun <T> retryUntilSuccess(operation: suspend () -> T): T {
-        var delayMs = INITIAL_RETRY_DELAY_MS
         while (true) {
             try {
                 return operation()
@@ -422,14 +417,9 @@ open class IndexerRunner {
             } catch (e: ReorgException) {
                 logger.error("Reorg detected, propagating to restart indexers", e)
                 throw e
-            } catch (e: RateLimitException) {
-                logger.warn("Rate limited, backing off {}ms", RATE_LIMIT_DELAY_MS, e)
-                delay(RATE_LIMIT_DELAY_MS)
-                delayMs = INITIAL_RETRY_DELAY_MS
             } catch (e: Exception) {
-                logger.error("Operation failed, retrying in {}ms...", delayMs, e)
-                delay(delayMs)
-                delayMs = (delayMs * 2).coerceAtMost(MAX_RETRY_DELAY_MS)
+                logger.error("Operation failed, retrying...", e)
+                delay(1000L)
             }
         }
     }
