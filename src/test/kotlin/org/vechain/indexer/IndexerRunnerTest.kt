@@ -34,7 +34,8 @@ internal class IndexerRunnerTest {
         currentBlock: Long = 0L,
         dependsOn: Indexer? = null,
         initializeBlock: (suspend () -> Unit)? = null,
-        onProcessBlock: (suspend (Block) -> Unit)? = null
+        fastSyncBlock: (suspend () -> Unit)? = null,
+        processBlock: (suspend (Block) -> Unit)? = null
     ): Indexer {
         var currentBlockNumber = currentBlock
 
@@ -50,10 +51,16 @@ internal class IndexerRunnerTest {
                 coEvery { initialise() } just Runs
             }
 
-            if (onProcessBlock != null) {
+            if (fastSyncBlock != null) {
+                coEvery { fastSync() } coAnswers { fastSyncBlock() }
+            } else {
+                coEvery { fastSync() } just Runs
+            }
+
+            if (processBlock != null) {
                 coEvery { processBlock(any()) } coAnswers
                     {
-                        onProcessBlock(firstArg())
+                        processBlock(firstArg())
                         currentBlockNumber++
                     }
             } else {
@@ -62,68 +69,24 @@ internal class IndexerRunnerTest {
         }
     }
 
-    private fun createMockFastSyncableIndexer(
-        name: String,
-        currentBlock: Long = 0L,
-        dependsOn: Indexer? = null,
-        initializeBlock: (suspend () -> Unit)? = null,
-        fastSyncBlock: (suspend () -> Unit)? = null,
-        onProcessBlock: (suspend (Block) -> Unit)? = null
-    ): Indexer {
-        var currentBlockNumber = currentBlock
-
-        // Create a mock that implements both Indexer and FastSyncable
-        val indexer =
-            mockk<TestFastSyncableIndexer>(relaxed = true) {
-                every { this@mockk.name } returns name
-                every { this@mockk.dependsOn } returns dependsOn
-                every { getCurrentBlockNumber() } answers { currentBlockNumber }
-                every { getInspectionClauses() } returns null
-
-                if (initializeBlock != null) {
-                    coEvery { initialise() } coAnswers { initializeBlock() }
-                } else {
-                    coEvery { initialise() } just Runs
-                }
-
-                if (fastSyncBlock != null) {
-                    coEvery { fastSync() } coAnswers { fastSyncBlock() }
-                } else {
-                    coEvery { fastSync() } just Runs
-                }
-
-                if (onProcessBlock != null) {
-                    coEvery { processBlock(any()) } coAnswers
-                        {
-                            onProcessBlock(firstArg())
-                            currentBlockNumber++
-                        }
-                } else {
-                    coEvery { processBlock(any()) } answers { currentBlockNumber++ }
-                }
-            }
-
-        return indexer
-    }
-
-    /** Test interface combining Indexer and FastSyncable for mocking purposes. */
-    interface TestFastSyncableIndexer : Indexer, FastSyncable
-
     @Nested
-    inner class InitialiseAll {
+    inner class InitialiseAndSyncAll {
 
         @Test
-        fun `should initialise all indexers concurrently`() = runTest {
+        fun `should initialise and sync all indexers concurrently`() = runTest {
             val indexer1 = createMockIndexer("indexer1")
             val indexer2 = createMockIndexer("indexer2")
             val indexer3 = createMockIndexer("indexer3")
 
             val runner = IndexerRunner()
-            runner.initialiseAll(listOf(indexer1, indexer2, indexer3))
+            runner.initialiseAndSyncAll(listOf(indexer1, indexer2, indexer3))
 
             coVerify(exactly = 1) { indexer1.initialise() }
+            coVerify(exactly = 1) { indexer1.fastSync() }
             coVerify(exactly = 1) { indexer2.initialise() }
+            coVerify(exactly = 1) { indexer2.fastSync() }
             coVerify(exactly = 1) { indexer3.initialise() }
+            coVerify(exactly = 1) { indexer3.fastSync() }
         }
 
         @Test
@@ -141,10 +104,39 @@ internal class IndexerRunnerTest {
                 )
 
             val runner = IndexerRunner()
-            runner.initialiseAll(listOf(indexer))
+            runner.initialiseAndSyncAll(listOf(indexer))
 
             expectThat(initAttempts).isEqualTo(3)
             coVerify(exactly = 3) { indexer.initialise() }
+            coVerify(exactly = 1) { indexer.fastSync() }
+        }
+
+        @Test
+        fun `should retry on fastSync failure`() = runTest {
+            var syncAttempts = 0
+            val indexer =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } returns 0L
+                    every { getInspectionClauses() } returns null
+                    coEvery { initialise() } just Runs
+                    coEvery { fastSync() } coAnswers
+                        {
+                            syncAttempts++
+                            if (syncAttempts < 2) {
+                                throw RuntimeException("Sync failed")
+                            }
+                        }
+                }
+
+            val runner = IndexerRunner()
+            runner.initialiseAndSyncAll(listOf(indexer))
+
+            expectThat(syncAttempts).isEqualTo(2)
+            // Both initialise and fastSync are wrapped in retryUntilSuccess, so both retry
+            coVerify(exactly = 2) { indexer.initialise() }
+            coVerify(exactly = 2) { indexer.fastSync() }
         }
 
         @Test
@@ -156,22 +148,24 @@ internal class IndexerRunnerTest {
                 )
 
             val runner = IndexerRunner()
-            val job = launch { runner.initialiseAll(listOf(indexer)) }
+            val job = launch { runner.initialiseAndSyncAll(listOf(indexer)) }
 
-            delay(100)
+            delay(100) // Give it time to attempt
             job.cancelAndJoin()
 
+            // Should only attempt once before cancellation
             coVerify(atMost = 1) { indexer.initialise() }
         }
 
         @Test
-        fun `should initialise single indexer`() = runTest {
+        fun `should initialise and sync single indexer`() = runTest {
             val indexer = createMockIndexer("indexer1")
 
             val runner = IndexerRunner()
-            runner.initialiseAll(listOf(indexer))
+            runner.initialiseAndSyncAll(listOf(indexer))
 
             coVerify(exactly = 1) { indexer.initialise() }
+            coVerify(exactly = 1) { indexer.fastSync() }
         }
 
         @Test
@@ -180,205 +174,12 @@ internal class IndexerRunnerTest {
             val slowIndexer = createMockIndexer(name = "slow", initializeBlock = { delay(50) })
 
             val runner = IndexerRunner()
-            runner.initialiseAll(listOf(fastIndexer, slowIndexer))
+            runner.initialiseAndSyncAll(listOf(fastIndexer, slowIndexer))
 
             coVerify(exactly = 1) { fastIndexer.initialise() }
+            coVerify(exactly = 1) { fastIndexer.fastSync() }
             coVerify(exactly = 1) { slowIndexer.initialise() }
-        }
-    }
-
-    @Nested
-    inner class FastSyncWithEarlyProcessing {
-
-        @Test
-        fun `should fast sync FastSyncable indexers`() = runTest {
-            val fastSyncable = createMockFastSyncableIndexer("logs-indexer")
-            val blockIndexer = createMockIndexer("block-indexer")
-
-            val thorClient = mockk<ThorClient>()
-            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
-                {
-                    delay(5000)
-                    buildBlock(num = 0L)
-                }
-
-            val runner = IndexerRunner()
-            runner.fastSyncWithEarlyProcessing(
-                listOf(fastSyncable, blockIndexer),
-                thorClient,
-                1,
-                100_000L
-            )
-
-            coVerify(exactly = 1) { (fastSyncable as FastSyncable).fastSync() }
-        }
-
-        @Test
-        fun `should skip phase when no FastSyncable indexers`() = runTest {
-            val indexer = createMockIndexer("block-indexer")
-            val thorClient = mockk<ThorClient>()
-
-            val runner = IndexerRunner()
-            // Should complete immediately with no FastSyncable indexers
-            runner.fastSyncWithEarlyProcessing(listOf(indexer), thorClient, 1, 100_000L)
-
-            // No fast sync calls
-            coVerify(exactly = 0) { thorClient.waitForBlock(any<BlockRevision>()) }
-        }
-
-        @Test
-        fun `should retry fast sync on failure`() = runTest {
-            var syncAttempts = 0
-            val fastSyncable =
-                createMockFastSyncableIndexer(
-                    name = "logs-indexer",
-                    fastSyncBlock = {
-                        syncAttempts++
-                        if (syncAttempts < 2) {
-                            throw RuntimeException("Sync failed")
-                        }
-                    }
-                )
-
-            val thorClient = mockk<ThorClient>()
-            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
-                {
-                    delay(5000)
-                    buildBlock(num = 0L)
-                }
-
-            val runner = IndexerRunner()
-            runner.fastSyncWithEarlyProcessing(listOf(fastSyncable), thorClient, 1, 100_000L)
-
-            expectThat(syncAttempts).isEqualTo(2)
-        }
-
-        @Test
-        fun `should not crash when BlockIndexer depends on FastSyncable indexer`() = runTest {
-            val logsIndexer =
-                createMockFastSyncableIndexer(name = "logs-indexer", fastSyncBlock = { delay(200) })
-
-            val blockIndexer = createMockIndexer(name = "block-indexer", dependsOn = logsIndexer)
-
-            val thorClient = mockk<ThorClient>()
-            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
-                {
-                    delay(5000)
-                    buildBlock(num = 0L)
-                }
-
-            val runner = IndexerRunner()
-            // Should complete without throwing from topologicalOrder
-            runner.fastSyncWithEarlyProcessing(
-                listOf(logsIndexer, blockIndexer),
-                thorClient,
-                1,
-                100_000L,
-            )
-
-            coVerify(exactly = 1) { (logsIndexer as FastSyncable).fastSync() }
-        }
-
-        @Test
-        @Disabled("Causes JVM instrumentation crash with byte-buddy agent")
-        fun `BlockIndexer starts processing while LogsIndexer fast syncs`() = runTest {
-            val processingStarted = mutableListOf<String>()
-            var fastSyncCompleted = false
-
-            val logsIndexer =
-                createMockFastSyncableIndexer(
-                    name = "logs-indexer",
-                    fastSyncBlock = {
-                        delay(500) // Slow fast sync
-                        fastSyncCompleted = true
-                    }
-                )
-
-            val blockIndexer =
-                createMockIndexer(
-                    name = "block-indexer",
-                    onProcessBlock = {
-                        synchronized(processingStarted) {
-                            if (!fastSyncCompleted) {
-                                processingStarted.add("block-indexer-before-fastsync")
-                            }
-                        }
-                    }
-                )
-
-            val thorClient = mockk<ThorClient>()
-            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns buildBlock(num = 0L)
-
-            val runner = IndexerRunner()
-            runner.fastSyncWithEarlyProcessing(
-                listOf(logsIndexer, blockIndexer),
-                thorClient,
-                1,
-                100_000L,
-            )
-
-            // block-indexer should have started processing before fast sync completed
-            expectThat(processingStarted.isNotEmpty()).isEqualTo(true)
-        }
-    }
-
-    @Nested
-    inner class RunWithDynamicGroups {
-
-        @Test
-        @Disabled("Causes JVM instrumentation crash with byte-buddy agent")
-        fun `single group delegates to runAllIndexers`() = runTest {
-            val thorClient = mockk<ThorClient>()
-            val block0 = buildBlock(num = 0L)
-
-            // All indexers at same block -> single group
-            val indexer1 = createMockIndexer("indexer1", currentBlock = 0L)
-            val indexer2 = createMockIndexer("indexer2", currentBlock = 0L)
-
-            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
-
-            val runner = IndexerRunner()
-            val job = launch {
-                runner.runWithDynamicGroups(listOf(indexer1, indexer2), thorClient, 1, 100_000L)
-            }
-
-            delay(200)
-            job.cancelAndJoin()
-
-            coVerify(atLeast = 1) { indexer1.processBlock(block0) }
-            coVerify(atLeast = 1) { indexer2.processBlock(block0) }
-        }
-
-        @Test
-        @Disabled("Causes JVM instrumentation crash with byte-buddy agent")
-        fun `multiple groups process independently`() = runTest {
-            val thorClient = mockk<ThorClient>()
-
-            // Two indexers far apart -> two groups
-            val indexer1 = createMockIndexer("indexer1", currentBlock = 0L)
-            val indexer2 = createMockIndexer("indexer2", currentBlock = 200_000L)
-
-            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns
-                buildBlock(num = 0L)
-            coEvery { thorClient.waitForBlock(BlockRevision.Number(200_000L)) } returns
-                buildBlock(num = 200_000L)
-            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
-                {
-                    delay(5000)
-                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
-                }
-
-            val runner = IndexerRunner()
-            val job = launch {
-                runner.runWithDynamicGroups(listOf(indexer1, indexer2), thorClient, 1, 100_000L)
-            }
-
-            delay(500)
-            job.cancelAndJoin()
-
-            // Both indexers should have started processing
-            coVerify(atLeast = 1) { indexer1.processBlock(any()) }
-            coVerify(atLeast = 1) { indexer2.processBlock(any()) }
+            coVerify(exactly = 1) { slowIndexer.fastSync() }
         }
     }
 
@@ -768,6 +569,50 @@ internal class IndexerRunnerTest {
         }
 
         @Test
+        @Disabled("Causes JVM instrumentation crash with byte-buddy agent")
+        fun `full run method should initialise sync and then process blocks`() = runTest {
+            val thorClient = mockk<ThorClient>()
+            val block0 = buildBlock(num = 0L)
+
+            val callOrder = mutableListOf<String>()
+            var currentBlockNum = 0L
+
+            val indexer =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    every { getInspectionClauses() } returns null
+                    coEvery { initialise() } coAnswers
+                        {
+                            synchronized(callOrder) { callOrder.add("init") }
+                        }
+                    coEvery { fastSync() } coAnswers
+                        {
+                            synchronized(callOrder) { callOrder.add("sync") }
+                        }
+                    coEvery { processBlock(any()) } coAnswers
+                        {
+                            synchronized(callOrder) { callOrder.add("process") }
+                            currentBlockNum++
+                        }
+                }
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
+
+            val runner = IndexerRunner()
+            val job = launch { runner.run(listOf(indexer), 1, thorClient) }
+
+            delay(300)
+            job.cancelAndJoin()
+
+            // Should be init, sync, then process
+            expectThat(callOrder[0]).isEqualTo("init")
+            expectThat(callOrder[1]).isEqualTo("sync")
+            expectThat(callOrder.drop(2).any { it == "process" }).isEqualTo(true)
+        }
+
+        @Test
         fun `should require at least one indexer`() {
             val thorClient = mockk<ThorClient>()
             val runner = IndexerRunner()
@@ -790,6 +635,7 @@ internal class IndexerRunnerTest {
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
                     every { getInspectionClauses() } returns null
                     coEvery { initialise() } just Runs
+                    coEvery { fastSync() } just Runs
                     coEvery { processBlock(any()) } coAnswers { currentBlockNum++ }
                 }
 
@@ -812,6 +658,7 @@ internal class IndexerRunnerTest {
             job.cancelAndJoin()
 
             coVerify(atLeast = 1) { indexer.initialise() }
+            coVerify(atLeast = 1) { indexer.fastSync() }
         }
     }
 
@@ -832,6 +679,7 @@ internal class IndexerRunnerTest {
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
                     every { getInspectionClauses() } returns null
                     coEvery { initialise() } just Runs
+                    coEvery { fastSync() } just Runs
                     coEvery { processBlock(any()) } coAnswers
                         {
                             processAttempts++
@@ -863,6 +711,7 @@ internal class IndexerRunnerTest {
             val thorClient = mockk<ThorClient>()
             val block0 = buildBlock(num = 0L)
             var initCount = 0
+            var syncCount = 0
             var processAttempts = 0
             var currentBlockNum = 0L
 
@@ -873,6 +722,7 @@ internal class IndexerRunnerTest {
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
                     every { getInspectionClauses() } returns null
                     coEvery { initialise() } coAnswers { initCount++ }
+                    coEvery { fastSync() } coAnswers { syncCount++ }
                     coEvery { processBlock(any()) } coAnswers
                         {
                             processAttempts++
@@ -896,6 +746,8 @@ internal class IndexerRunnerTest {
 
             // Should have initialized at least twice (once initially, once after reorg)
             expectThat(initCount).isGreaterThanOrEqualTo(2)
+            // Should have synced at least twice
+            expectThat(syncCount).isGreaterThanOrEqualTo(2)
             // Should have attempted processing at least once
             expectThat(processAttempts).isGreaterThanOrEqualTo(1)
         }
@@ -917,6 +769,7 @@ internal class IndexerRunnerTest {
                     every { getCurrentBlockNumber() } answers { currentBlockNum1 }
                     every { getInspectionClauses() } returns null
                     coEvery { initialise() } coAnswers { indexer1InitCount++ }
+                    coEvery { fastSync() } just Runs
                     coEvery { processBlock(any()) } coAnswers
                         {
                             processAttempts++
@@ -934,6 +787,7 @@ internal class IndexerRunnerTest {
                     every { getCurrentBlockNumber() } answers { currentBlockNum2 }
                     every { getInspectionClauses() } returns null
                     coEvery { initialise() } coAnswers { indexer2InitCount++ }
+                    coEvery { fastSync() } just Runs
                     coEvery { processBlock(any()) } just Runs
                 }
 

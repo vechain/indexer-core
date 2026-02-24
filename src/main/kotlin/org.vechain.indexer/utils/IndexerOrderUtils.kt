@@ -57,63 +57,6 @@ internal object IndexerOrderUtils {
         return listOf(ordered)
     }
 
-    /**
-     * Groups indexers by block number proximity. Indexers within [threshold] blocks of each other
-     * are placed in the same group. Dependencies are forced into the same group even if far apart.
-     * Each group is topologically ordered internally.
-     *
-     * @param indexers The list of indexers to group
-     * @param threshold Maximum block gap allowed within a group
-     * @return A list of groups, each topologically ordered
-     */
-    fun proximityGroups(indexers: List<Indexer>, threshold: Long): List<List<Indexer>> {
-        if (indexers.isEmpty()) return emptyList()
-
-        // Sort by current block number
-        val sorted = indexers.sortedBy { it.getCurrentBlockNumber() }
-
-        // Initial grouping by proximity
-        val groups = mutableListOf<MutableList<Indexer>>()
-        var currentGroup = mutableListOf(sorted[0])
-        groups.add(currentGroup)
-
-        for (i in 1 until sorted.size) {
-            val gap = sorted[i].getCurrentBlockNumber() - sorted[i - 1].getCurrentBlockNumber()
-            if (gap > threshold) {
-                currentGroup = mutableListOf()
-                groups.add(currentGroup)
-            }
-            currentGroup.add(sorted[i])
-        }
-
-        // Force dependent indexers into the same group
-        val indexerToGroup = mutableMapOf<Indexer, Int>()
-        groups.forEachIndexed { idx, group -> group.forEach { indexerToGroup[it] = idx } }
-
-        // Merge groups when a dependency relationship spans groups
-        var merged = true
-        while (merged) {
-            merged = false
-            for (indexer in indexers) {
-                val dep = indexer.dependsOn ?: continue
-                val indexerGroupIdx = indexerToGroup[indexer] ?: continue
-                val depGroupIdx = indexerToGroup[dep] ?: continue
-                if (indexerGroupIdx != depGroupIdx) {
-                    // Merge into the lower-numbered group (earlier blocks)
-                    val targetIdx = minOf(indexerGroupIdx, depGroupIdx)
-                    val sourceIdx = maxOf(indexerGroupIdx, depGroupIdx)
-                    groups[targetIdx].addAll(groups[sourceIdx])
-                    groups[sourceIdx].forEach { indexerToGroup[it] = targetIdx }
-                    groups[sourceIdx].clear()
-                    merged = true
-                }
-            }
-        }
-
-        // Remove empty groups, topologically order each group
-        return groups.filter { it.isNotEmpty() }.map { group -> topologicalOrder(group).flatten() }
-    }
-
     private enum class VisitState {
         VISITING,
         VISITED,

@@ -13,15 +13,10 @@ import strikt.assertions.isEqualTo
 
 internal class IndexerOrderUtilsTest {
 
-    private fun createMockIndexer(
-        name: String,
-        dependsOn: Indexer? = null,
-        currentBlock: Long = 0L
-    ): Indexer {
+    private fun createMockIndexer(name: String, dependsOn: Indexer? = null): Indexer {
         return mockk<Indexer>(relaxed = true) {
             every { this@mockk.name } returns name
             every { this@mockk.dependsOn } returns dependsOn
-            every { getCurrentBlockNumber() } returns currentBlock
         }
     }
 
@@ -246,119 +241,6 @@ internal class IndexerOrderUtilsTest {
             expectThat(result.size).isEqualTo(1)
             expectThat(result[0])
                 .containsExactly(root, child1, child2, child3, child4, grandchild1, grandchild2)
-        }
-    }
-
-    @Nested
-    inner class ProximityGroups {
-
-        @Test
-        fun `should return empty list when given empty list`() {
-            val result = IndexerOrderUtils.proximityGroups(emptyList(), 100)
-
-            expectThat(result).isEmpty()
-        }
-
-        @Test
-        fun `should return single group when all indexers within threshold`() {
-            val indexer1 = createMockIndexer("indexer1", currentBlock = 100L)
-            val indexer2 = createMockIndexer("indexer2", currentBlock = 150L)
-            val indexer3 = createMockIndexer("indexer3", currentBlock = 200L)
-
-            val result =
-                IndexerOrderUtils.proximityGroups(listOf(indexer1, indexer2, indexer3), 100)
-
-            expectThat(result.size).isEqualTo(1)
-            expectThat(result[0]).containsExactly(indexer1, indexer2, indexer3)
-        }
-
-        @Test
-        fun `should split into two groups when gap exceeds threshold`() {
-            val indexer1 = createMockIndexer("indexer1", currentBlock = 100L)
-            val indexer2 = createMockIndexer("indexer2", currentBlock = 500L)
-
-            val result = IndexerOrderUtils.proximityGroups(listOf(indexer1, indexer2), 100)
-
-            expectThat(result.size).isEqualTo(2)
-            expectThat(result[0]).containsExactly(indexer1)
-            expectThat(result[1]).containsExactly(indexer2)
-        }
-
-        @Test
-        fun `should group two close and one far into two groups`() {
-            val indexer1 = createMockIndexer("indexer1", currentBlock = 100L)
-            val indexer2 = createMockIndexer("indexer2", currentBlock = 150L)
-            val indexer3 = createMockIndexer("indexer3", currentBlock = 1000L)
-
-            val result =
-                IndexerOrderUtils.proximityGroups(listOf(indexer1, indexer2, indexer3), 100)
-
-            expectThat(result.size).isEqualTo(2)
-            expectThat(result[0]).containsExactly(indexer1, indexer2)
-            expectThat(result[1]).containsExactly(indexer3)
-        }
-
-        @Test
-        fun `should force dependent indexers into same group even when far apart`() {
-            val parent = createMockIndexer("parent", currentBlock = 100L)
-            val child = createMockIndexer("child", dependsOn = parent, currentBlock = 1000L)
-
-            val result = IndexerOrderUtils.proximityGroups(listOf(parent, child), 100)
-
-            // Should be merged into one group despite being far apart
-            expectThat(result.size).isEqualTo(1)
-            // Parent should come before child (topological order)
-            expectThat(result[0]).containsExactly(parent, child)
-        }
-
-        @Test
-        fun `should topologically order within each group`() {
-            val parent = createMockIndexer("parent", currentBlock = 100L)
-            val child = createMockIndexer("child", dependsOn = parent, currentBlock = 110L)
-            val independent = createMockIndexer("independent", currentBlock = 1000L)
-
-            val result = IndexerOrderUtils.proximityGroups(listOf(child, parent, independent), 100)
-
-            expectThat(result.size).isEqualTo(2)
-            // First group: parent before child
-            expectThat(result[0]).containsExactly(parent, child)
-            expectThat(result[1]).containsExactly(independent)
-        }
-
-        @Test
-        fun `should handle single indexer`() {
-            val indexer = createMockIndexer("indexer1", currentBlock = 500L)
-
-            val result = IndexerOrderUtils.proximityGroups(listOf(indexer), 100)
-
-            expectThat(result.size).isEqualTo(1)
-            expectThat(result[0]).containsExactly(indexer)
-        }
-
-        @Test
-        fun `should handle all indexers at same block number`() {
-            val indexer1 = createMockIndexer("indexer1", currentBlock = 100L)
-            val indexer2 = createMockIndexer("indexer2", currentBlock = 100L)
-            val indexer3 = createMockIndexer("indexer3", currentBlock = 100L)
-
-            val result =
-                IndexerOrderUtils.proximityGroups(listOf(indexer1, indexer2, indexer3), 100)
-
-            expectThat(result.size).isEqualTo(1)
-        }
-
-        @Test
-        fun `should merge transitive dependency groups`() {
-            // A depends on B, B is far from A but close to C
-            // A at 1000, B at 100, C at 150
-            val b = createMockIndexer("B", currentBlock = 100L)
-            val c = createMockIndexer("C", currentBlock = 150L)
-            val a = createMockIndexer("A", dependsOn = b, currentBlock = 1000L)
-
-            val result = IndexerOrderUtils.proximityGroups(listOf(a, b, c), 100)
-
-            // B and C are close, A depends on B -> all merged
-            expectThat(result.size).isEqualTo(1)
         }
     }
 }
