@@ -12,15 +12,10 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
-import org.vechain.indexer.thor.model.Clause
+import org.vechain.indexer.utils.ClauseIndexMapping
+import org.vechain.indexer.utils.ClauseUtils.buildClauseListWithMapping
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
 import org.vechain.indexer.utils.retryOnFailure
-
-/**
- * Maps each indexer to the indices of its clauses in the combined clause list. Used to extract the
- * correct inspection results for each indexer from the batched response.
- */
-typealias ClauseIndexMapping = Map<Indexer, List<Int>>
 
 class IndexerRunner {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
@@ -128,44 +123,6 @@ class IndexerRunner {
                 }
             }
         }
-    }
-
-    /**
-     * Builds a combined list of unique clauses from all indexers and creates a mapping from each
-     * indexer to the indices of its clauses in the combined list.
-     *
-     * This is necessary because Thor returns inspection results in the same order as the clauses
-     * sent, so we need to track which results belong to which indexer.
-     */
-    internal fun buildClauseListWithMapping(
-        indexers: List<Indexer>
-    ): Pair<List<Clause>, ClauseIndexMapping> {
-        val allClauses = mutableListOf<Clause>()
-        val clauseToIndex = mutableMapOf<Clause, Int>()
-        val indexerToIndices = mutableMapOf<Indexer, List<Int>>()
-
-        for (indexer in indexers) {
-            val clauses = indexer.getInspectionClauses() ?: continue
-            val indices = mutableListOf<Int>()
-
-            for (clause in clauses) {
-                val existingIndex = clauseToIndex[clause]
-                if (existingIndex != null) {
-                    // Clause already exists, reuse its index
-                    indices.add(existingIndex)
-                } else {
-                    // New clause, add to list and record index
-                    val newIndex = allClauses.size
-                    allClauses.add(clause)
-                    clauseToIndex[clause] = newIndex
-                    indices.add(newIndex)
-                }
-            }
-
-            indexerToIndices[indexer] = indices
-        }
-
-        return Pair(allClauses, indexerToIndices)
     }
 
     private suspend fun processGroupBlocks(
