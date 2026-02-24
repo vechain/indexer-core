@@ -12,18 +12,9 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
-import org.vechain.indexer.thor.model.Block
-import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.thor.model.Clause
-import org.vechain.indexer.thor.model.InspectionResult
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
 import org.vechain.indexer.utils.retryOnFailure
-
-/**
- * Data class holding a block with its pre-fetched inspection results. Used to pipeline block
- * fetching and contract calls ahead of processing.
- */
-data class PreparedBlock(val block: Block, val inspectionResults: List<InspectionResult>)
 
 /**
  * Maps each indexer to the indices of its clauses in the combined clause list. Used to extract the
@@ -31,12 +22,10 @@ data class PreparedBlock(val block: Block, val inspectionResults: List<Inspectio
  */
 typealias ClauseIndexMapping = Map<Indexer, List<Int>>
 
-open class IndexerRunner {
-    protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
+class IndexerRunner {
+    private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     companion object {
-        private const val BLOCK_INTERVAL_SECONDS = 10L
-
         fun launch(
             scope: CoroutineScope,
             thorClient: ThorClient,
@@ -127,11 +116,9 @@ open class IndexerRunner {
             launch {
                 try {
                     val startBlock = executionGroups.flatten().minOf { it.getCurrentBlockNumber() }
+                    val fetcher = BlockFetcher(thorClient, allClauses)
 
-                    // Launch parallel prefetch workers that maintain order
-                    prefetchBlocksInOrder(
-                        thorClient = thorClient,
-                        allClauses = allClauses,
+                    fetcher.prefetchBlocksInOrder(
                         startBlock = startBlock,
                         maxBatchSize = batchSize,
                         groupChannels = groupChannels,
@@ -181,65 +168,6 @@ open class IndexerRunner {
         return Pair(allClauses, indexerToIndices)
     }
 
-    /**
-     * Prefetches blocks and their inspection results in parallel while maintaining order. Uses a
-     * sliding window of concurrent fetches to hide network latency.
-     */
-    protected suspend fun prefetchBlocksInOrder(
-        thorClient: ThorClient,
-        allClauses: List<Clause>,
-        startBlock: Long,
-        maxBatchSize: Int,
-        groupChannels: List<Channel<PreparedBlock>>,
-    ) = coroutineScope {
-        require(startBlock >= 0) { "startBlock must be >= 0" }
-        require(maxBatchSize >= 1) { "maxBatchSize must be >= 1" }
-
-        var nextBlockNumber = startBlock
-        var lastBlockTimestamp: Long? = null
-
-        while (isActive) {
-            val currentBlock = nextBlockNumber
-            val windowSize = calculateWindowSize(lastBlockTimestamp, maxBatchSize)
-            logger.debug("Block fetch window size: $windowSize")
-            // Launch prefetch for next batch of blocks in parallel
-            val deferredBlocks =
-                (0 ..< windowSize).map { offset ->
-                    val blockNum = currentBlock + offset
-                    async { fetchAndPrepareBlock(thorClient, blockNum, allClauses) }
-                }
-
-            // Await and send in order
-            deferredBlocks.forEach { deferred ->
-                val preparedBlock = deferred.await()
-                groupChannels.forEach { channel -> channel.send(preparedBlock) }
-                nextBlockNumber++
-                lastBlockTimestamp = preparedBlock.block.timestamp
-            }
-        }
-    }
-
-    /**
-     * Fetches a block and performs inspection calls, returning a PreparedBlock. This combines the
-     * network calls so they can be pipelined.
-     */
-    protected suspend fun fetchAndPrepareBlock(
-        thorClient: ThorClient,
-        blockNumber: Long,
-        allClauses: List<Clause>,
-    ): PreparedBlock {
-        return retryOnFailure {
-            val block = thorClient.waitForBlock(BlockRevision.Number(blockNumber))
-            val inspectionResults =
-                if (allClauses.isNotEmpty()) {
-                    thorClient.inspectClauses(allClauses, BlockRevision.Id(block.id))
-                } else {
-                    emptyList()
-                }
-            PreparedBlock(block, inspectionResults)
-        }
-    }
-
     private suspend fun processGroupBlocks(
         group: List<Indexer>,
         channel: Channel<PreparedBlock>,
@@ -285,19 +213,5 @@ open class IndexerRunner {
                 )
             }
         }
-    }
-
-    protected fun calculateWindowSize(
-        lastBlockTimestampSeconds: Long?,
-        maxPrefetchSize: Int,
-    ): Int {
-        if (lastBlockTimestampSeconds == null) {
-            return maxPrefetchSize
-        }
-        val nowSeconds = System.currentTimeMillis() / 1000
-        val secondsBehind = (nowSeconds - lastBlockTimestampSeconds).coerceAtLeast(0)
-        val estimatedBlocksBehind =
-            (secondsBehind / BLOCK_INTERVAL_SECONDS).toInt().coerceAtLeast(0) + 1
-        return minOf(maxPrefetchSize, estimatedBlocksBehind)
     }
 }
