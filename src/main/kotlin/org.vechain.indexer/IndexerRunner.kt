@@ -64,24 +64,26 @@ class IndexerRunner {
     /**
      * Initialises and fast syncs all indexers concurrently with retry logic.
      *
-     * If an indexer fails during initialization or fast sync, it will log the error, wait for 1
-     * second, and then retry until it succeeds or the coroutine is cancelled.
-     *
      * @param indexers The list of indexers to initialise and fast sync.
      */
     suspend fun initialiseAndSyncAll(indexers: List<Indexer>) {
         logger.info("Initialising and syncing indexers...")
         coroutineScope {
-            val tasks =
-                indexers.map { indexer ->
-                    async {
-                        retryOnFailure {
-                            indexer.initialise()
-                            indexer.fastSync()
-                        }
-                    }
-                }
+            val tasks = indexers.map { indexer -> async { initialiseAndSync(indexer) } }
             tasks.awaitAll()
+        }
+    }
+
+    /**
+     * Initialises and fast syncs a single indexer with retry logic.
+     *
+     * @param indexer The indexer to initialise and fast sync.
+     */
+    private suspend fun initialiseAndSync(indexer: Indexer) {
+        logger.info("Initialising and syncing indexer ${indexer.name}...")
+        retryOnFailure {
+            indexer.initialise()
+            indexer.fastSync()
         }
     }
 
