@@ -33,6 +33,8 @@ import strikt.assertions.isTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class IndexerRunnerTest {
 
+    private interface FastSyncableIndexer : Indexer, FastSyncable
+
     private fun createMockIndexer(
         name: String,
         currentBlock: Long = 0L,
@@ -43,7 +45,7 @@ internal class IndexerRunnerTest {
     ): Indexer {
         var currentBlockNumber = currentBlock
 
-        return mockk(relaxed = true) {
+        return mockk<FastSyncableIndexer>(relaxed = true) {
             every { this@mockk.name } returns name
             every { this@mockk.dependsOn } returns dependsOn
             every { getCurrentBlockNumber() } answers { currentBlockNumber }
@@ -86,11 +88,11 @@ internal class IndexerRunnerTest {
             runner.initialiseAndSync(listOf(indexer1, indexer2, indexer3))
 
             coVerify(exactly = 1) { indexer1.initialise() }
-            coVerify(exactly = 1) { indexer1.fastSync() }
+            coVerify(exactly = 1) { (indexer1 as FastSyncable).fastSync() }
             coVerify(exactly = 1) { indexer2.initialise() }
-            coVerify(exactly = 1) { indexer2.fastSync() }
+            coVerify(exactly = 1) { (indexer2 as FastSyncable).fastSync() }
             coVerify(exactly = 1) { indexer3.initialise() }
-            coVerify(exactly = 1) { indexer3.fastSync() }
+            coVerify(exactly = 1) { (indexer3 as FastSyncable).fastSync() }
         }
 
         @Test
@@ -112,14 +114,14 @@ internal class IndexerRunnerTest {
 
             expectThat(initAttempts).isEqualTo(3)
             coVerify(exactly = 3) { indexer.initialise() }
-            coVerify(exactly = 1) { indexer.fastSync() }
+            coVerify(exactly = 1) { (indexer as FastSyncable).fastSync() }
         }
 
         @Test
         fun `should retry on fastSync failure`() = runTest {
             var syncAttempts = 0
             val indexer =
-                mockk<Indexer>(relaxed = true) {
+                mockk<FastSyncableIndexer>(relaxed = true) {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } returns 0L
@@ -140,7 +142,7 @@ internal class IndexerRunnerTest {
             expectThat(syncAttempts).isEqualTo(2)
             // Both initialise and fastSync are wrapped in retryUntilSuccess, so both retry
             coVerify(exactly = 2) { indexer.initialise() }
-            coVerify(exactly = 2) { indexer.fastSync() }
+            coVerify(exactly = 2) { (indexer as FastSyncable).fastSync() }
         }
 
         @Test
@@ -169,7 +171,7 @@ internal class IndexerRunnerTest {
             runner.initialiseAndSync(listOf(indexer))
 
             coVerify(exactly = 1) { indexer.initialise() }
-            coVerify(exactly = 1) { indexer.fastSync() }
+            coVerify(exactly = 1) { (indexer as FastSyncable).fastSync() }
         }
 
         @Test
@@ -181,9 +183,9 @@ internal class IndexerRunnerTest {
             runner.initialiseAndSync(listOf(fastIndexer, slowIndexer))
 
             coVerify(exactly = 1) { fastIndexer.initialise() }
-            coVerify(exactly = 1) { fastIndexer.fastSync() }
+            coVerify(exactly = 1) { (fastIndexer as FastSyncable).fastSync() }
             coVerify(exactly = 1) { slowIndexer.initialise() }
-            coVerify(exactly = 1) { slowIndexer.fastSync() }
+            coVerify(exactly = 1) { (slowIndexer as FastSyncable).fastSync() }
         }
     }
 
@@ -590,7 +592,7 @@ internal class IndexerRunnerTest {
             var currentBlockNum = 0L
 
             val indexer =
-                mockk<Indexer>(relaxed = true) {
+                mockk<FastSyncableIndexer>(relaxed = true) {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
@@ -641,7 +643,7 @@ internal class IndexerRunnerTest {
             var currentBlockNum = 0L
 
             val indexer =
-                mockk<Indexer>(relaxed = true) {
+                mockk<FastSyncableIndexer>(relaxed = true) {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
@@ -670,7 +672,7 @@ internal class IndexerRunnerTest {
             job.cancelAndJoin()
 
             coVerify(atLeast = 1) { indexer.initialise() }
-            coVerify(atLeast = 1) { indexer.fastSync() }
+            coVerify(atLeast = 1) { (indexer as FastSyncable).fastSync() }
         }
     }
 
@@ -685,7 +687,7 @@ internal class IndexerRunnerTest {
             var currentBlockNum = 0L
 
             val indexer =
-                mockk<Indexer>(relaxed = true) {
+                mockk<FastSyncableIndexer>(relaxed = true) {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
@@ -728,7 +730,7 @@ internal class IndexerRunnerTest {
             var currentBlockNum = 0L
 
             val indexer =
-                mockk<Indexer>(relaxed = true) {
+                mockk<FastSyncableIndexer>(relaxed = true) {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum }
@@ -775,7 +777,7 @@ internal class IndexerRunnerTest {
             var currentBlockNum2 = 0L
 
             val indexer1 =
-                mockk<Indexer>(relaxed = true) {
+                mockk<FastSyncableIndexer>(relaxed = true) {
                     every { name } returns "indexer1"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum1 }
@@ -793,7 +795,7 @@ internal class IndexerRunnerTest {
                 }
 
             val indexer2 =
-                mockk<Indexer>(relaxed = true) {
+                mockk<FastSyncableIndexer>(relaxed = true) {
                     every { name } returns "indexer2"
                     every { dependsOn } returns null
                     every { getCurrentBlockNumber() } answers { currentBlockNum2 }

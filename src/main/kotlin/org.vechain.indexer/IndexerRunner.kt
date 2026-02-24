@@ -85,7 +85,9 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         logger.info("Initialising and syncing indexer ${indexer.name}...")
         retryOnFailure {
             indexer.initialise()
-            indexer.fastSync()
+            if (indexer is FastSyncable) {
+                indexer.fastSync()
+            }
         }
     }
 
