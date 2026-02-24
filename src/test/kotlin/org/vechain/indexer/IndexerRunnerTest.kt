@@ -6,6 +6,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import kotlin.math.pow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
@@ -336,7 +337,17 @@ internal class IndexerRunnerTest {
             val runner = IndexerRunner()
             val job = launch { runner.runAllIndexers(listOf(indexer), thorClient, 1) }
 
-            delay(3500) // Wait for retries (3 attempts * 1 second delay)
+            // Worst-case delay per retry: base + jitter < 2 * base
+            // With 2 retries (initialDelay=1000, multiplier=2.0):
+            //   retry 1: < 2 * 1000 = 2000, retry 2: < 2 * 2000 = 4000
+            val retriesNeeded = 2
+            val initialDelayMs = 1_000L
+            val multiplier = 2.0
+            val worstCaseDelay =
+                (0 until retriesNeeded).sumOf { i ->
+                    (2 * initialDelayMs * multiplier.pow(i)).toLong()
+                }
+            delay(worstCaseDelay)
             job.cancelAndJoin()
 
             expectThat(attempts).isGreaterThanOrEqualTo(3)

@@ -1,13 +1,11 @@
 package org.vechain.indexer
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.slf4j.Logger
@@ -19,6 +17,7 @@ import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.thor.model.InspectionResult
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
+import org.vechain.indexer.utils.retryOnFailure
 
 /**
  * Data class holding a block with its pre-fetched inspection results. Used to pipeline block
@@ -38,7 +37,6 @@ open class IndexerRunner {
     companion object {
         private const val BLOCK_INTERVAL_SECONDS = 10L
 
-        @Suppress("unused")
         fun launch(
             scope: CoroutineScope,
             thorClient: ThorClient,
@@ -47,10 +45,10 @@ open class IndexerRunner {
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-            val indexerOrchestrator = IndexerRunner()
+            val runner = IndexerRunner()
 
             return scope.launch {
-                indexerOrchestrator.run(
+                runner.run(
                     indexers = indexers,
                     batchSize = blockBatchSize,
                     thorClient = thorClient,
@@ -93,7 +91,7 @@ open class IndexerRunner {
             val tasks =
                 indexers.map { indexer ->
                     async {
-                        retryUntilSuccess {
+                        retryOnFailure {
                             indexer.initialise()
                             indexer.fastSync()
                         }
@@ -230,7 +228,7 @@ open class IndexerRunner {
         blockNumber: Long,
         allClauses: List<Clause>,
     ): PreparedBlock {
-        return retryUntilSuccess {
+        return retryOnFailure {
             val block = thorClient.waitForBlock(BlockRevision.Number(blockNumber))
             val inspectionResults =
                 if (allClauses.isNotEmpty()) {
@@ -265,7 +263,7 @@ open class IndexerRunner {
 
         when {
             currentNumber == block.number -> {
-                retryUntilSuccess {
+                retryOnFailure {
                     // Use pre-computed inspection results if indexer has clauses
                     val indexerIndices = clauseIndexMapping[indexer]
                     if (indexerIndices != null) {
@@ -285,22 +283,6 @@ open class IndexerRunner {
                 throw IllegalStateException(
                     "Indexer ${indexer.name} is behind the current block ${block.number}"
                 )
-            }
-        }
-    }
-
-    private suspend fun <T> retryUntilSuccess(operation: suspend () -> T): T {
-        while (true) {
-            try {
-                return operation()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: ReorgException) {
-                logger.error("Reorg detected, propagating to restart indexers", e)
-                throw e
-            } catch (e: Exception) {
-                logger.error("Operation failed, retrying...", e)
-                delay(1000L)
             }
         }
     }
