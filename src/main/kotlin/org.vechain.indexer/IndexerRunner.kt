@@ -1,5 +1,8 @@
 package org.vechain.indexer
 
+import kotlin.time.Duration
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -17,7 +20,7 @@ import org.vechain.indexer.utils.ClauseUtils.buildClauseListWithMapping
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
 import org.vechain.indexer.utils.retryOnFailure
 
-class IndexerRunner {
+class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     companion object {
@@ -26,16 +29,19 @@ class IndexerRunner {
             thorClient: ThorClient,
             indexers: List<Indexer>,
             blockBatchSize: Int = 1,
+            duration: Duration? = null,
+            timeSource: TimeSource = TimeSource.Monotonic,
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-            val runner = IndexerRunner()
+            val runner = IndexerRunner(timeSource)
 
             return scope.launch {
                 runner.run(
                     indexers = indexers,
                     batchSize = blockBatchSize,
                     thorClient = thorClient,
+                    duration = duration,
                 )
             }
         }
@@ -45,15 +51,18 @@ class IndexerRunner {
         indexers: List<Indexer>,
         batchSize: Int,
         thorClient: ThorClient,
+        duration: Duration? = null,
     ): Unit = coroutineScope {
         require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
+        val deadlineMark = duration?.let { timeSource.markNow() + it }
+
         logger.info("Starting ${indexers.size} Indexer ${indexers.map { it.name }}")
 
-        while (isActive) {
+        while (isActive && (deadlineMark == null || deadlineMark.hasNotPassedNow())) {
             try {
                 initialiseAndSync(indexers)
-                runIndexers(indexers, thorClient, batchSize)
+                runIndexers(indexers, thorClient, batchSize, deadlineMark)
             } catch (e: ReorgException) {
                 logger.error("Reorg detected, restarting all indexers", e)
                 // Exception caught, job will complete normally and loop will restart
@@ -91,6 +100,7 @@ class IndexerRunner {
         indexers: List<Indexer>,
         thorClient: ThorClient,
         batchSize: Int,
+        deadlineMark: TimeMark? = null,
     ) {
         require(batchSize >= 1) { "batchSize must be >= 1" }
         logger.info("Running indexers...")
@@ -119,6 +129,7 @@ class IndexerRunner {
                         startBlock = startBlock,
                         maxBatchSize = batchSize,
                         groupChannels = groupChannels,
+                        deadlineMark = deadlineMark,
                     )
                 } finally {
                     groupChannels.forEach { it.close() }

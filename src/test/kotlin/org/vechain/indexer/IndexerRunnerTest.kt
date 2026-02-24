@@ -7,6 +7,8 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import kotlin.math.pow
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TestTimeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
@@ -26,6 +28,7 @@ import strikt.api.expectThat
 import strikt.assertions.isEqualTo
 import strikt.assertions.isGreaterThan
 import strikt.assertions.isGreaterThanOrEqualTo
+import strikt.assertions.isTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class IndexerRunnerTest {
@@ -811,6 +814,149 @@ internal class IndexerRunnerTest {
             // Both indexers should be reinitialized after reorg
             expectThat(indexer1InitCount).isGreaterThanOrEqualTo(2)
             expectThat(indexer2InitCount).isGreaterThanOrEqualTo(2)
+        }
+    }
+
+    @Nested
+    inner class DurationBounded {
+
+        @Test
+        fun `run with zero duration should exit immediately`() = runTest {
+            val testTimeSource = TestTimeSource()
+            val thorClient = mockk<ThorClient>()
+
+            val indexer =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } returns 0L
+                    every { getInspectionClauses() } returns null
+                    coEvery { initialise() } just Runs
+                    coEvery { fastSync() } just Runs
+                }
+
+            val runner = IndexerRunner(testTimeSource)
+            runner.run(listOf(indexer), 1, thorClient, duration = 0.milliseconds)
+
+            coVerify(exactly = 0) { indexer.processBlock(any()) }
+        }
+
+        @Test
+        fun `launch with zero duration should complete immediately`() = runTest {
+            val testTimeSource = TestTimeSource()
+            val thorClient = mockk<ThorClient>()
+
+            val indexer =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } returns 0L
+                    every { getInspectionClauses() } returns null
+                    coEvery { initialise() } just Runs
+                    coEvery { fastSync() } just Runs
+                }
+
+            val job =
+                IndexerRunner.launch(
+                    scope = this,
+                    thorClient = thorClient,
+                    indexers = listOf(indexer),
+                    duration = 0.milliseconds,
+                    timeSource = testTimeSource,
+                )
+
+            job.join()
+            expectThat(job.isCompleted).isTrue()
+        }
+
+        @Test
+        fun `runIndexers with expired deadline should exit without processing`() = runTest {
+            val testTimeSource = TestTimeSource()
+            val thorClient = mockk<ThorClient>()
+
+            val indexer =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } returns 0L
+                    every { getInspectionClauses() } returns null
+                }
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
+                    buildBlock(num = blockNum)
+                }
+
+            val runner = IndexerRunner(testTimeSource)
+            // Create a deadline mark, then advance time past it
+            val deadlineMark = testTimeSource.markNow() + 100.milliseconds
+            testTimeSource += 200.milliseconds
+            runner.runIndexers(listOf(indexer), thorClient, 1, deadlineMark)
+
+            coVerify(exactly = 0) { indexer.processBlock(any()) }
+        }
+
+        @Test
+        fun `run with duration processes blocks then stops when time expires`() = runTest {
+            val testTimeSource = TestTimeSource()
+            val thorClient = mockk<ThorClient>()
+            var currentBlockNum = 0L
+
+            val indexer =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    every { getInspectionClauses() } returns null
+                    coEvery { initialise() } just Runs
+                    coEvery { fastSync() } just Runs
+                    coEvery { processBlock(any()) } coAnswers { currentBlockNum++ }
+                }
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
+                    testTimeSource += 100.milliseconds
+                    buildBlock(num = blockNum)
+                }
+
+            val runner = IndexerRunner(testTimeSource)
+            runner.run(listOf(indexer), 1, thorClient, duration = 500.milliseconds)
+
+            // Should have processed some blocks before deadline expired
+            coVerify(atLeast = 1) { indexer.processBlock(any()) }
+        }
+
+        @Test
+        fun `run with no duration should run indefinitely until cancelled`() = runTest {
+            val thorClient = mockk<ThorClient>()
+            var currentBlockNum = 0L
+
+            val indexer =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "indexer1"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    every { getInspectionClauses() } returns null
+                    coEvery { initialise() } just Runs
+                    coEvery { fastSync() } just Runs
+                    coEvery { processBlock(any()) } coAnswers { currentBlockNum++ }
+                }
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
+                    delay(100) // Suspension point so virtual time can advance
+                    buildBlock(num = blockNum)
+                }
+
+            val runner = IndexerRunner()
+            val job = launch { runner.run(listOf(indexer), 1, thorClient) }
+
+            delay(500)
+            expectThat(job.isActive).isTrue()
+            job.cancelAndJoin()
         }
     }
 

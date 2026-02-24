@@ -3,6 +3,8 @@ package org.vechain.indexer
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TestTimeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
@@ -207,6 +209,75 @@ internal class BlockFetcherTest {
                     groupChannels = emptyList(),
                 )
             }
+        }
+
+        @Test
+        fun `stops fetching when deadline is already passed`() = runTest {
+            val testTimeSource = TestTimeSource()
+            val thorClient = mockk<ThorClient>()
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
+                    buildBlock(num = blockNum)
+                }
+
+            val channel = Channel<PreparedBlock>(capacity = 20)
+            val fetcher = BlockFetcher(thorClient, emptyList())
+
+            // Create deadline mark, then advance time past it
+            val deadlineMark = testTimeSource.markNow() + 100.milliseconds
+            testTimeSource += 200.milliseconds
+
+            fetcher.prefetchBlocksInOrder(
+                startBlock = 0L,
+                maxBatchSize = 1,
+                groupChannels = listOf(channel),
+                deadlineMark = deadlineMark,
+            )
+
+            // Should have exited immediately without fetching any blocks
+            channel.close()
+            val received = mutableListOf<Long>()
+            for (block in channel) {
+                received.add(block.block.number)
+            }
+            expectThat(received.size).isEqualTo(0)
+            coVerify(exactly = 0) { thorClient.waitForBlock(any<BlockRevision>()) }
+        }
+
+        @Test
+        fun `stops fetching when deadline passes during execution`() = runTest {
+            val testTimeSource = TestTimeSource()
+            val thorClient = mockk<ThorClient>()
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
+                    testTimeSource += 100.milliseconds // advance time per fetch
+                    buildBlock(num = blockNum)
+                }
+
+            val channel = Channel<PreparedBlock>(capacity = 20)
+            val fetcher = BlockFetcher(thorClient, emptyList())
+
+            val deadlineMark = testTimeSource.markNow() + 350.milliseconds
+
+            fetcher.prefetchBlocksInOrder(
+                startBlock = 0L,
+                maxBatchSize = 1,
+                groupChannels = listOf(channel),
+                deadlineMark = deadlineMark,
+            )
+
+            channel.close()
+            val received = mutableListOf<Long>()
+            for (block in channel) {
+                received.add(block.block.number)
+            }
+
+            // Should have fetched some blocks but stopped when deadline passed
+            expectThat(received.size).isGreaterThanOrEqualTo(1)
         }
 
         @Test

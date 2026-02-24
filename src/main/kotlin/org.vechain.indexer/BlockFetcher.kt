@@ -1,5 +1,6 @@
 package org.vechain.indexer
 
+import kotlin.time.TimeMark
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -39,6 +40,7 @@ class BlockFetcher(
         startBlock: Long,
         maxBatchSize: Int,
         groupChannels: List<Channel<PreparedBlock>>,
+        deadlineMark: TimeMark? = null,
     ) = coroutineScope {
         require(startBlock >= 0) { "startBlock must be >= 0" }
         require(maxBatchSize >= 1) { "maxBatchSize must be >= 1" }
@@ -46,7 +48,7 @@ class BlockFetcher(
         var nextBlockNumber = startBlock
         var lastBlockTimestamp: Long? = null
 
-        while (isActive) {
+        while (isActive && (deadlineMark == null || deadlineMark.hasNotPassedNow())) {
             val currentBlock = nextBlockNumber
             val windowSize = calculateWindowSize(lastBlockTimestamp, maxBatchSize)
             logger.debug("Block fetch window size: $windowSize")
