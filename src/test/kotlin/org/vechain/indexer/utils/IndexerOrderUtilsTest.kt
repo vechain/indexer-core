@@ -348,21 +348,6 @@ internal class IndexerOrderUtilsTest {
         }
 
         @Test
-        fun `should move only dependent indexer not entire group`() {
-            // parent@100, child@1000 depends on parent, independent@1050
-            val parent = createMockIndexer("parent", currentBlock = 100L)
-            val child = createMockIndexer("child", dependsOn = parent, currentBlock = 1000L)
-            val independent = createMockIndexer("independent", currentBlock = 1050L)
-
-            val result = IndexerOrderUtils.proximityGroups(listOf(parent, child, independent), 100)
-
-            // child moves to parent's group, independent stays in its own group
-            expectThat(result.size).isEqualTo(2)
-            expectThat(result[0]).containsExactly(parent, child)
-            expectThat(result[1]).containsExactly(independent)
-        }
-
-        @Test
         fun `should merge transitive dependency groups`() {
             // A depends on B, B is far from A but close to C
             // A at 1000, B at 100, C at 150

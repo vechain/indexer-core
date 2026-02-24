@@ -59,9 +59,8 @@ internal object IndexerOrderUtils {
 
     /**
      * Groups indexers by block number proximity. Indexers within [threshold] blocks of each other
-     * are placed in the same group. When a dependency spans groups, only the dependent indexer is
-     * moved to its dependency's group (not the entire group). Each group is topologically ordered
-     * internally.
+     * are placed in the same group. Dependencies are forced into the same group even if far apart.
+     * Each group is topologically ordered internally.
      *
      * @param indexers The list of indexers to group
      * @param threshold Maximum block gap allowed within a group
@@ -78,7 +77,7 @@ internal object IndexerOrderUtils {
         var currentGroup = mutableListOf(sorted[0])
         groups.add(currentGroup)
 
-        for (i in 1 ..< sorted.size) {
+        for (i in 1 until sorted.size) {
             val gap = sorted[i].getCurrentBlockNumber() - sorted[i - 1].getCurrentBlockNumber()
             if (gap > threshold) {
                 currentGroup = mutableListOf()
@@ -87,23 +86,26 @@ internal object IndexerOrderUtils {
             currentGroup.add(sorted[i])
         }
 
-        // Move dependent indexers to their dependency's group
+        // Force dependent indexers into the same group
         val indexerToGroup = mutableMapOf<Indexer, Int>()
         groups.forEachIndexed { idx, group -> group.forEach { indexerToGroup[it] = idx } }
 
-        var moved = true
-        while (moved) {
-            moved = false
+        // Merge groups when a dependency relationship spans groups
+        var merged = true
+        while (merged) {
+            merged = false
             for (indexer in indexers) {
                 val dep = indexer.dependsOn ?: continue
                 val indexerGroupIdx = indexerToGroup[indexer] ?: continue
                 val depGroupIdx = indexerToGroup[dep] ?: continue
                 if (indexerGroupIdx != depGroupIdx) {
-                    // Move only the dependent indexer to its dependency's group
-                    groups[indexerGroupIdx].remove(indexer)
-                    groups[depGroupIdx].add(indexer)
-                    indexerToGroup[indexer] = depGroupIdx
-                    moved = true
+                    // Merge into the lower-numbered group (earlier blocks)
+                    val targetIdx = minOf(indexerGroupIdx, depGroupIdx)
+                    val sourceIdx = maxOf(indexerGroupIdx, depGroupIdx)
+                    groups[targetIdx].addAll(groups[sourceIdx])
+                    groups[sourceIdx].forEach { indexerToGroup[it] = targetIdx }
+                    groups[sourceIdx].clear()
+                    merged = true
                 }
             }
         }
