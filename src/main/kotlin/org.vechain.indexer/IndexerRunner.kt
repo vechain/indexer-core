@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
@@ -52,9 +53,20 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
 
         logger.info("Starting ${indexers.size} Indexer ${indexers.map { it.name }}")
 
+        val fastSyncable = indexers.filterIsInstance<FastSyncableIndexer>()
+        val nonFastSyncable = indexers.filter { it !is FastSyncableIndexer }
+
         while (isActive) {
             try {
-                initialiseAndSync(indexers)
+                initialiseAndSyncWithIntermediateRun(
+                    fastSyncable,
+                    nonFastSyncable,
+                    thorClient,
+                    batchSize,
+                )
+                // Re-initialise non-fast-syncable indexers to recover from potential
+                // mid-block cancellation during the intermediate run
+                initialise(nonFastSyncable)
                 runIndexers(indexers, thorClient, batchSize)
             } catch (e: ReorgException) {
                 logger.error("Reorg detected, restarting all indexers", e)
@@ -64,11 +76,54 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     }
 
     /**
+     * Initialises and fast syncs fast-syncable indexers while running non-fast-syncable indexers in
+     * parallel. The intermediate run of non-fast-syncable indexers is cancelled once fast sync
+     * completes.
+     */
+    private suspend fun initialiseAndSyncWithIntermediateRun(
+        fastSyncable: List<FastSyncableIndexer>,
+        nonFastSyncable: List<Indexer>,
+        thorClient: ThorClient,
+        batchSize: Int,
+    ) {
+        if (fastSyncable.isEmpty()) {
+            initialise(nonFastSyncable)
+            return
+        }
+
+        coroutineScope {
+            val nonFastJob: Job? =
+                if (nonFastSyncable.isNotEmpty()) {
+                    initialise(nonFastSyncable)
+                    launch { runIndexers(nonFastSyncable, thorClient, batchSize) }
+                } else null
+
+            initialiseAndSync(fastSyncable)
+            nonFastJob?.cancelAndJoin()
+        }
+    }
+
+    /**
+     * Initialises all indexers concurrently with retry logic (no fast sync).
+     *
+     * @param indexers The list of indexers to initialise.
+     */
+    suspend fun initialise(indexers: List<Indexer>) {
+        if (indexers.isEmpty()) return
+        logger.info("Initialising ${indexers.size} indexers...")
+        coroutineScope {
+            val tasks =
+                indexers.map { indexer -> async { retryOnFailure { indexer.initialise() } } }
+            tasks.awaitAll()
+        }
+    }
+
+    /**
      * Initialises and fast syncs all indexers concurrently with retry logic.
      *
      * @param indexers The list of indexers to initialise and fast sync.
      */
-    suspend fun initialiseAndSync(indexers: List<Indexer>) {
+    suspend fun initialiseAndSync(indexers: List<FastSyncableIndexer>) {
         logger.info("Initialising and syncing indexers...")
         coroutineScope {
             val tasks = indexers.map { indexer -> async { initialiseAndSync(indexer) } }
@@ -81,13 +136,11 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
      *
      * @param indexer The indexer to initialise and fast sync.
      */
-    private suspend fun initialiseAndSync(indexer: Indexer) {
+    private suspend fun initialiseAndSync(indexer: FastSyncableIndexer) {
         logger.info("Initialising and syncing indexer ${indexer.name}...")
         retryOnFailure {
             indexer.initialise()
-            if (indexer is FastSyncable) {
-                indexer.fastSync()
-            }
+            indexer.fastSync()
         }
     }
 

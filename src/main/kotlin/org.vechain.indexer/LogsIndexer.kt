@@ -43,7 +43,7 @@ open class LogsIndexer(
         prunerInterval = prunerInterval,
         dependsOn = null,
     ),
-    FastSyncable {
+    FastSyncableIndexer {
     init {
         require(blockBatchSize >= 1) { "blockBatchSize must be >= 1" }
         require(logFetchLimit >= 1) { "logFetchLimit must be >= 1" }

@@ -68,7 +68,7 @@ interface Indexer : IndexerProcessor {
     fun shutDown()
 }
 
-interface FastSyncable {
+interface FastSyncableIndexer : Indexer {
     suspend fun fastSync()
 }
 
