@@ -80,7 +80,7 @@ internal class IndexerRunnerTest {
             val indexer3 = createMockIndexer("indexer3")
 
             val runner = IndexerRunner()
-            runner.initialiseAndSyncAll(listOf(indexer1, indexer2, indexer3))
+            runner.initialiseAndSync(listOf(indexer1, indexer2, indexer3))
 
             coVerify(exactly = 1) { indexer1.initialise() }
             coVerify(exactly = 1) { indexer1.fastSync() }
@@ -105,7 +105,7 @@ internal class IndexerRunnerTest {
                 )
 
             val runner = IndexerRunner()
-            runner.initialiseAndSyncAll(listOf(indexer))
+            runner.initialiseAndSync(listOf(indexer))
 
             expectThat(initAttempts).isEqualTo(3)
             coVerify(exactly = 3) { indexer.initialise() }
@@ -132,7 +132,7 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            runner.initialiseAndSyncAll(listOf(indexer))
+            runner.initialiseAndSync(listOf(indexer))
 
             expectThat(syncAttempts).isEqualTo(2)
             // Both initialise and fastSync are wrapped in retryUntilSuccess, so both retry
@@ -149,7 +149,7 @@ internal class IndexerRunnerTest {
                 )
 
             val runner = IndexerRunner()
-            val job = launch { runner.initialiseAndSyncAll(listOf(indexer)) }
+            val job = launch { runner.initialiseAndSync(listOf(indexer)) }
 
             delay(100) // Give it time to attempt
             job.cancelAndJoin()
@@ -163,7 +163,7 @@ internal class IndexerRunnerTest {
             val indexer = createMockIndexer("indexer1")
 
             val runner = IndexerRunner()
-            runner.initialiseAndSyncAll(listOf(indexer))
+            runner.initialiseAndSync(listOf(indexer))
 
             coVerify(exactly = 1) { indexer.initialise() }
             coVerify(exactly = 1) { indexer.fastSync() }
@@ -175,7 +175,7 @@ internal class IndexerRunnerTest {
             val slowIndexer = createMockIndexer(name = "slow", initializeBlock = { delay(50) })
 
             val runner = IndexerRunner()
-            runner.initialiseAndSyncAll(listOf(fastIndexer, slowIndexer))
+            runner.initialiseAndSync(listOf(fastIndexer, slowIndexer))
 
             coVerify(exactly = 1) { fastIndexer.initialise() }
             coVerify(exactly = 1) { fastIndexer.fastSync() }
@@ -193,7 +193,7 @@ internal class IndexerRunnerTest {
             val runner = IndexerRunner()
 
             // Should complete without error
-            runner.runAllIndexers(emptyList(), thorClient, 1)
+            runner.runIndexers(emptyList(), thorClient, 1)
 
             // No interactions with thor client
             coVerify(exactly = 0) { thorClient.waitForBlock(any<BlockRevision>()) }
@@ -212,7 +212,7 @@ internal class IndexerRunnerTest {
             coEvery { thorClient.waitForBlock(BlockRevision.Number(51L)) } returns block51
 
             val runner = IndexerRunner()
-            val job = launch { runner.runAllIndexers(listOf(indexer1, indexer2), thorClient, 1) }
+            val job = launch { runner.runIndexers(listOf(indexer1, indexer2), thorClient, 1) }
 
             delay(200) // Let it fetch a couple blocks
             job.cancelAndJoin()
@@ -266,7 +266,7 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            val job = launch { runner.runAllIndexers(listOf(indexer1, indexer2), thorClient, 1) }
+            val job = launch { runner.runIndexers(listOf(indexer1, indexer2), thorClient, 1) }
 
             delay(200) // Let them process
             job.cancelAndJoin()
@@ -292,7 +292,7 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            val job = launch { runner.runAllIndexers(listOf(indexer), thorClient, 1) }
+            val job = launch { runner.runIndexers(listOf(indexer), thorClient, 1) }
 
             delay(100)
             job.cancelAndJoin()
@@ -314,7 +314,7 @@ internal class IndexerRunnerTest {
             val runner = IndexerRunner()
 
             assertThrows<IllegalStateException> {
-                runner.runAllIndexers(listOf(indexer), thorClient, 1)
+                runner.runIndexers(listOf(indexer), thorClient, 1)
             }
         }
 
@@ -335,7 +335,7 @@ internal class IndexerRunnerTest {
             val indexer = createMockIndexer("indexer1", currentBlock = 0L)
 
             val runner = IndexerRunner()
-            val job = launch { runner.runAllIndexers(listOf(indexer), thorClient, 1) }
+            val job = launch { runner.runIndexers(listOf(indexer), thorClient, 1) }
 
             // Worst-case delay per retry: base + jitter < 2 * base
             // With 2 retries (initialDelay=1000, multiplier=2.0):
@@ -381,7 +381,7 @@ internal class IndexerRunnerTest {
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
-            val job = launch { runner.runAllIndexers(listOf(indexer), thorClient, 1) }
+            val job = launch { runner.runIndexers(listOf(indexer), thorClient, 1) }
 
             delay(2500) // Wait for retries
             job.cancelAndJoin()
@@ -418,9 +418,7 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            val job = launch {
-                runner.runAllIndexers(listOf(slowIndexer), thorClient, batchSize = 5)
-            }
+            val job = launch { runner.runIndexers(listOf(slowIndexer), thorClient, batchSize = 5) }
 
             delay(500)
             job.cancelAndJoin()
@@ -465,7 +463,7 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            val job = launch { runner.runAllIndexers(listOf(indexer), thorClient, 1) }
+            val job = launch { runner.runIndexers(listOf(indexer), thorClient, 1) }
 
             delay(500)
             job.cancelAndJoin()
@@ -530,7 +528,7 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            val job = launch { runner.runAllIndexers(listOf(indexer1, indexer2), thorClient, 1) }
+            val job = launch { runner.runIndexers(listOf(indexer1, indexer2), thorClient, 1) }
 
             delay(300)
             job.cancelAndJoin()
@@ -569,7 +567,7 @@ internal class IndexerRunnerTest {
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
-            val job = launch { runner.runAllIndexers(listOf(indexer1, indexer2), thorClient, 1) }
+            val job = launch { runner.runIndexers(listOf(indexer1, indexer2), thorClient, 1) }
 
             delay(300)
             job.cancelAndJoin()
@@ -704,7 +702,7 @@ internal class IndexerRunnerTest {
 
             val job = launch {
                 try {
-                    runner.runAllIndexers(listOf(indexer), thorClient, 1)
+                    runner.runIndexers(listOf(indexer), thorClient, 1)
                 } catch (e: org.vechain.indexer.exception.ReorgException) {
                     // Expected - ReorgException should propagate
                 }
@@ -830,7 +828,7 @@ internal class IndexerRunnerTest {
             coEvery { thorClient.waitForBlock(BlockRevision.Number(100L)) } returns block100
 
             val runner = IndexerRunner()
-            val job = launch { runner.runAllIndexers(listOf(indexer), thorClient, 1) }
+            val job = launch { runner.runIndexers(listOf(indexer), thorClient, 1) }
 
             delay(300)
             job.cancelAndJoin()
@@ -856,7 +854,7 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            val job = launch { runner.runAllIndexers(listOf(indexer), thorClient, 1) }
+            val job = launch { runner.runIndexers(listOf(indexer), thorClient, 1) }
 
             delay(500) // Give more time for processing
             job.cancelAndJoin()

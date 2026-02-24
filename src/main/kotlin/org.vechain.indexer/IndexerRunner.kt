@@ -52,8 +52,8 @@ class IndexerRunner {
 
         while (isActive) {
             try {
-                initialiseAndSyncAll(indexers)
-                runAllIndexers(indexers, thorClient, batchSize)
+                initialiseAndSync(indexers)
+                runIndexers(indexers, thorClient, batchSize)
             } catch (e: ReorgException) {
                 logger.error("Reorg detected, restarting all indexers", e)
                 // Exception caught, job will complete normally and loop will restart
@@ -66,7 +66,7 @@ class IndexerRunner {
      *
      * @param indexers The list of indexers to initialise and fast sync.
      */
-    suspend fun initialiseAndSyncAll(indexers: List<Indexer>) {
+    suspend fun initialiseAndSync(indexers: List<Indexer>) {
         logger.info("Initialising and syncing indexers...")
         coroutineScope {
             val tasks = indexers.map { indexer -> async { initialiseAndSync(indexer) } }
@@ -87,7 +87,7 @@ class IndexerRunner {
         }
     }
 
-    suspend fun runAllIndexers(
+    suspend fun runIndexers(
         indexers: List<Indexer>,
         thorClient: ThorClient,
         batchSize: Int,
