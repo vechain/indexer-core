@@ -53,7 +53,7 @@ open class IndexerRunner {
             thorClient: ThorClient,
             indexers: List<Indexer>,
             blockBatchSize: Int = 1,
-            proximityThreshold: Long = 100_000L,
+            proximityThreshold: Long = 1_000_000L,
             reshuffleIntervalMs: Long = DEFAULT_RESHUFFLE_INTERVAL_MS,
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
