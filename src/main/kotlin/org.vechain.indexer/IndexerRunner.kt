@@ -1,6 +1,5 @@
 package org.vechain.indexer
 
-import kotlin.time.Duration
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineScope
@@ -28,20 +27,17 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             scope: CoroutineScope,
             thorClient: ThorClient,
             indexers: List<Indexer>,
-            blockBatchSize: Int = 1,
-            duration: Duration? = null,
-            timeSource: TimeSource = TimeSource.Monotonic,
+            blockBatchSize: Int = 1
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-            val runner = IndexerRunner(timeSource)
+            val runner = IndexerRunner(TimeSource.Monotonic)
 
             return scope.launch {
                 runner.run(
                     indexers = indexers,
                     batchSize = blockBatchSize,
                     thorClient = thorClient,
-                    duration = duration,
                 )
             }
         }
@@ -51,18 +47,15 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         indexers: List<Indexer>,
         batchSize: Int,
         thorClient: ThorClient,
-        duration: Duration? = null,
     ): Unit = coroutineScope {
         require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-        val deadlineMark = duration?.let { timeSource.markNow() + it }
-
         logger.info("Starting ${indexers.size} Indexer ${indexers.map { it.name }}")
 
-        while (isActive && (deadlineMark == null || deadlineMark.hasNotPassedNow())) {
+        while (isActive) {
             try {
                 initialiseAndSync(indexers)
-                runIndexers(indexers, thorClient, batchSize, deadlineMark)
+                runIndexers(indexers, thorClient, batchSize)
             } catch (e: ReorgException) {
                 logger.error("Reorg detected, restarting all indexers", e)
                 // Exception caught, job will complete normally and loop will restart
