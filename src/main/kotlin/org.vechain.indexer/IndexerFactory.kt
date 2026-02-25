@@ -56,6 +56,8 @@ class IndexerFactory {
                 substitutionParams = substitutionParams,
             )
 
+        val needsVetTransfers = includeVetTransfers || eventProcessor.needsVetTransfers()
+
         // If `includeFullBlock` is true, return a `BlockIndexer`
         return if (includeFullBlock || dependsOn != null) {
             BlockIndexer(
@@ -78,7 +80,7 @@ class IndexerFactory {
                 processor = processor!!,
                 startBlock = startBlock,
                 syncLoggerInterval = syncLoggerInterval,
-                excludeVetTransfers = !includeVetTransfers,
+                excludeVetTransfers = !needsVetTransfers,
                 blockBatchSize = blockBatchSize,
                 logFetchLimit = logFetchLimit,
                 eventCriteriaSet = eventCriteriaSet ?: emptyList(),

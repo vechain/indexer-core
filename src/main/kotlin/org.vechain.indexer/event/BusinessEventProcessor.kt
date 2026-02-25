@@ -33,12 +33,14 @@ open class BusinessEventProcessor(
             envParams = substitutionParams,
         )
 
+    val needsVetTransfers: Boolean = containsVetTransferEvent(businessEvents)
+
     private val abiEventProcessor: AbiEventProcessor =
         AbiEventProcessor(
             basePath = abiBasePath,
             eventNames = extractAbiEventNames(businessEvents),
             contractAddresses = businessEventContracts,
-            includeVetTransfers = containsVetTransferEvent(businessEvents),
+            includeVetTransfers = needsVetTransfers,
         )
 
     override fun processEvents(block: Block): List<IndexedEvent> {
