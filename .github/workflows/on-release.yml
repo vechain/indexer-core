@@ -7,7 +7,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  packages: write
+  packages: read
 
 jobs:
   publish:
@@ -22,6 +22,8 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+
+      - uses: gradle/actions/setup-gradle@v4
 
       - name: Extract Default Project Version from Gradle
         run: |
@@ -60,8 +62,3 @@ jobs:
             ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
             ORG_GRADLE_PROJECT_ossrhUsername: ${{ secrets.OSSRH_USERNAME }}
             ORG_GRADLE_PROJECT_ossrhPassword: ${{ secrets.OSSRH_PASSWORD }}
-
-      - name: Publish to GitHub Packages
-        run: ./gradlew publishMavenJavaPublicationToGitHubPackagesRepository
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
