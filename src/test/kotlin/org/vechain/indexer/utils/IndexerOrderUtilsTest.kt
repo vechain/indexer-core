@@ -8,15 +8,21 @@ import org.junit.jupiter.api.assertThrows
 import org.vechain.indexer.Indexer
 import strikt.api.expectThat
 import strikt.assertions.containsExactly
+import strikt.assertions.hasSize
 import strikt.assertions.isEmpty
 import strikt.assertions.isEqualTo
 
 internal class IndexerOrderUtilsTest {
 
-    private fun createMockIndexer(name: String, dependsOn: Indexer? = null): Indexer {
+    private fun createMockIndexer(
+        name: String,
+        dependsOn: Indexer? = null,
+        currentBlock: Long = 0L,
+    ): Indexer {
         return mockk<Indexer>(relaxed = true) {
             every { this@mockk.name } returns name
             every { this@mockk.dependsOn } returns dependsOn
+            every { this@mockk.getCurrentBlockNumber() } returns currentBlock
         }
     }
 
@@ -241,6 +247,142 @@ internal class IndexerOrderUtilsTest {
             expectThat(result.size).isEqualTo(1)
             expectThat(result[0])
                 .containsExactly(root, child1, child2, child3, child4, grandchild1, grandchild2)
+        }
+    }
+
+    @Nested
+    inner class ProximityGroups {
+
+        @Test
+        fun `empty list returns empty result`() {
+            val result = IndexerOrderUtils.proximityGroups(emptyList(), 100)
+            expectThat(result).isEmpty()
+        }
+
+        @Test
+        fun `single indexer returns single group`() {
+            val indexer = createMockIndexer("a", currentBlock = 50)
+            val result = IndexerOrderUtils.proximityGroups(listOf(indexer), 100)
+
+            expectThat(result).hasSize(1)
+            expectThat(result[0]).containsExactly(indexer)
+        }
+
+        @Test
+        fun `all within threshold returns single group`() {
+            val a = createMockIndexer("a", currentBlock = 0)
+            val b = createMockIndexer("b", currentBlock = 50)
+            val c = createMockIndexer("c", currentBlock = 100)
+
+            val result = IndexerOrderUtils.proximityGroups(listOf(a, b, c), 100)
+
+            expectThat(result).hasSize(1)
+        }
+
+        @Test
+        fun `gap exceeding threshold creates separate groups`() {
+            val a = createMockIndexer("a", currentBlock = 0)
+            val b = createMockIndexer("b", currentBlock = 50)
+            val c = createMockIndexer("c", currentBlock = 1000)
+            val d = createMockIndexer("d", currentBlock = 1050)
+
+            val result = IndexerOrderUtils.proximityGroups(listOf(a, b, c, d), 100)
+
+            expectThat(result).hasSize(2)
+            expectThat(result[0]).containsExactly(a, b)
+            expectThat(result[1]).containsExactly(c, d)
+        }
+
+        @Test
+        fun `cross-group dependency chain extracted and re-merged into closest group`() {
+            // parent at block 0, child at block 1000 — different proximity groups
+            // but threshold 1100 from chain min (0) to group min (1000) allows merge
+            val parent = createMockIndexer("parent", currentBlock = 0)
+            val child = createMockIndexer("child", dependsOn = parent, currentBlock = 1000)
+
+            val result = IndexerOrderUtils.proximityGroups(listOf(parent, child), 100)
+
+            // Chain extracted, re-merged into closest group within threshold
+            // gap between chain min (0) and group min (1000) is 1000 > 100, so standalone
+            expectThat(result).hasSize(1)
+            // Should be topologically ordered: parent before child
+            expectThat(result[0]).containsExactly(parent, child)
+        }
+
+        @Test
+        fun `cross-group dependency with no close group becomes standalone`() {
+            val a = createMockIndexer("a", currentBlock = 0)
+            val b = createMockIndexer("b", currentBlock = 50)
+            val parent = createMockIndexer("parent", currentBlock = 5000)
+            val child = createMockIndexer("child", dependsOn = parent, currentBlock = 10000)
+
+            val result = IndexerOrderUtils.proximityGroups(listOf(a, b, parent, child), 100)
+
+            // a,b in one group; parent+child chain: gap(5000) to group a,b (0) = 5000 > 100
+            // so chain becomes standalone
+            expectThat(result).hasSize(2)
+            expectThat(result[0]).containsExactly(a, b)
+            expectThat(result[1]).containsExactly(parent, child)
+        }
+
+        @Test
+        fun `downstream dependents are extracted along with their chain`() {
+            val root = createMockIndexer("root", currentBlock = 0)
+            val mid = createMockIndexer("mid", dependsOn = root, currentBlock = 5000)
+            val leaf = createMockIndexer("leaf", dependsOn = mid, currentBlock = 5010)
+
+            val result = IndexerOrderUtils.proximityGroups(listOf(root, mid, leaf), 100)
+
+            // All three form a dependency chain and get extracted together
+            expectThat(result).hasSize(1)
+            expectThat(result[0]).containsExactly(root, mid, leaf)
+        }
+
+        @Test
+        fun `groups are topologically ordered internally`() {
+            val parent = createMockIndexer("parent", currentBlock = 10)
+            val child = createMockIndexer("child", dependsOn = parent, currentBlock = 20)
+
+            val result = IndexerOrderUtils.proximityGroups(listOf(child, parent), 100)
+
+            expectThat(result).hasSize(1)
+            expectThat(result[0]).containsExactly(parent, child)
+        }
+
+        @Test
+        fun `three separate groups with no cross-group deps stay separate`() {
+            val a = createMockIndexer("a", currentBlock = 0)
+            val b = createMockIndexer("b", currentBlock = 1000)
+            val c = createMockIndexer("c", currentBlock = 2000)
+
+            val result = IndexerOrderUtils.proximityGroups(listOf(a, b, c), 100)
+
+            expectThat(result).hasSize(3)
+            expectThat(result[0]).containsExactly(a)
+            expectThat(result[1]).containsExactly(b)
+            expectThat(result[2]).containsExactly(c)
+        }
+
+        @Test
+        fun `cross-group chain merges into closest group within threshold`() {
+            val a = createMockIndexer("a", currentBlock = 0)
+            val b = createMockIndexer("b", currentBlock = 50)
+            val c = createMockIndexer("c", currentBlock = 2000)
+            // parent in first group, child in second — chain min is 10
+            val parent = createMockIndexer("parent", currentBlock = 10)
+            val child = createMockIndexer("child", dependsOn = parent, currentBlock = 2010)
+
+            val result = IndexerOrderUtils.proximityGroups(listOf(a, b, c, parent, child), 100)
+
+            // Chain (parent@10, child@2010) min=10, closest group is {a@0,b@50} with min=0
+            // gap = |10-0| = 10 <= 100, so merge into that group
+            expectThat(result).hasSize(2)
+            // First group: a, b, parent, child (topologically ordered)
+            val firstGroupNames = result[0].map { it.name }
+            expectThat(firstGroupNames.indexOf("parent") < firstGroupNames.indexOf("child"))
+                .isEqualTo(true)
+            // Second group: c
+            expectThat(result[1]).containsExactly(c)
         }
     }
 }

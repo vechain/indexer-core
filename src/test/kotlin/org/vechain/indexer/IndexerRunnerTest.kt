@@ -8,6 +8,7 @@ import io.mockk.just
 import io.mockk.mockk
 import kotlin.math.pow
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TestTimeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -1316,6 +1317,165 @@ internal class IndexerRunnerTest {
             expectThat(nfsInitCount).isGreaterThanOrEqualTo(2)
             expectThat(fsInitCount).isGreaterThanOrEqualTo(2)
             expectThat(fsSyncCount).isGreaterThanOrEqualTo(2)
+        }
+    }
+
+    @Nested
+    inner class RunWithProximityGroups {
+
+        @Test
+        fun `single group delegates to runIndexers without deadline`() = runTest {
+            val thorClient = mockk<ThorClient>()
+            var currentBlockNum = 0L
+
+            // All indexers at same block — single proximity group
+            val indexer = createMockNonFastSyncableIndexer("indexer1", currentBlock = 0L)
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    delay(100)
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
+                }
+
+            val runner = IndexerRunner()
+            val job = launch {
+                runner.runWithProximityGroups(
+                    listOf(indexer),
+                    thorClient,
+                    1,
+                    1_000_000L,
+                    5.minutes,
+                )
+            }
+
+            delay(300)
+            // Should still be running (no deadline, steady state)
+            expectThat(job.isActive).isTrue()
+            job.cancelAndJoin()
+
+            coVerify(atLeast = 1) { indexer.processBlock(any()) }
+        }
+
+        @Test
+        fun `two groups process blocks from their respective starting points`() = runTest {
+            val thorClient = mockk<ThorClient>()
+
+            val indexer1 = createMockNonFastSyncableIndexer("low", currentBlock = 0L)
+            val indexer2 = createMockNonFastSyncableIndexer("high", currentBlock = 10000L)
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
+                    delay(50)
+                    buildBlock(num = blockNum)
+                }
+
+            val runner = IndexerRunner()
+            val job = launch {
+                runner.runWithProximityGroups(
+                    listOf(indexer1, indexer2),
+                    thorClient,
+                    1,
+                    100L,
+                    5.minutes,
+                )
+            }
+
+            delay(500)
+            job.cancelAndJoin()
+
+            // Both should have processed at least one block from their starting points
+            coVerify(atLeast = 1) { indexer1.processBlock(any()) }
+            coVerify(atLeast = 1) { indexer2.processBlock(any()) }
+        }
+
+        @Test
+        fun `groups reshuffle after deadline`() = runTest {
+            val testTimeSource = TestTimeSource()
+            val thorClient = mockk<ThorClient>()
+            val fetchedBlocks = mutableListOf<Long>()
+
+            val indexer1 = createMockNonFastSyncableIndexer("low", currentBlock = 0L)
+            val indexer2 = createMockNonFastSyncableIndexer("high", currentBlock = 10000L)
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
+                    synchronized(fetchedBlocks) { fetchedBlocks.add(blockNum) }
+                    delay(10) // suspension point for cancellation
+                    testTimeSource += 200.milliseconds
+                    buildBlock(num = blockNum)
+                }
+
+            val runner = IndexerRunner(testTimeSource)
+            val job = launch {
+                runner.runWithProximityGroups(
+                    listOf(indexer1, indexer2),
+                    thorClient,
+                    1,
+                    100L,
+                    500.milliseconds,
+                )
+            }
+
+            delay(500)
+            job.cancelAndJoin()
+
+            // Both block ranges should have been fetched (evidence of two groups)
+            val lowBlocks = synchronized(fetchedBlocks) { fetchedBlocks.filter { it < 5000 } }
+            val highBlocks = synchronized(fetchedBlocks) { fetchedBlocks.filter { it >= 10000 } }
+            expectThat(lowBlocks.isNotEmpty()).isTrue()
+            expectThat(highBlocks.isNotEmpty()).isTrue()
+
+            // Should have fetched enough blocks to indicate multiple reshuffle cycles
+            // Each cycle: 500ms deadline / 200ms per fetch = ~2-3 fetches per group per cycle
+            expectThat(fetchedBlocks.size).isGreaterThan(4)
+        }
+
+        @Test
+        fun `ReorgException propagates through proximity groups`() = runTest {
+            val testTimeSource = TestTimeSource()
+            val thorClient = mockk<ThorClient>()
+            var currentBlockNum = 0L
+
+            val indexer =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "reorg-indexer"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } answers { currentBlockNum }
+                    every { getInspectionClauses() } returns null
+                    coEvery { processBlock(any()) } coAnswers
+                        {
+                            throw ReorgException("Reorg detected")
+                        }
+                }
+
+            val indexer2 =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "far-indexer"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } returns 10000L
+                    every { getInspectionClauses() } returns null
+                }
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
+                    testTimeSource += 10.milliseconds
+                    buildBlock(num = blockNum)
+                }
+
+            val runner = IndexerRunner(testTimeSource)
+
+            assertThrows<ReorgException> {
+                runner.runWithProximityGroups(
+                    listOf(indexer, indexer2),
+                    thorClient,
+                    1,
+                    100L,
+                    5.minutes,
+                )
+            }
         }
     }
 }
