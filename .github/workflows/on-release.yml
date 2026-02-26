@@ -7,7 +7,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  packages: read
+  packages: write
 
 jobs:
   publish:
@@ -62,3 +62,8 @@ jobs:
             ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
             ORG_GRADLE_PROJECT_ossrhUsername: ${{ secrets.OSSRH_USERNAME }}
             ORG_GRADLE_PROJECT_ossrhPassword: ${{ secrets.OSSRH_PASSWORD }}
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew publishMavenJavaPublicationToGitHubPackagesRepository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
