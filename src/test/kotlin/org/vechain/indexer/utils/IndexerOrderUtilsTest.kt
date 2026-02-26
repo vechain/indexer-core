@@ -294,16 +294,16 @@ internal class IndexerOrderUtilsTest {
         }
 
         @Test
-        fun `cross-group dependency chain extracted and re-merged into closest group`() {
-            // parent at block 0, child at block 1000 — different proximity groups
-            // but threshold 1100 from chain min (0) to group min (1000) allows merge
+        fun `cross-group dependency chain extracted leaves single standalone group`() {
+            // parent at block 0, child at block 1000 — initially two proximity groups
+            // Chain extraction removes both from their original groups (leaving them empty),
+            // so the chain becomes the sole standalone group
             val parent = createMockIndexer("parent", currentBlock = 0)
             val child = createMockIndexer("child", dependsOn = parent, currentBlock = 1000)
 
             val result = IndexerOrderUtils.proximityGroups(listOf(parent, child), 100)
 
-            // Chain extracted, re-merged into closest group within threshold
-            // gap between chain min (0) and group min (1000) is 1000 > 100, so standalone
+            // Both original groups emptied after extraction; chain is the only group
             expectThat(result).hasSize(1)
             // Should be topologically ordered: parent before child
             expectThat(result[0]).containsExactly(parent, child)
