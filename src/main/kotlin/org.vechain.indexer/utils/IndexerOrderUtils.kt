@@ -71,7 +71,7 @@ internal object IndexerOrderUtils {
         val sorted = indexers.sortedBy { it.getCurrentBlockNumber() }
         val groups = mutableListOf<MutableSet<Indexer>>()
         var currentGroup = mutableSetOf(sorted.first())
-        for (i in 1..<sorted.size) {
+        for (i in 1 ..< sorted.size) {
             val gap = sorted[i].getCurrentBlockNumber() - sorted[i - 1].getCurrentBlockNumber()
             if (gap > threshold) {
                 groups.add(currentGroup)

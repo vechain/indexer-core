@@ -191,7 +191,19 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 return
             }
 
-            logger.info("Proximity groups: ${groups.map { g -> g.map { it.name } }}")
+            val groupSummary = buildString {
+                appendLine(
+                    "Proximity groups: ${groups.size} groups, ${indexers.size} indexers, threshold=$proximityThreshold"
+                )
+                groups.forEachIndexed { i, g ->
+                    val blockRange =
+                        "${g.minOf { it.getCurrentBlockNumber() }}..${g.maxOf { it.getCurrentBlockNumber() }}"
+                    appendLine(
+                        "  Group ${i + 1} (${g.size} indexers, blocks $blockRange): ${g.map { it.name }}"
+                    )
+                }
+            }
+            logger.info(groupSummary.trimEnd())
             val deadlineMark = timeSource.markNow() + reshuffleInterval
             coroutineScope {
                 groups.forEach { group ->
