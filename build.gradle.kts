@@ -20,7 +20,7 @@ jacoco {
 
 group = "org.vechain"
 
-val projectVersion = System.getenv("PROJECT_VERSION") ?: "7.0.1"
+val projectVersion = System.getenv("PROJECT_VERSION") ?: "7.1.5"
 version = projectVersion
 
 val isSnapshot = version.toString().endsWith("SNAPSHOT")
@@ -89,6 +89,14 @@ publishing {
     }
 
     repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/vechain/indexer-core")
+            credentials {
+                username = findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
+                password = findProperty("gpr.key") as String? ?: System.getenv("GITHUB_TOKEN")
+            }
+        }
         maven {
             credentials {
                 username = findProperty("ossrhUsername") as String?

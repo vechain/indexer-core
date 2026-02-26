@@ -1,0 +1,77 @@
+name: Publish PR Snapshot
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.head_ref || github.ref_name }}-publish
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+jobs:
+  publish-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set snapshot version
+        run: |
+          SHORT_SHA=$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-7)
+          VERSION="pr.${{ github.event.pull_request.number }}.${SHORT_SHA}-SNAPSHOT"
+          echo "PROJECT_VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew publishMavenJavaPublicationToGitHubPackagesRepository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on PR with usage instructions
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: snapshot-version
+          message: |
+            ### 📦 Snapshot Published
+
+            ```
+            org.vechain:indexer-core:${{ env.PROJECT_VERSION }}
+            ```
+
+            <details>
+            <summary>Usage</summary>
+
+            Add the GitHub Packages repository to your `build.gradle.kts`:
+
+            ```kotlin
+            repositories {
+                maven {
+                    url = uri("https://maven.pkg.github.com/vechain/indexer-core")
+                    credentials {
+                        username = findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
+                        password = findProperty("gpr.key") as String? ?: System.getenv("GITHUB_TOKEN")
+                    }
+                }
+            }
+            ```
+
+            Then use the dependency:
+
+            ```kotlin
+            implementation("org.vechain:indexer-core:${{ env.PROJECT_VERSION }}")
+            ```
+
+            **Note:** Requires a GitHub PAT with `read:packages` scope in `~/.gradle/gradle.properties`:
+            ```
+            gpr.user=YOUR_GITHUB_USERNAME
+            gpr.key=ghp_YOUR_TOKEN
+            ```
+            </details>
