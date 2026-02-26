@@ -90,6 +90,14 @@ publishing {
 
     repositories {
         maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/vechain/indexer-core")
+            credentials {
+                username = findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
+                password = findProperty("gpr.key") as String? ?: System.getenv("GITHUB_TOKEN")
+            }
+        }
+        maven {
             credentials {
                 username = findProperty("ossrhUsername") as String?
                 password = findProperty("ossrhPassword") as String?

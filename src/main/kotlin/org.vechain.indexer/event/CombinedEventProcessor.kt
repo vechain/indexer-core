@@ -70,6 +70,9 @@ protected constructor(
             (abiEventProcessor != null && abiEventProcessor.eventAbis.isNotEmpty())
     }
 
+    /** Returns whether any business event requires VET transfer logs. */
+    fun needsVetTransfers(): Boolean = businessEventProcessor?.needsVetTransfers == true
+
     /**
      * @param block The block containing events to process.
      * @return A list of decoded events and their associated parameters.
