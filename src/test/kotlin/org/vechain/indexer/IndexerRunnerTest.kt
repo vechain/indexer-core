@@ -1124,6 +1124,141 @@ internal class IndexerRunnerTest {
         }
 
         @Test
+        fun `non-fast-syncable depending on fast-syncable is excluded from intermediate run`() =
+            runTest {
+                val thorClient = mockk<ThorClient>()
+                var fsBlockNum = 0L
+                var nfsIndependentBlockNum = 0L
+                var nfsDependentBlockNum = 0L
+                val nfsIndependentProcessedDuringFastSync = mutableListOf<Long>()
+
+                val fastSyncable =
+                    mockk<FastSyncableIndexer>(relaxed = true) {
+                        every { name } returns "fast"
+                        every { dependsOn } returns null
+                        every { getCurrentBlockNumber() } answers { fsBlockNum }
+                        every { getInspectionClauses() } returns null
+                        coEvery { initialise() } just Runs
+                        coEvery { fastSync() } coAnswers { delay(300) }
+                        coEvery { processBlock(any()) } coAnswers { fsBlockNum++ }
+                    }
+
+                // Independent non-fast-syncable: should run during fast sync
+                val nfsIndependent =
+                    mockk<Indexer>(relaxed = true) {
+                        every { name } returns "plain-independent"
+                        every { dependsOn } returns null
+                        every { getCurrentBlockNumber() } answers { nfsIndependentBlockNum }
+                        every { getInspectionClauses() } returns null
+                        coEvery { initialise() } just Runs
+                        coEvery { processBlock(any()) } coAnswers
+                            {
+                                nfsIndependentProcessedDuringFastSync.add(firstArg<Block>().number)
+                                nfsIndependentBlockNum++
+                            }
+                    }
+
+                // Dependent non-fast-syncable: depends on fast-syncable, should be excluded
+                val nfsDependent =
+                    mockk<Indexer>(relaxed = true) {
+                        every { name } returns "plain-dependent"
+                        every { dependsOn } returns fastSyncable
+                        every { getCurrentBlockNumber() } answers { nfsDependentBlockNum }
+                        every { getInspectionClauses() } returns null
+                        coEvery { initialise() } just Runs
+                        coEvery { processBlock(any()) } coAnswers { nfsDependentBlockNum++ }
+                    }
+
+                coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                    {
+                        delay(50)
+                        buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
+                    }
+
+                val runner = IndexerRunner()
+                val job = launch {
+                    runner.run(
+                        listOf(fastSyncable, nfsIndependent, nfsDependent),
+                        1,
+                        thorClient,
+                    )
+                }
+
+                delay(600)
+                job.cancelAndJoin()
+
+                // Independent non-fast-syncable should have processed blocks during fast sync
+                expectThat(nfsIndependentProcessedDuringFastSync.isNotEmpty()).isTrue()
+
+                // Both should eventually get processBlock in the main run
+                coVerify(atLeast = 1) { nfsDependent.processBlock(any()) }
+                coVerify(atLeast = 1) { fastSyncable.processBlock(any()) }
+            }
+
+        @Test
+        fun `transitive dependency on fast-syncable is excluded from intermediate run`() = runTest {
+            val thorClient = mockk<ThorClient>()
+            var fsBlockNum = 0L
+            var nfsMiddleBlockNum = 0L
+            var nfsLeafBlockNum = 0L
+
+            val fastSyncable =
+                mockk<FastSyncableIndexer>(relaxed = true) {
+                    every { name } returns "fast"
+                    every { dependsOn } returns null
+                    every { getCurrentBlockNumber() } answers { fsBlockNum }
+                    every { getInspectionClauses() } returns null
+                    coEvery { initialise() } just Runs
+                    coEvery { fastSync() } coAnswers { delay(300) }
+                    coEvery { processBlock(any()) } coAnswers { fsBlockNum++ }
+                }
+
+            // Middle: non-fast-syncable, depends on fast-syncable
+            val nfsMiddle =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "middle"
+                    every { dependsOn } returns fastSyncable
+                    every { getCurrentBlockNumber() } answers { nfsMiddleBlockNum }
+                    every { getInspectionClauses() } returns null
+                    coEvery { initialise() } just Runs
+                    coEvery { processBlock(any()) } coAnswers { nfsMiddleBlockNum++ }
+                }
+
+            // Leaf: non-fast-syncable, depends on middle (transitive dep on fast-syncable)
+            val nfsLeaf =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "leaf"
+                    every { dependsOn } returns nfsMiddle
+                    every { getCurrentBlockNumber() } answers { nfsLeafBlockNum }
+                    every { getInspectionClauses() } returns null
+                    coEvery { initialise() } just Runs
+                    coEvery { processBlock(any()) } coAnswers { nfsLeafBlockNum++ }
+                }
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    delay(50)
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
+                }
+
+            val runner = IndexerRunner()
+            val job = launch {
+                runner.run(
+                    listOf(fastSyncable, nfsMiddle, nfsLeaf),
+                    1,
+                    thorClient,
+                )
+            }
+
+            delay(600)
+            job.cancelAndJoin()
+
+            // Both non-fast-syncable should eventually get processBlock in the main run
+            coVerify(atLeast = 1) { nfsMiddle.processBlock(any()) }
+            coVerify(atLeast = 1) { nfsLeaf.processBlock(any()) }
+        }
+
+        @Test
         fun `ReorgException during intermediate run restarts everything`() = runTest {
             val thorClient = mockk<ThorClient>()
             var nfsBlockNum = 0L

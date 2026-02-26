@@ -91,11 +91,16 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             return
         }
 
+        // Filter out non-fast-syncable indexers that transitively depend on a fast-syncable
+        // indexer, as that dependency won't be in the intermediate run
+        val fastSyncableSet = fastSyncable.toSet()
+        val independentNonFast = nonFastSyncable.filter { !it.dependsOnAny(fastSyncableSet) }
+
         coroutineScope {
             val nonFastJob: Job? =
-                if (nonFastSyncable.isNotEmpty()) {
-                    initialise(nonFastSyncable)
-                    launch { runIndexers(nonFastSyncable, thorClient, batchSize) }
+                if (independentNonFast.isNotEmpty()) {
+                    initialise(independentNonFast)
+                    launch { runIndexers(independentNonFast, thorClient, batchSize) }
                 } else null
 
             initialiseAndSync(fastSyncable)
@@ -231,5 +236,14 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 )
             }
         }
+    }
+
+    private fun Indexer.dependsOnAny(targets: Set<Indexer>): Boolean {
+        var current = this.dependsOn
+        while (current != null) {
+            if (current in targets) return true
+            current = current.dependsOn
+        }
+        return false
     }
 }
