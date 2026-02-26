@@ -1,5 +1,7 @@
 package org.vechain.indexer
 
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +19,7 @@ import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.utils.ClauseIndexMapping
 import org.vechain.indexer.utils.ClauseUtils.buildClauseListWithMapping
+import org.vechain.indexer.utils.IndexerOrderUtils.proximityGroups
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
 import org.vechain.indexer.utils.retryOnFailure
 
@@ -28,7 +31,9 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             scope: CoroutineScope,
             thorClient: ThorClient,
             indexers: List<Indexer>,
-            blockBatchSize: Int = 1
+            blockBatchSize: Int = 1,
+            proximityThreshold: Long = 1_000_000L,
+            reshuffleInterval: Duration = 5.minutes,
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -39,6 +44,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                     indexers = indexers,
                     batchSize = blockBatchSize,
                     thorClient = thorClient,
+                    proximityThreshold = proximityThreshold,
+                    reshuffleInterval = reshuffleInterval,
                 )
             }
         }
@@ -48,6 +55,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         indexers: List<Indexer>,
         batchSize: Int,
         thorClient: ThorClient,
+        proximityThreshold: Long = 1_000_000L,
+        reshuffleInterval: Duration = 5.minutes,
     ): Unit = coroutineScope {
         require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -63,11 +72,19 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                     nonFastSyncable,
                     thorClient,
                     batchSize,
+                    proximityThreshold,
+                    reshuffleInterval,
                 )
                 // Re-initialise non-fast-syncable indexers to recover from potential
                 // mid-block cancellation during the intermediate run
                 initialise(nonFastSyncable)
-                runIndexers(indexers, thorClient, batchSize)
+                runWithProximityGroups(
+                    indexers,
+                    thorClient,
+                    batchSize,
+                    proximityThreshold,
+                    reshuffleInterval,
+                )
             } catch (e: ReorgException) {
                 logger.error("Reorg detected, restarting all indexers", e)
                 // Exception caught, job will complete normally and loop will restart
@@ -85,6 +102,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         nonFastSyncable: List<Indexer>,
         thorClient: ThorClient,
         batchSize: Int,
+        proximityThreshold: Long = 1_000_000L,
+        reshuffleInterval: Duration = 5.minutes,
     ) {
         if (fastSyncable.isEmpty()) {
             initialise(nonFastSyncable)
@@ -100,7 +119,15 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             val nonFastJob: Job? =
                 if (independentNonFast.isNotEmpty()) {
                     initialise(independentNonFast)
-                    launch { runIndexers(independentNonFast, thorClient, batchSize) }
+                    launch {
+                        runWithProximityGroups(
+                            independentNonFast,
+                            thorClient,
+                            batchSize,
+                            proximityThreshold,
+                            reshuffleInterval,
+                        )
+                    }
                 } else null
 
             initialiseAndSync(fastSyncable)
@@ -146,6 +173,44 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         retryOnFailure {
             indexer.initialise()
             indexer.fastSync()
+        }
+    }
+
+    suspend fun runWithProximityGroups(
+        indexers: List<Indexer>,
+        thorClient: ThorClient,
+        batchSize: Int,
+        proximityThreshold: Long,
+        reshuffleInterval: Duration,
+    ) {
+        while (true) {
+            val groups = proximityGroups(indexers, proximityThreshold)
+            if (groups.size <= 1) {
+                // Steady state — single group, no deadline
+                runIndexers(indexers, thorClient, batchSize)
+                return
+            }
+
+            val groupSummary = buildString {
+                appendLine(
+                    "Proximity groups: ${groups.size} groups, ${indexers.size} indexers, threshold=$proximityThreshold"
+                )
+                groups.forEachIndexed { i, g ->
+                    val blockRange =
+                        "${g.minOf { it.getCurrentBlockNumber() }}..${g.maxOf { it.getCurrentBlockNumber() }}"
+                    appendLine(
+                        "  Group ${i + 1} (${g.size} indexers, blocks $blockRange): ${g.map { it.name }}"
+                    )
+                }
+            }
+            logger.info(groupSummary.trimEnd())
+            val deadlineMark = timeSource.markNow() + reshuffleInterval
+            coroutineScope {
+                groups.forEach { group ->
+                    launch { runIndexers(group, thorClient, batchSize, deadlineMark) }
+                }
+            }
+            // All groups completed naturally when deadline passed; loop to reshuffle
         }
     }
 
