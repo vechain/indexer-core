@@ -20,7 +20,7 @@ jacoco {
 
 group = "org.vechain"
 
-val projectVersion = System.getenv("PROJECT_VERSION") ?: "7.1.5"
+val projectVersion = System.getenv("PROJECT_VERSION") ?: "7.2.0"
 version = projectVersion
 
 val isSnapshot = version.toString().endsWith("SNAPSHOT")
