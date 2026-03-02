@@ -34,8 +34,6 @@ internal class TestableLogsIndexer(
     eventCriteriaSet: List<EventCriteria>?,
     transferCriteriaSet: List<TransferCriteria>?,
     eventProcessor: CombinedEventProcessor?,
-    pruner: Pruner?,
-    prunerInterval: Long,
     val mockLogClient: LogClient? = null,
 ) :
     LogsIndexer(
@@ -50,8 +48,6 @@ internal class TestableLogsIndexer(
         eventCriteriaSet = eventCriteriaSet,
         transferCriteriaSet = transferCriteriaSet,
         eventProcessor = eventProcessor,
-        pruner = pruner,
-        prunerInterval = prunerInterval,
     ) {
 
     override val logClient: LogClient
@@ -150,8 +146,6 @@ internal class LogsIndexerTest {
                         eventCriteriaSet = null,
                         transferCriteriaSet = null,
                         eventProcessor = eventProcessor,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         mockLogClient = logClient,
                     )
                 )
@@ -250,8 +244,6 @@ internal class LogsIndexerTest {
                         eventCriteriaSet = null,
                         transferCriteriaSet = null,
                         eventProcessor = eventProcessor,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         mockLogClient = logClient,
                     )
                 )
@@ -284,7 +276,7 @@ internal class LogsIndexerTest {
                 eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
             }
             coVerify(exactly = 1) {
-                processor.process(match { it is IndexingResult.EventsOnly && it.endBlock == 9L })
+                processor.process(match { it is IndexingResult.LogResult && it.endBlock == 9L })
             }
             expect { that(indexer.getCurrentBlockNumber()).isEqualTo(10L) }
         }
@@ -333,8 +325,6 @@ internal class LogsIndexerTest {
                         eventCriteriaSet = null,
                         transferCriteriaSet = null,
                         eventProcessor = eventProcessor,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         mockLogClient = logClient,
                     )
                 )
@@ -399,8 +389,6 @@ internal class LogsIndexerTest {
                         eventCriteriaSet = null,
                         transferCriteriaSet = null,
                         eventProcessor = eventProcessor,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         mockLogClient = logClient,
                     )
                 )
@@ -445,7 +433,7 @@ internal class LogsIndexerTest {
             coVerify(exactly = 1) {
                 processor.process(
                     match {
-                        it is IndexingResult.EventsOnly &&
+                        it is IndexingResult.LogResult &&
                             it.endBlock == 9L &&
                             it.events == indexedEvents
                     }
@@ -507,8 +495,6 @@ internal class LogsIndexerTest {
                     eventCriteriaSet = null,
                     transferCriteriaSet = null,
                     eventProcessor = eventProcessor,
-                    pruner = null,
-                    prunerInterval = 10000L,
                     mockLogClient = logClient,
                 )
         }
@@ -569,8 +555,6 @@ internal class LogsIndexerTest {
                     eventCriteriaSet = null,
                     transferCriteriaSet = null,
                     eventProcessor = eventProcessor,
-                    pruner = null,
-                    prunerInterval = 10000L,
                     mockLogClient = logClient,
                 )
             expect { that(indexerWithTransfers.publicShouldFetchTransferLogs()).isEqualTo(true) }
@@ -588,8 +572,6 @@ internal class LogsIndexerTest {
                     eventCriteriaSet = null,
                     transferCriteriaSet = null,
                     eventProcessor = eventProcessor,
-                    pruner = null,
-                    prunerInterval = 10000L,
                     mockLogClient = logClient,
                 )
             expect {
@@ -648,8 +630,6 @@ internal class LogsIndexerTest {
                     eventCriteriaSet = null,
                     transferCriteriaSet = null,
                     eventProcessor = eventProcessor,
-                    pruner = null,
-                    prunerInterval = 10000L,
                     mockLogClient = logClient,
                 )
 
@@ -677,25 +657,26 @@ internal class LogsIndexerTest {
                 eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
             }
             coVerify(exactly = 1) {
-                processor.process(match { it is IndexingResult.EventsOnly && it.endBlock == 10L })
+                processor.process(match { it is IndexingResult.LogResult && it.endBlock == 10L })
             }
         }
 
         @Test
-        fun `processAndIndexEvents should not process when events are empty`() = runBlocking {
+        fun `processAndIndexEvents should process even when events are empty`() = runBlocking {
             val eventLogs = listOf<EventLog>()
             val transferLogs = listOf<TransferLog>()
 
             every {
                 eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
             } returns emptyList()
+            coEvery { processor.process(any()) } just Runs
 
             indexer.publicProcessAndIndexEvents(eventLogs, transferLogs, 10L)
 
             verify(exactly = 1) {
                 eventProcessor.processEvents(any<List<EventLog>>(), any<List<TransferLog>>())
             }
-            coVerify(exactly = 0) { processor.process(any()) }
+            coVerify(exactly = 1) { processor.process(any()) }
         }
 
         @Test
