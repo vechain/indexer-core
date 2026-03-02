@@ -25,8 +25,6 @@ class IndexerFactory {
     private var substitutionParams: Map<String, String> = emptyMap()
     private var blockBatchSize: Long = 100L //  Block batch size
     private var logFetchLimit: Long = 1000L //  Limits logs per API call (pagination)
-    private var pruner: Pruner? = null
-    private var prunerInterval: Long = 10_000L // Pruner runs every 1000 blocks by default
     private var eventCriteriaSet: List<EventCriteria>? = null
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
@@ -66,9 +64,7 @@ class IndexerFactory {
                 processor = processor!!,
                 startBlock = startBlock,
                 syncLoggerInterval = syncLoggerInterval,
-                pruner = pruner,
                 eventProcessor = eventProcessor,
-                prunerInterval = prunerInterval,
                 inspectionClauses = callDataClauses,
                 dependsOn = dependsOn
             )
@@ -86,8 +82,6 @@ class IndexerFactory {
                 eventCriteriaSet = eventCriteriaSet ?: emptyList(),
                 transferCriteriaSet = transferCriteriaSet ?: emptyList(),
                 eventProcessor = eventProcessor,
-                pruner = pruner,
-                prunerInterval = prunerInterval,
             )
         }
     }
@@ -255,26 +249,6 @@ class IndexerFactory {
      * them again and reduce the number of calls to the Thor API.
      */
     fun excludeVetTransfers() = apply { this.includeVetTransfers = false }
-
-    /**
-     * Sets the pruner to be used by the indexer.
-     *
-     * The pruner will be called periodically to remove old blocks from the indexer.
-     *
-     * @param pruner The pruner to use for removing old data
-     */
-    fun pruner(pruner: Pruner) = apply { this.pruner = pruner }
-
-    /**
-     * Sets the interval for the pruner to run.
-     *
-     * The pruner will run every `interval` blocks to remove old data.
-     *
-     * The default value is `10,000` blocks.
-     *
-     * @param interval The interval in `blocks` in between runs of the pruner
-     */
-    fun prunerInterval(interval: Long) = apply { this.prunerInterval = interval }
 
     /**
      * Optional criteria for filtering event logs. This can be used to optimise the call to the Thor

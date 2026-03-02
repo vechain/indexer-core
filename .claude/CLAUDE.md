@@ -64,7 +64,6 @@ The `IndexerRunner` orchestrates multiple indexers using topological sorting (`I
 
 Indexer states (defined in `Status` enum):
 - `NOT_INITIALISED` → `INITIALISED` → `FAST_SYNCING` → `SYNCING` → `FULLY_SYNCED`
-- `PRUNING`: Temporary state when pruner runs (every `prunerInterval` blocks)
 - `SHUT_DOWN`: Terminal state
 
 Initialization flow:
@@ -110,7 +109,6 @@ The factory uses a builder pattern. Key methods:
 - `startBlock()`: Default is 0
 - `dependsOn()`: Forces BlockIndexer (needed for dependency coordination). Single-parent only.
 - `includeFullBlock()`: Forces BlockIndexer (enables access to gas, reverted txs)
-- `pruner()` + `prunerInterval()`: Optional periodic cleanup
 - `blockBatchSize()`: For LogsIndexer, controls log fetch batch size (default 100). For IndexerRunner, controls channel buffer (default 1).
 - `logFetchLimit()`: Pagination limit for Thor API calls (default 1000)
 
@@ -122,15 +120,6 @@ The factory uses a builder pattern. Key methods:
 - Block processing
 
 On failure: logs error, waits 1 second, retries indefinitely (until success or cancellation).
-
-### Pruner Execution
-
-Pruners run when:
-- `status == FULLY_SYNCED`
-- `currentBlockNumber % prunerInterval == prunerIntervalOffset`
-- Random offset prevents all indexers from pruning simultaneously
-
-During pruning, status becomes `PRUNING` and processing pauses.
 
 ## Testing Notes
 

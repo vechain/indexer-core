@@ -34,8 +34,6 @@ internal class TestableLogsIndexer(
     eventCriteriaSet: List<EventCriteria>?,
     transferCriteriaSet: List<TransferCriteria>?,
     eventProcessor: CombinedEventProcessor?,
-    pruner: Pruner?,
-    prunerInterval: Long,
     val mockLogClient: LogClient? = null,
 ) :
     LogsIndexer(
@@ -50,8 +48,6 @@ internal class TestableLogsIndexer(
         eventCriteriaSet = eventCriteriaSet,
         transferCriteriaSet = transferCriteriaSet,
         eventProcessor = eventProcessor,
-        pruner = pruner,
-        prunerInterval = prunerInterval,
     ) {
 
     override val logClient: LogClient
@@ -150,8 +146,6 @@ internal class LogsIndexerTest {
                         eventCriteriaSet = null,
                         transferCriteriaSet = null,
                         eventProcessor = eventProcessor,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         mockLogClient = logClient,
                     )
                 )
@@ -250,8 +244,6 @@ internal class LogsIndexerTest {
                         eventCriteriaSet = null,
                         transferCriteriaSet = null,
                         eventProcessor = eventProcessor,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         mockLogClient = logClient,
                     )
                 )
@@ -333,8 +325,6 @@ internal class LogsIndexerTest {
                         eventCriteriaSet = null,
                         transferCriteriaSet = null,
                         eventProcessor = eventProcessor,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         mockLogClient = logClient,
                     )
                 )
@@ -399,8 +389,6 @@ internal class LogsIndexerTest {
                         eventCriteriaSet = null,
                         transferCriteriaSet = null,
                         eventProcessor = eventProcessor,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         mockLogClient = logClient,
                     )
                 )
@@ -507,8 +495,6 @@ internal class LogsIndexerTest {
                     eventCriteriaSet = null,
                     transferCriteriaSet = null,
                     eventProcessor = eventProcessor,
-                    pruner = null,
-                    prunerInterval = 10000L,
                     mockLogClient = logClient,
                 )
         }
@@ -569,8 +555,6 @@ internal class LogsIndexerTest {
                     eventCriteriaSet = null,
                     transferCriteriaSet = null,
                     eventProcessor = eventProcessor,
-                    pruner = null,
-                    prunerInterval = 10000L,
                     mockLogClient = logClient,
                 )
             expect { that(indexerWithTransfers.publicShouldFetchTransferLogs()).isEqualTo(true) }
@@ -588,8 +572,6 @@ internal class LogsIndexerTest {
                     eventCriteriaSet = null,
                     transferCriteriaSet = null,
                     eventProcessor = eventProcessor,
-                    pruner = null,
-                    prunerInterval = 10000L,
                     mockLogClient = logClient,
                 )
             expect {
@@ -648,8 +630,6 @@ internal class LogsIndexerTest {
                     eventCriteriaSet = null,
                     transferCriteriaSet = null,
                     eventProcessor = eventProcessor,
-                    pruner = null,
-                    prunerInterval = 10000L,
                     mockLogClient = logClient,
                 )
 

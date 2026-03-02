@@ -23,16 +23,10 @@ open class BlockIndexer(
     private val syncLoggerInterval: Long,
     protected val eventProcessor: CombinedEventProcessor?,
     private val inspectionClauses: List<Clause>?,
-    override val pruner: Pruner?,
-    private val prunerInterval: Long,
     override val dependsOn: Indexer?,
 ) : Indexer {
 
     override fun getInspectionClauses(): List<Clause>? = inspectionClauses
-
-    init {
-        require(prunerInterval > 0) { "prunerInterval must be > 0" }
-    }
 
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
@@ -42,10 +36,6 @@ open class BlockIndexer(
     protected fun setPreviousBlock(value: BlockIdentifier?) {
         previousBlock = value
     }
-
-    // A random number between 0 and `prunerInterval`. This makes it less like that all pruners will
-    // run at the same time.
-    private val prunerIntervalOffset = (0 until prunerInterval).random()
 
     protected val logger: Logger = LoggerFactory.getLogger(name)
 
@@ -206,7 +196,6 @@ open class BlockIndexer(
         logProcessingBlock()
         process(buildIndexingResult(block))
         updateBlockState(block)
-        runPruner()
     }
 
     /**
@@ -222,7 +211,6 @@ open class BlockIndexer(
         logProcessingBlock()
         process(buildIndexingResultWithCallResults(block, inspectionResults))
         updateBlockState(block)
-        runPruner()
     }
 
     /**
@@ -247,41 +235,6 @@ open class BlockIndexer(
             } else {
                 Status.SYNCING
             }
-    }
-
-    /**
-     * Runs the pruner service if the indexer is in a fully synced state and the current block. The
-     * pruner will run every `prunerInterval` blocks, offset by a random number between 0 and
-     * `prunerInterval` to ensure that not all indexers run the pruner at the same time.
-     */
-    protected fun runPruner() {
-        if (!shouldRunPruner()) return
-
-        executePruner()
-    }
-
-    /**
-     * Determines whether the pruner should run based on current state and conditions.
-     *
-     * @return true if the pruner should run, false otherwise.
-     */
-    protected open fun shouldRunPruner(): Boolean {
-        if (pruner == null) return false
-        if (status != Status.FULLY_SYNCED) return false
-        if (currentBlockNumber % prunerInterval != prunerIntervalOffset) return false
-        return true
-    }
-
-    /** Executes the pruner service. */
-    protected open fun executePruner() {
-        val prunerInstance = pruner ?: return
-
-        status = Status.PRUNING
-        try {
-            prunerInstance.run(currentBlockNumber)
-        } finally {
-            status = Status.FULLY_SYNCED
-        }
     }
 
     override fun getLastSyncedBlock(): BlockIdentifier? = processor.getLastSyncedBlock()

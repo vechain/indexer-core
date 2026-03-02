@@ -28,8 +28,6 @@ open class LogsIndexer(
     private var eventCriteriaSet: List<EventCriteria>?,
     private var transferCriteriaSet: List<TransferCriteria>?,
     eventProcessor: CombinedEventProcessor?,
-    pruner: Pruner?,
-    prunerInterval: Long
 ) :
     BlockIndexer(
         name = name,
@@ -39,8 +37,6 @@ open class LogsIndexer(
         syncLoggerInterval = syncLoggerInterval,
         eventProcessor = eventProcessor,
         inspectionClauses = null,
-        pruner = pruner,
-        prunerInterval = prunerInterval,
         dependsOn = null,
     ),
     FastSyncableIndexer {

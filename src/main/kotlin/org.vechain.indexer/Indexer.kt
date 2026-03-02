@@ -23,9 +23,6 @@ enum class Status {
     /** Indexer is processing blocks */
     FULLY_SYNCED,
 
-    /** Indexer is pruning old data. Records will not be processed while in this state */
-    PRUNING,
-
     /** Indexer has been shut down and cannot be restarted */
     SHUT_DOWN,
 }
@@ -62,9 +59,6 @@ interface Indexer : IndexerProcessor {
         // Default implementation ignores pre-computed results and calls the regular method
         processBlock(block)
     }
-
-    // Optional pruner that can be run periodically to clean up old data
-    val pruner: Pruner?
 
     // Optional parent indexers that this indexer depends on.
     val dependsOn: Indexer?
@@ -157,9 +151,4 @@ interface IndexerProcessor {
 
     /** Processes a single [IndexingResult]. */
     suspend fun process(entry: IndexingResult)
-}
-
-/** Periodically cleans up old indexed data. Attached to an indexer via [Indexer.pruner]. */
-interface Pruner {
-    fun run(currentBlockNumber: Long)
 }

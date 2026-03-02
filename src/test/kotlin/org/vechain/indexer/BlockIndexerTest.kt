@@ -33,8 +33,6 @@ internal class TestableBlockIndexer(
     syncLoggerInterval: Long,
     eventProcessor: CombinedEventProcessor?,
     inspectionClauses: List<Clause>?,
-    pruner: Pruner?,
-    prunerInterval: Long,
     dependsOn: Indexer?,
 ) :
     BlockIndexer(
@@ -45,8 +43,6 @@ internal class TestableBlockIndexer(
         syncLoggerInterval = syncLoggerInterval,
         eventProcessor = eventProcessor,
         inspectionClauses = inspectionClauses,
-        pruner = pruner,
-        prunerInterval = prunerInterval,
         dependsOn = dependsOn,
     ) {
     suspend fun publicBuildIndexingResult(block: Block): IndexingResult {
@@ -55,10 +51,6 @@ internal class TestableBlockIndexer(
 
     fun publicUpdateSyncStatus(block: Block) {
         super.updateSyncStatus(block)
-    }
-
-    fun publicRunPruner() {
-        super.runPruner()
     }
 
     fun publicSetStatus(newStatus: Status) {
@@ -118,14 +110,6 @@ internal class TestableBlockIndexer(
         return super.buildReorgMessage(block)
     }
 
-    fun publicShouldRunPruner(): Boolean {
-        return super.shouldRunPruner()
-    }
-
-    fun publicExecutePruner() {
-        super.executePruner()
-    }
-
     fun publicShouldLogDebug(): Boolean {
         return super.shouldLogDebug()
     }
@@ -147,8 +131,6 @@ internal class BlockIndexerTest {
 
     @MockK private lateinit var eventProcessor: CombinedEventProcessor
 
-    @MockK private lateinit var pruner: Pruner
-
     @BeforeEach
     fun setup() {
         MockKAnnotations.init(this)
@@ -168,8 +150,6 @@ internal class BlockIndexerTest {
                     processor = processor,
                     startBlock = 0L,
                     eventProcessor = null,
-                    pruner = null,
-                    prunerInterval = 10000L,
                     syncLoggerInterval = 1L,
                     inspectionClauses = null,
                     dependsOn = null,
@@ -229,8 +209,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 50L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -277,8 +255,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = clauses,
                         dependsOn = null,
@@ -306,8 +282,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -351,8 +325,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = clauses,
                         dependsOn = null,
@@ -378,8 +350,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = eventProcessor,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -430,8 +400,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = eventProcessor,
-                        pruner = null,
-                        prunerInterval = 10000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = clauses,
                         dependsOn = null,
@@ -466,8 +434,6 @@ internal class BlockIndexerTest {
                     processor = processor,
                     startBlock = 123L,
                     eventProcessor = null,
-                    pruner = null,
-                    prunerInterval = 10000L,
                     syncLoggerInterval = 1L,
                     inspectionClauses = null,
                     dependsOn = null,
@@ -489,8 +455,6 @@ internal class BlockIndexerTest {
                     processor = processor,
                     startBlock = 123L,
                     eventProcessor = null,
-                    pruner = null,
-                    prunerInterval = 10000L,
                     syncLoggerInterval = 1L,
                     inspectionClauses = null,
                     dependsOn = null,
@@ -499,57 +463,6 @@ internal class BlockIndexerTest {
             indexer.publicUpdateSyncStatus(block)
 
             expect { that(indexer.getStatus()).isEqualTo(Status.SYNCING) }
-        }
-    }
-
-    @Nested
-    inner class RunPruner {
-        @Test
-        fun `Should only run pruner if fully synced`() {
-            val indexer =
-                TestableBlockIndexer(
-                    name = "TestBlockIndexer",
-                    thorClient = thorClient,
-                    processor = processor,
-                    startBlock = 0L,
-                    eventProcessor = null,
-                    pruner = pruner,
-                    prunerInterval = 1L,
-                    syncLoggerInterval = 1L,
-                    inspectionClauses = null,
-                    dependsOn = null,
-                )
-
-            every { pruner.run(any()) } just Runs
-
-            // Not fully synced, should not run pruner
-            indexer.publicRunPruner()
-            verify(exactly = 0) { pruner.run(any()) }
-
-            // Manually set status to SYNCING, should not run pruner
-            indexer.publicSetStatus(Status.SYNCING)
-            indexer.publicRunPruner()
-            verify(exactly = 0) { pruner.run(any()) }
-
-            // Manually set status to NOT_INITIALISED, should not run pruner
-            indexer.publicSetStatus(Status.NOT_INITIALISED)
-            indexer.publicRunPruner()
-            verify(exactly = 0) { pruner.run(any()) }
-
-            // Manually set status to INITIALISED, should not run pruner
-            indexer.publicSetStatus(Status.INITIALISED)
-            indexer.publicRunPruner()
-            verify(exactly = 0) { pruner.run(any()) }
-
-            // Manually set status to PRUNING, should not run pruner
-            indexer.publicSetStatus(Status.PRUNING)
-            indexer.publicRunPruner()
-            verify(exactly = 0) { pruner.run(any()) }
-
-            // Manually set status to FULLY_SYNCED, should run pruner
-            indexer.publicSetStatus(Status.FULLY_SYNCED)
-            indexer.publicRunPruner()
-            verify(exactly = 1) { pruner.run(any()) }
         }
     }
 
@@ -564,8 +477,6 @@ internal class BlockIndexerTest {
                     processor = processor,
                     startBlock = 0L,
                     eventProcessor = null,
-                    pruner = null,
-                    prunerInterval = 1000L,
                     syncLoggerInterval = 1L,
                     inspectionClauses = null,
                     dependsOn = null,
@@ -589,8 +500,6 @@ internal class BlockIndexerTest {
                     processor = processor,
                     startBlock = 0L,
                     eventProcessor = null,
-                    pruner = null,
-                    prunerInterval = 1000L,
                     syncLoggerInterval = 1L,
                     inspectionClauses = null,
                     dependsOn = null,
@@ -612,8 +521,6 @@ internal class BlockIndexerTest {
                     processor = processor,
                     startBlock = 0L,
                     eventProcessor = null,
-                    pruner = null,
-                    prunerInterval = 1000L,
                     syncLoggerInterval = 1L,
                     inspectionClauses = null,
                     dependsOn = null,
@@ -657,8 +564,6 @@ internal class BlockIndexerTest {
                     processor = processor,
                     startBlock = 0L,
                     eventProcessor = null,
-                    pruner = null,
-                    prunerInterval = 1000L,
                     syncLoggerInterval = 1L,
                     inspectionClauses = null,
                     dependsOn = null,
@@ -690,8 +595,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 50L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -714,8 +617,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 50L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -740,8 +641,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -764,8 +663,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -788,8 +685,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -814,8 +709,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -836,8 +729,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -858,8 +749,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -880,8 +769,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -901,8 +788,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -925,8 +810,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -948,8 +831,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -977,8 +858,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -1010,8 +889,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 50L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -1032,8 +909,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 50L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -1054,8 +929,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 50L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -1079,8 +952,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -1101,8 +972,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -1123,8 +992,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -1148,8 +1015,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -1169,139 +1034,6 @@ internal class BlockIndexerTest {
         }
 
         @Nested
-        inner class ShouldRunPruner {
-            @Test
-            fun `should return true when all conditions met`() {
-                val indexer =
-                    TestableBlockIndexer(
-                        name = "TestBlockIndexer",
-                        thorClient = thorClient,
-                        processor = processor,
-                        startBlock = 0L,
-                        eventProcessor = null,
-                        pruner = pruner,
-                        prunerInterval = 10L,
-                        syncLoggerInterval = 1L,
-                        inspectionClauses = null,
-                        dependsOn = null,
-                    )
-
-                indexer.publicSetStatus(Status.FULLY_SYNCED)
-                // Find a block number that matches the pruner interval
-                // The pruner runs when currentBlockNumber % prunerInterval == prunerIntervalOffset
-                // Since prunerIntervalOffset is random, we need to test at a block that will match
-                // For simplicity, let's just test the logic by setting to a known good value
-                indexer.publicSetCurrentBlockNumber(10L)
-
-                // The method should return true or false based on the random offset
-                // We can't deterministically test this without knowing the offset
-                // So we'll just verify it returns a boolean
-                val result = indexer.publicShouldRunPruner()
-                expectThat(result is Boolean).isEqualTo(true)
-            }
-
-            @Test
-            fun `should return false when pruner is null`() {
-                val indexer =
-                    TestableBlockIndexer(
-                        name = "TestBlockIndexer",
-                        thorClient = thorClient,
-                        processor = processor,
-                        startBlock = 0L,
-                        eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 10L,
-                        syncLoggerInterval = 1L,
-                        inspectionClauses = null,
-                        dependsOn = null,
-                    )
-
-                indexer.publicSetStatus(Status.FULLY_SYNCED)
-                indexer.publicSetCurrentBlockNumber(10L)
-
-                expectThat(indexer.publicShouldRunPruner()).isEqualTo(false)
-            }
-
-            @Test
-            fun `should return false when not fully synced`() {
-                val indexer =
-                    TestableBlockIndexer(
-                        name = "TestBlockIndexer",
-                        thorClient = thorClient,
-                        processor = processor,
-                        startBlock = 0L,
-                        eventProcessor = null,
-                        pruner = pruner,
-                        prunerInterval = 10L,
-                        syncLoggerInterval = 1L,
-                        inspectionClauses = null,
-                        dependsOn = null,
-                    )
-
-                indexer.publicSetStatus(Status.SYNCING)
-                indexer.publicSetCurrentBlockNumber(10L)
-
-                expectThat(indexer.publicShouldRunPruner()).isEqualTo(false)
-            }
-        }
-
-        @Nested
-        inner class ExecutePruner {
-            @Test
-            fun `should run pruner and set status to PRUNING then back to FULLY_SYNCED`() {
-                val indexer =
-                    TestableBlockIndexer(
-                        name = "TestBlockIndexer",
-                        thorClient = thorClient,
-                        processor = processor,
-                        startBlock = 0L,
-                        eventProcessor = null,
-                        pruner = pruner,
-                        prunerInterval = 10L,
-                        syncLoggerInterval = 1L,
-                        inspectionClauses = null,
-                        dependsOn = null,
-                    )
-
-                indexer.publicSetStatus(Status.FULLY_SYNCED)
-                indexer.publicSetCurrentBlockNumber(100L)
-
-                every { pruner.run(100L) } just Runs
-
-                indexer.publicExecutePruner()
-
-                verify(exactly = 1) { pruner.run(100L) }
-                expectThat(indexer.getStatus()).isEqualTo(Status.FULLY_SYNCED)
-            }
-
-            @Test
-            fun `should restore status to FULLY_SYNCED even if pruner throws`() {
-                val indexer =
-                    TestableBlockIndexer(
-                        name = "TestBlockIndexer",
-                        thorClient = thorClient,
-                        processor = processor,
-                        startBlock = 0L,
-                        eventProcessor = null,
-                        pruner = pruner,
-                        prunerInterval = 10L,
-                        syncLoggerInterval = 1L,
-                        inspectionClauses = null,
-                        dependsOn = null,
-                    )
-
-                indexer.publicSetStatus(Status.FULLY_SYNCED)
-                indexer.publicSetCurrentBlockNumber(100L)
-
-                every { pruner.run(100L) } throws RuntimeException("Pruner failed")
-
-                assertThrows<RuntimeException> { indexer.publicExecutePruner() }
-
-                expectThat(indexer.getStatus()).isEqualTo(Status.FULLY_SYNCED)
-            }
-        }
-
-        @Nested
         inner class ShouldLogInfo {
             @Test
             fun `should return true when status is FULLY_SYNCED`() {
@@ -1312,8 +1044,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 100L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -1334,8 +1064,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 100L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -1356,8 +1084,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 100L,
                         inspectionClauses = null,
                         dependsOn = null,
@@ -1381,8 +1107,6 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        pruner = null,
-                        prunerInterval = 1000L,
                         syncLoggerInterval = 1L,
                         inspectionClauses = null,
                         dependsOn = null,
