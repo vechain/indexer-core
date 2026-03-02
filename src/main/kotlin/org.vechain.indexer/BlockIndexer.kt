@@ -141,7 +141,7 @@ open class BlockIndexer(
         callResults: List<org.vechain.indexer.thor.model.InspectionResult>
     ): IndexingResult {
         val events = eventProcessor?.processEvents(block) ?: emptyList()
-        return IndexingResult.Normal(block, events, callResults, status)
+        return IndexingResult.BlockResult(block, events, callResults, status)
     }
 
     protected fun checkIfShuttingDown() {

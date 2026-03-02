@@ -93,7 +93,7 @@ Events are decoded and returned as `IndexedEvent` objects to the `IndexerProcess
 Implementations must provide:
 - `getLastSyncedBlock()`: Returns last successfully processed block (or null)
 - `rollback(blockNumber)`: Reverts data for specified block
-- `process(entry)`: Handles `IndexingResult.Normal` (full block) or `IndexingResult.EventsOnly` (log batch)
+- `process(entry)`: Handles `IndexingResult.BlockResult` (full block) or `IndexingResult.LogResult` (log batch)
 
 ## Code Style
 

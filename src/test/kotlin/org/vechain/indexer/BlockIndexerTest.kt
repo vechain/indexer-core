@@ -338,7 +338,7 @@ internal class BlockIndexerTest {
                         )
                     )
                 val expectedResult =
-                    IndexingResult.Normal(
+                    IndexingResult.BlockResult(
                         block = block,
                         events = emptyList(),
                         callResults = callResults,
@@ -394,7 +394,7 @@ internal class BlockIndexerTest {
 
                 expect {
                     that(result.events()).isEqualTo(indexedEvents)
-                    that((result as IndexingResult.Normal).block).isEqualTo(block)
+                    that((result as IndexingResult.BlockResult).block).isEqualTo(block)
                 }
             }
         }
@@ -417,7 +417,7 @@ internal class BlockIndexerTest {
                     )
                 val indexedEvents = listOf(IndexedEventFixture.create())
                 val expectedResult =
-                    IndexingResult.Normal(
+                    IndexingResult.BlockResult(
                         block = block,
                         events = indexedEvents,
                         callResults = callResults,
@@ -631,7 +631,7 @@ internal class BlockIndexerTest {
             coVerify(exactly = 1) {
                 processor.process(
                     match {
-                        it is IndexingResult.Normal &&
+                        it is IndexingResult.BlockResult &&
                             it.block == block &&
                             it.events.isEmpty() &&
                             it.callResults.isEmpty()

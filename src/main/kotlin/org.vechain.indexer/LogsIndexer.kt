@@ -194,9 +194,7 @@ open class LogsIndexer(
         batchEndBlock: Long
     ) {
         val indexedEvents = eventProcessor?.processEvents(eventLogs, transferLogs) ?: emptyList()
-        if (indexedEvents.isNotEmpty()) {
-            process(IndexingResult.EventsOnly(batchEndBlock, indexedEvents, getStatus()))
-        }
+        process(IndexingResult.LogResult(batchEndBlock, indexedEvents, getStatus()))
     }
 
     /**
