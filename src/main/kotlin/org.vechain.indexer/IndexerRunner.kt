@@ -331,11 +331,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 "Execution groups: ${executionGroups.size} groups, ${executionGroups.flatten().size} indexers"
             )
             executionGroups.forEachIndexed { i, g ->
-                val blockRange =
-                    "${g.minOf { it.getCurrentBlockNumber() }}..${g.maxOf { it.getCurrentBlockNumber() }}"
-                appendLine(
-                    "  Group ${i + 1} (${g.size} indexers, blocks $blockRange): ${g.map { it.name }}"
-                )
+                appendLine("  Group ${i + 1} (${g.size} indexers): ${g.map { it.name }}")
             }
         }
         logger.info(groupSummary.trimEnd())
