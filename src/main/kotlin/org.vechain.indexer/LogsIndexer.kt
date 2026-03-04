@@ -28,8 +28,6 @@ open class LogsIndexer(
     private var eventCriteriaSet: List<EventCriteria>?,
     private var transferCriteriaSet: List<TransferCriteria>?,
     eventProcessor: CombinedEventProcessor?,
-    pruner: Pruner?,
-    prunerInterval: Long
 ) :
     BlockIndexer(
         name = name,
@@ -39,10 +37,9 @@ open class LogsIndexer(
         syncLoggerInterval = syncLoggerInterval,
         eventProcessor = eventProcessor,
         inspectionClauses = null,
-        pruner = pruner,
-        prunerInterval = prunerInterval,
         dependsOn = null,
-    ) {
+    ),
+    FastSyncableIndexer {
     init {
         require(blockBatchSize >= 1) { "blockBatchSize must be >= 1" }
         require(logFetchLimit >= 1) { "logFetchLimit must be >= 1" }
@@ -193,9 +190,7 @@ open class LogsIndexer(
         batchEndBlock: Long
     ) {
         val indexedEvents = eventProcessor?.processEvents(eventLogs, transferLogs) ?: emptyList()
-        if (indexedEvents.isNotEmpty()) {
-            process(IndexingResult.EventsOnly(batchEndBlock, indexedEvents, getStatus()))
-        }
+        process(IndexingResult.LogResult(batchEndBlock, indexedEvents, getStatus()))
     }
 
     /**
