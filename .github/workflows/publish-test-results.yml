@@ -9,6 +9,7 @@ permissions:
 jobs:
   publish-test-reports:
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
