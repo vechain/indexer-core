@@ -115,6 +115,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         val fastSyncableSet = fastSyncable.toSet()
         val independentNonFast = nonFastSyncable.filter { !it.dependsOnAny(fastSyncableSet) }
 
+        logIntermediateRunSplit(fastSyncable, nonFastSyncable, independentNonFast)
+
         coroutineScope {
             val nonFastJob: Job? =
                 if (independentNonFast.isNotEmpty()) {
@@ -184,6 +186,9 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         reshuffleInterval: Duration,
     ) {
         while (true) {
+            if (logger.isDebugEnabled) {
+                logger.debug("Evaluating proximity groups for ${indexers.size} indexers")
+            }
             val groups = proximityGroups(indexers, proximityThreshold)
             if (groups.size <= 1) {
                 // Steady state — single group, no deadline
@@ -214,6 +219,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             val executionGroups = topologicalOrder(indexers)
             if (executionGroups.isEmpty()) return@coroutineScope
 
+            logExecutionGroups(executionGroups)
+
             // Build combined clause list and track which indices belong to which indexer
             val (allClauses, clauseIndexMapping) = buildClauseListWithMapping(indexers)
 
@@ -242,26 +249,6 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 }
             }
         }
-    }
-
-    private fun logProximityGroups(
-        groups: List<List<Indexer>>,
-        totalIndexers: Int,
-        proximityThreshold: Long,
-    ) {
-        val groupSummary = buildString {
-            appendLine(
-                "Proximity groups: ${groups.size} groups, $totalIndexers indexers, threshold=$proximityThreshold"
-            )
-            groups.forEachIndexed { i, g ->
-                val blockRange =
-                    "${g.minOf { it.getCurrentBlockNumber() }}..${g.maxOf { it.getCurrentBlockNumber() }}"
-                appendLine(
-                    "  Group ${i + 1} (${g.size} indexers, blocks $blockRange): ${g.map { it.name }}"
-                )
-            }
-        }
-        logger.info(groupSummary.trimEnd())
     }
 
     private suspend fun processGroupBlocks(
@@ -301,7 +288,9 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 }
             }
             currentNumber > block.number -> {
-                // Indexer already processed this block, skip
+                logger.debug(
+                    "Skipping block ${block.number} for ${indexer.name} (already at $currentNumber)"
+                )
             }
             else -> {
                 throw IllegalStateException(
@@ -318,5 +307,54 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             current = current.dependsOn
         }
         return false
+    }
+
+    // Logging functions
+    private fun logIntermediateRunSplit(
+        fastSyncable: List<Indexer>,
+        nonFastSyncable: List<Indexer>,
+        independentNonFast: List<Indexer>,
+    ) {
+        if (logger.isDebugEnabled) {
+            val excluded = nonFastSyncable - independentNonFast.toSet()
+            logger.debug(
+                "Intermediate run split: fastSync=${fastSyncable.map { it.name }}, " +
+                    "independent=${independentNonFast.map { it.name }}, " +
+                    "excluded=${excluded.map { it.name }}"
+            )
+        }
+    }
+
+    private fun logExecutionGroups(executionGroups: List<List<Indexer>>) {
+        if (logger.isDebugEnabled) {
+            val summary =
+                executionGroups
+                    .mapIndexed { i, group ->
+                        val names = group.map { "${it.name}@${it.getCurrentBlockNumber()}" }
+                        "Group ${i + 1}: $names"
+                    }
+                    .joinToString(", ")
+            logger.debug("Execution groups: $summary")
+        }
+    }
+
+    private fun logProximityGroups(
+        groups: List<List<Indexer>>,
+        totalIndexers: Int,
+        proximityThreshold: Long,
+    ) {
+        val groupSummary = buildString {
+            appendLine(
+                "Proximity groups: ${groups.size} groups, $totalIndexers indexers, threshold=$proximityThreshold"
+            )
+            groups.forEachIndexed { i, g ->
+                val blockRange =
+                    "${g.minOf { it.getCurrentBlockNumber() }}..${g.maxOf { it.getCurrentBlockNumber() }}"
+                appendLine(
+                    "  Group ${i + 1} (${g.size} indexers, blocks $blockRange): ${g.map { it.name }}"
+                )
+            }
+        }
+        logger.info(groupSummary.trimEnd())
     }
 }
