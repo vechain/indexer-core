@@ -640,7 +640,7 @@ internal class IndexerRunnerTest {
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
-            val job = launch { runner.run(listOf(indexer), 1, thorClient) }
+            val job = launch { runner.run(listOf(indexer), 1, thorClient, 500_000L, 15.minutes) }
 
             delay(300)
             job.cancelAndJoin()
@@ -657,7 +657,7 @@ internal class IndexerRunnerTest {
             val runner = IndexerRunner()
 
             assertThrows<IllegalArgumentException> {
-                runTest { runner.run(emptyList(), 1, thorClient) }
+                runTest { runner.run(emptyList(), 1, thorClient, 500_000L, 15.minutes) }
             }
         }
 
@@ -778,7 +778,7 @@ internal class IndexerRunnerTest {
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
-            val job = launch { runner.run(listOf(indexer), 1, thorClient) }
+            val job = launch { runner.run(listOf(indexer), 1, thorClient, 500_000L, 15.minutes) }
 
             delay(500) // Let it process, throw reorg, and restart
             job.cancelAndJoin()
@@ -833,7 +833,9 @@ internal class IndexerRunnerTest {
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
-            val job = launch { runner.run(listOf(indexer1, indexer2), 1, thorClient) }
+            val job = launch {
+                runner.run(listOf(indexer1, indexer2), 1, thorClient, 500_000L, 15.minutes)
+            }
 
             delay(500) // Let it process, throw reorg, and restart
             job.cancelAndJoin()
@@ -1024,7 +1026,13 @@ internal class IndexerRunnerTest {
 
                 val runner = IndexerRunner()
                 val job = launch {
-                    runner.run(listOf(fastSyncable, nonFastSyncable), 1, thorClient)
+                    runner.run(
+                        listOf(fastSyncable, nonFastSyncable),
+                        1,
+                        thorClient,
+                        500_000L,
+                        15.minutes,
+                    )
                 }
 
                 delay(500)
@@ -1059,7 +1067,9 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            val job = launch { runner.run(listOf(indexer1, indexer2), 1, thorClient) }
+            val job = launch {
+                runner.run(listOf(indexer1, indexer2), 1, thorClient, 500_000L, 15.minutes)
+            }
 
             delay(500)
             job.cancelAndJoin()
@@ -1115,7 +1125,15 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            val job = launch { runner.run(listOf(fastSyncable, nonFastSyncable), 1, thorClient) }
+            val job = launch {
+                runner.run(
+                    listOf(fastSyncable, nonFastSyncable),
+                    1,
+                    thorClient,
+                    500_000L,
+                    15.minutes,
+                )
+            }
 
             delay(600)
             job.cancelAndJoin()
@@ -1182,6 +1200,8 @@ internal class IndexerRunnerTest {
                         listOf(fastSyncable, nfsIndependent, nfsDependent),
                         1,
                         thorClient,
+                        500_000L,
+                        15.minutes,
                     )
                 }
 
@@ -1248,6 +1268,8 @@ internal class IndexerRunnerTest {
                     listOf(fastSyncable, nfsMiddle, nfsLeaf),
                     1,
                     thorClient,
+                    500_000L,
+                    15.minutes,
                 )
             }
 
@@ -1308,7 +1330,15 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            val job = launch { runner.run(listOf(fastSyncable, nonFastSyncable), 1, thorClient) }
+            val job = launch {
+                runner.run(
+                    listOf(fastSyncable, nonFastSyncable),
+                    1,
+                    thorClient,
+                    500_000L,
+                    15.minutes,
+                )
+            }
 
             delay(800)
             job.cancelAndJoin()

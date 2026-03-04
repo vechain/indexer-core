@@ -32,8 +32,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             thorClient: ThorClient,
             indexers: List<Indexer>,
             blockBatchSize: Int = 1,
-            proximityThreshold: Long = 1_000_000L,
-            reshuffleInterval: Duration = 5.minutes,
+            proximityThreshold: Long = 500_000L,
+            reshuffleInterval: Duration = 15.minutes,
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -55,8 +55,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         indexers: List<Indexer>,
         batchSize: Int,
         thorClient: ThorClient,
-        proximityThreshold: Long = 1_000_000L,
-        reshuffleInterval: Duration = 5.minutes,
+        proximityThreshold: Long,
+        reshuffleInterval: Duration,
     ): Unit = coroutineScope {
         require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -102,8 +102,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         nonFastSyncable: List<Indexer>,
         thorClient: ThorClient,
         batchSize: Int,
-        proximityThreshold: Long = 1_000_000L,
-        reshuffleInterval: Duration = 5.minutes,
+        proximityThreshold: Long,
+        reshuffleInterval: Duration,
     ) {
         if (fastSyncable.isEmpty()) {
             initialise(nonFastSyncable)
@@ -191,19 +191,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 return
             }
 
-            val groupSummary = buildString {
-                appendLine(
-                    "Proximity groups: ${groups.size} groups, ${indexers.size} indexers, threshold=$proximityThreshold"
-                )
-                groups.forEachIndexed { i, g ->
-                    val blockRange =
-                        "${g.minOf { it.getCurrentBlockNumber() }}..${g.maxOf { it.getCurrentBlockNumber() }}"
-                    appendLine(
-                        "  Group ${i + 1} (${g.size} indexers, blocks $blockRange): ${g.map { it.name }}"
-                    )
-                }
-            }
-            logger.info(groupSummary.trimEnd())
+            logProximityGroups(groups, indexers.size, proximityThreshold)
             val deadlineMark = timeSource.markNow() + reshuffleInterval
             coroutineScope {
                 groups.forEach { group ->
@@ -254,6 +242,26 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 }
             }
         }
+    }
+
+    private fun logProximityGroups(
+        groups: List<List<Indexer>>,
+        totalIndexers: Int,
+        proximityThreshold: Long,
+    ) {
+        val groupSummary = buildString {
+            appendLine(
+                "Proximity groups: ${groups.size} groups, $totalIndexers indexers, threshold=$proximityThreshold"
+            )
+            groups.forEachIndexed { i, g ->
+                val blockRange =
+                    "${g.minOf { it.getCurrentBlockNumber() }}..${g.maxOf { it.getCurrentBlockNumber() }}"
+                appendLine(
+                    "  Group ${i + 1} (${g.size} indexers, blocks $blockRange): ${g.map { it.name }}"
+                )
+            }
+        }
+        logger.info(groupSummary.trimEnd())
     }
 
     private suspend fun processGroupBlocks(
