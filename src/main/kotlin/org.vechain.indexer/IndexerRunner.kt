@@ -326,16 +326,19 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     }
 
     private fun logExecutionGroups(executionGroups: List<List<Indexer>>) {
-        if (logger.isDebugEnabled) {
-            val summary =
-                executionGroups
-                    .mapIndexed { i, group ->
-                        val names = group.map { "${it.name}@${it.getCurrentBlockNumber()}" }
-                        "Group ${i + 1}: $names"
-                    }
-                    .joinToString(", ")
-            logger.debug("Execution groups: $summary")
+        val groupSummary = buildString {
+            appendLine(
+                "Execution groups: ${executionGroups.size} groups, ${executionGroups.flatten().size} indexers"
+            )
+            executionGroups.forEachIndexed { i, g ->
+                val blockRange =
+                    "${g.minOf { it.getCurrentBlockNumber() }}..${g.maxOf { it.getCurrentBlockNumber() }}"
+                appendLine(
+                    "  Group ${i + 1} (${g.size} indexers, blocks $blockRange): ${g.map { it.name }}"
+                )
+            }
         }
+        logger.info(groupSummary.trimEnd())
     }
 
     private fun logProximityGroups(
