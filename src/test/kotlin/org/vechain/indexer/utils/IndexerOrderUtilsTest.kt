@@ -11,6 +11,7 @@ import strikt.assertions.containsExactly
 import strikt.assertions.hasSize
 import strikt.assertions.isEmpty
 import strikt.assertions.isEqualTo
+import strikt.assertions.isNotEqualTo
 
 internal class IndexerOrderUtilsTest {
 
@@ -47,15 +48,17 @@ internal class IndexerOrderUtilsTest {
         }
 
         @Test
-        fun `should return single group for multiple indexers with no dependencies`() {
+        fun `should return separate groups for multiple indexers with no dependencies`() {
             val indexer1 = createMockIndexer("indexer1")
             val indexer2 = createMockIndexer("indexer2")
             val indexer3 = createMockIndexer("indexer3")
 
             val result = IndexerOrderUtils.topologicalOrder(listOf(indexer1, indexer2, indexer3))
 
-            expectThat(result.size).isEqualTo(1)
-            expectThat(result[0]).containsExactly(indexer1, indexer2, indexer3)
+            expectThat(result.size).isEqualTo(3)
+            expectThat(result[0]).containsExactly(indexer1)
+            expectThat(result[1]).containsExactly(indexer2)
+            expectThat(result[2]).containsExactly(indexer3)
         }
 
         @Test
@@ -107,9 +110,10 @@ internal class IndexerOrderUtilsTest {
                     listOf(indexer1, indexer2, indexer3, indexer4, indexer5, indexer6)
                 )
 
-            expectThat(result.size).isEqualTo(1)
-            expectThat(result[0])
-                .containsExactly(indexer1, indexer2, indexer3, indexer4, indexer5, indexer6)
+            // Two connected components: {1,3,5,6} and {2,4}
+            expectThat(result.size).isEqualTo(2)
+            expectThat(result[0]).containsExactly(indexer1, indexer3, indexer5, indexer6)
+            expectThat(result[1]).containsExactly(indexer2, indexer4)
         }
 
         @Test
@@ -208,8 +212,11 @@ internal class IndexerOrderUtilsTest {
             val result =
                 IndexerOrderUtils.topologicalOrder(listOf(indexer1, indexer2, indexer3, indexer4))
 
-            expectThat(result.size).isEqualTo(1)
-            expectThat(result[0]).containsExactly(indexer1, indexer2, indexer3, indexer4)
+            // Three groups: {1,3} chain, {2} independent, {4} independent
+            expectThat(result.size).isEqualTo(3)
+            expectThat(result[0]).containsExactly(indexer1, indexer3)
+            expectThat(result[1]).containsExactly(indexer2)
+            expectThat(result[2]).containsExactly(indexer4)
         }
 
         @Test
@@ -247,6 +254,109 @@ internal class IndexerOrderUtilsTest {
             expectThat(result.size).isEqualTo(1)
             expectThat(result[0])
                 .containsExactly(root, child1, child2, child3, child4, grandchild1, grandchild2)
+        }
+    }
+
+    @Nested
+    inner class DependencySort {
+
+        @Test
+        fun `should return empty list for empty input`() {
+            val result = IndexerOrderUtils.dependencySort(emptyList())
+            expectThat(result).isEmpty()
+        }
+
+        @Test
+        fun `should return single indexer unchanged`() {
+            val indexer1 = createMockIndexer("indexer1")
+            val result = IndexerOrderUtils.dependencySort(listOf(indexer1))
+            expectThat(result).containsExactly(indexer1)
+        }
+
+        @Test
+        fun `should order dependencies before dependents`() {
+            val indexer1 = createMockIndexer("indexer1")
+            val indexer2 = createMockIndexer("indexer2", dependsOn = indexer1)
+            val indexer3 = createMockIndexer("indexer3", dependsOn = indexer2)
+
+            val result = IndexerOrderUtils.dependencySort(listOf(indexer3, indexer2, indexer1))
+            expectThat(result).containsExactly(indexer1, indexer2, indexer3)
+        }
+
+        @Test
+        fun `should detect circular dependency`() {
+            val indexer1 = createMockIndexer("indexer1")
+            val indexer2 = createMockIndexer("indexer2", dependsOn = indexer1)
+            every { indexer1.dependsOn } returns indexer2
+
+            assertThrows<IllegalStateException> {
+                IndexerOrderUtils.dependencySort(listOf(indexer1, indexer2))
+            }
+        }
+
+        @Test
+        fun `should reject missing dependency`() {
+            val external = createMockIndexer("external")
+            val indexer1 = createMockIndexer("indexer1", dependsOn = external)
+
+            assertThrows<IllegalArgumentException> {
+                IndexerOrderUtils.dependencySort(listOf(indexer1))
+            }
+        }
+    }
+
+    @Nested
+    inner class ConnectedComponents {
+
+        @Test
+        fun `should assign each independent indexer its own component`() {
+            val a = createMockIndexer("a")
+            val b = createMockIndexer("b")
+            val c = createMockIndexer("c")
+
+            val result = IndexerOrderUtils.connectedComponents(listOf(a, b, c))
+
+            val roots = result.values.toSet()
+            expectThat(roots).hasSize(3)
+        }
+
+        @Test
+        fun `should group dependency chain into one component`() {
+            val a = createMockIndexer("a")
+            val b = createMockIndexer("b", dependsOn = a)
+            val c = createMockIndexer("c", dependsOn = b)
+
+            val result = IndexerOrderUtils.connectedComponents(listOf(a, b, c))
+
+            expectThat(result.getValue(a)).isEqualTo(result.getValue(b))
+            expectThat(result.getValue(b)).isEqualTo(result.getValue(c))
+        }
+
+        @Test
+        fun `should separate independent chains`() {
+            val a = createMockIndexer("a")
+            val b = createMockIndexer("b", dependsOn = a)
+            val c = createMockIndexer("c")
+            val d = createMockIndexer("d", dependsOn = c)
+
+            val result = IndexerOrderUtils.connectedComponents(listOf(a, b, c, d))
+
+            expectThat(result.getValue(a)).isEqualTo(result.getValue(b))
+            expectThat(result.getValue(c)).isEqualTo(result.getValue(d))
+            expectThat(result.getValue(a)).isNotEqualTo(result.getValue(c))
+        }
+
+        @Test
+        fun `should group diamond pattern into one component`() {
+            val root = createMockIndexer("root")
+            val left = createMockIndexer("left", dependsOn = root)
+            val right = createMockIndexer("right", dependsOn = root)
+            val bottom = createMockIndexer("bottom", dependsOn = left)
+
+            val result = IndexerOrderUtils.connectedComponents(listOf(root, left, right, bottom))
+
+            val roots = result.values.toSet()
+            expectThat(roots).hasSize(1)
         }
     }
 
