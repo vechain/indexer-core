@@ -190,13 +190,12 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 logger.debug("Evaluating proximity groups for ${indexers.size} indexers")
             }
             val groups = proximityGroups(indexers, proximityThreshold)
+            logProximityGroups(groups, indexers.size, proximityThreshold)
             if (groups.size <= 1) {
                 // Steady state — single group, no deadline
                 runIndexers(indexers, thorClient, batchSize)
                 return
             }
-
-            logProximityGroups(groups, indexers.size, proximityThreshold)
             val deadlineMark = timeSource.markNow() + reshuffleInterval
             coroutineScope {
                 groups.forEach { group ->
