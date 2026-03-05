@@ -6,21 +6,39 @@ internal object IndexerOrderUtils {
 
     /**
      * Orders indexers into groups based on their dependencies. Each group contains indexers that
-     * are ordered sequentially (dependencies before dependents). Groups can be processed in
-     * parallel with each other.
-     *
-     * The algorithm creates a single group that contains all indexers in topological order,
-     * ensuring that: 1. Dependencies always appear before their dependents 2. The order is stable
-     * and deterministic 3. Circular dependencies are detected and rejected
+     * are ordered sequentially (dependencies before dependents). Independent indexers (no shared
+     * dependency chain) are placed in separate groups so they can be processed in parallel.
      *
      * @param indexers The list of indexers to order
-     * @return A list containing a single group with all indexers in dependency order
+     * @return A list of groups, each containing indexers in dependency order
      * @throws IllegalStateException if a circular dependency is detected
      * @throws IllegalArgumentException if a dependency is not in the provided indexers list
      */
     fun topologicalOrder(indexers: List<Indexer>): List<List<Indexer>> {
         if (indexers.isEmpty()) return emptyList()
 
+        val ordered = dependencySort(indexers)
+        val components = connectedComponents(indexers)
+
+        // Group by component, preserving topological order from `ordered`
+        val groups = mutableMapOf<Indexer, MutableList<Indexer>>()
+        for (indexer in ordered) {
+            groups.getOrPut(components.getValue(indexer)) { mutableListOf() }.add(indexer)
+        }
+
+        return groups.values.toList()
+    }
+
+    /**
+     * Topologically sorts indexers so dependencies appear before dependents. Also validates that
+     * all dependencies exist in the provided list and detects circular dependencies.
+     *
+     * @param indexers The list of indexers to sort
+     * @return Indexers in dependency-first order
+     * @throws IllegalStateException if a circular dependency is detected
+     * @throws IllegalArgumentException if a dependency is not in the provided indexers list
+     */
+    fun dependencySort(indexers: List<Indexer>): List<Indexer> {
         val indexerSet = indexers.toSet()
         val visitState = mutableMapOf<Indexer, VisitState>()
         val ordered = mutableListOf<Indexer>()
@@ -50,11 +68,48 @@ internal object IndexerOrderUtils {
             }
         }
 
-        // Visit all indexers in the order they were provided
         indexers.forEach { visit(it) }
+        return ordered
+    }
 
-        // Return all indexers in a single group, properly ordered
-        return listOf(ordered)
+    /**
+     * Partitions indexers into connected components based on dependency relationships. Indexers
+     * that share a dependency chain belong to the same component. Independent indexers each get
+     * their own component.
+     *
+     * @param indexers The list of indexers to partition
+     * @return A map from each indexer to its component root
+     */
+    fun connectedComponents(indexers: List<Indexer>): Map<Indexer, Indexer> {
+        val indexerSet = indexers.toSet()
+        val parent = mutableMapOf<Indexer, Indexer>()
+
+        fun find(x: Indexer): Indexer {
+            var root = x
+            while (parent.getOrDefault(root, root) != root) root = parent.getValue(root)
+            var curr = x
+            while (curr != root) {
+                val next = parent.getOrDefault(curr, curr)
+                parent[curr] = root
+                curr = next
+            }
+            return root
+        }
+
+        fun union(a: Indexer, b: Indexer) {
+            parent[find(a)] = find(b)
+        }
+
+        for (indexer in indexers) {
+            parent.putIfAbsent(indexer, indexer)
+            val dep = indexer.dependsOn
+            if (dep != null && dep in indexerSet) {
+                parent.putIfAbsent(dep, dep)
+                union(indexer, dep)
+            }
+        }
+
+        return indexers.associateWith { find(it) }
     }
 
     /**

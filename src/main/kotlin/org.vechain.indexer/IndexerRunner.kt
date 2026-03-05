@@ -190,13 +190,12 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 logger.debug("Evaluating proximity groups for ${indexers.size} indexers")
             }
             val groups = proximityGroups(indexers, proximityThreshold)
+            logProximityGroups(groups, indexers.size, proximityThreshold)
             if (groups.size <= 1) {
                 // Steady state — single group, no deadline
                 runIndexers(indexers, thorClient, batchSize)
                 return
             }
-
-            logProximityGroups(groups, indexers.size, proximityThreshold)
             val deadlineMark = timeSource.markNow() + reshuffleInterval
             coroutineScope {
                 groups.forEach { group ->
@@ -326,16 +325,15 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     }
 
     private fun logExecutionGroups(executionGroups: List<List<Indexer>>) {
-        if (logger.isDebugEnabled) {
-            val summary =
-                executionGroups
-                    .mapIndexed { i, group ->
-                        val names = group.map { "${it.name}@${it.getCurrentBlockNumber()}" }
-                        "Group ${i + 1}: $names"
-                    }
-                    .joinToString(", ")
-            logger.debug("Execution groups: $summary")
+        val groupSummary = buildString {
+            appendLine(
+                "Execution groups: ${executionGroups.size} groups, ${executionGroups.flatten().size} indexers"
+            )
+            executionGroups.forEachIndexed { i, g ->
+                appendLine("  Group ${i + 1} (${g.size} indexers): ${g.map { it.name }}")
+            }
         }
+        logger.info(groupSummary.trimEnd())
     }
 
     private fun logProximityGroups(
