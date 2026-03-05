@@ -15,7 +15,9 @@ jobs:
     steps:
       - name: Get latest tag
         id: latest-tag
-        run: echo "latest-tag=${{ github.ref == 'refs/heads/main' && 'dev-latest' || github.ref_name }}" >> "$GITHUB_OUTPUT"
+        env:
+          LATEST_TAG: ${{ github.ref == 'refs/heads/main' && 'dev-latest' || github.ref_name }}
+        run: echo "latest-tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
   test:
     name: Test
     uses: ./.github/workflows/test.yml

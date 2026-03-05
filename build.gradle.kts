@@ -194,3 +194,7 @@ if (!isSnapshot) {
         }
     }
 }
+
+dependencyLocking {
+    lockAllConfigurations()
+}
