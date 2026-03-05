@@ -5,8 +5,7 @@ on:
     types: [published]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
   packages: write
 
 jobs:
@@ -30,9 +29,11 @@ jobs:
             echo "DEFAULT_PROJECT_VERSION=$(./gradlew properties -q | grep '^version:' | awk '{print $2}')" >> $GITHUB_ENV
 
       - name: Ensure the default project version matches the tag name (the workflow will fail if they don't match)
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ "${{ github.event.release.tag_name }}" != "$DEFAULT_PROJECT_VERSION" ]; then
-            echo "Error: Tag name (${{ github.event.release.tag_name }}) does not match the project version ($DEFAULT_PROJECT_VERSION)"
+          if [ "$RELEASE_TAG" != "$DEFAULT_PROJECT_VERSION" ]; then
+            echo "Error: Tag name ($RELEASE_TAG) does not match the project version ($DEFAULT_PROJECT_VERSION)"
             exit 1
           fi
 
