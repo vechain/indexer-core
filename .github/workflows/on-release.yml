@@ -5,9 +5,8 @@ on:
     types: [published]
 
 permissions:
-  contents: write
-  pull-requests: write
-  packages: read
+  contents: read
+  packages: write
 
 jobs:
   publish:
@@ -20,17 +19,21 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
+
+      - uses: gradle/actions/setup-gradle@v4
 
       - name: Extract Default Project Version from Gradle
         run: |
             echo "DEFAULT_PROJECT_VERSION=$(./gradlew properties -q | grep '^version:' | awk '{print $2}')" >> $GITHUB_ENV
 
       - name: Ensure the default project version matches the tag name (the workflow will fail if they don't match)
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ "${{ github.event.release.tag_name }}" != "$DEFAULT_PROJECT_VERSION" ]; then
-            echo "Error: Tag name (${{ github.event.release.tag_name }}) does not match the project version ($DEFAULT_PROJECT_VERSION)"
+          if [ "$RELEASE_TAG" != "$DEFAULT_PROJECT_VERSION" ]; then
+            echo "Error: Tag name ($RELEASE_TAG) does not match the project version ($DEFAULT_PROJECT_VERSION)"
             exit 1
           fi
 
@@ -46,14 +49,22 @@ jobs:
       - name: Build the artifact
         run: ./gradlew build
 
-      - name: Publish to Maven Central
+      - name: Publish to Maven Central (Snapshot or Release)
         run: |
-          ./gradlew \
-            publishToSonatype \
-            closeAndReleaseSonatypeStagingRepository \
-            --info --stacktrace
+            if [[ "${PROJECT_VERSION}" == *"-SNAPSHOT" ]]; then
+              echo "Publishing SNAPSHOT version: ${PROJECT_VERSION}"
+              ./gradlew publish --info --stacktrace
+            else
+              echo "Publishing RELEASE version: ${PROJECT_VERSION}"
+              ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository --info --stacktrace
+            fi
         env:
-          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SECRET_KEY }}
-          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
-          ORG_GRADLE_PROJECT_ossrhUsername: ${{ secrets.OSSRH_USERNAME }}
-          ORG_GRADLE_PROJECT_ossrhPassword: ${{ secrets.OSSRH_PASSWORD }}
+            ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SECRET_KEY }}
+            ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
+            ORG_GRADLE_PROJECT_ossrhUsername: ${{ secrets.OSSRH_USERNAME }}
+            ORG_GRADLE_PROJECT_ossrhPassword: ${{ secrets.OSSRH_PASSWORD }}
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew publishMavenJavaPublicationToGitHubPackagesRepository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

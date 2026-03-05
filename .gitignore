@@ -1,6 +1,7 @@
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar
+.gradle-user
 !**/src/main/**/build/
 !**/src/test/**/build/
 

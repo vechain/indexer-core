@@ -5,7 +5,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.abi.AbiElement
 import org.vechain.indexer.event.model.abi.InputOutput
-import org.vechain.indexer.event.model.generic.GenericEventParameters
+import org.vechain.indexer.event.model.generic.AbiEventParameters
 import org.vechain.indexer.event.types.Types
 import org.vechain.indexer.thor.model.TxEvent
 import org.vechain.indexer.utils.DataUtils
@@ -39,7 +39,7 @@ object EventUtils {
     fun decodeEvent(
         event: TxEvent,
         abiElement: AbiElement,
-    ): GenericEventParameters {
+    ): AbiEventParameters {
         val decodedParameters = mutableMapOf<String, Any?>()
         val inputs = abiElement.inputs
 
@@ -82,7 +82,7 @@ object EventUtils {
             decodedParameters[input.name] = decodedValue
         }
 
-        return GenericEventParameters(
+        return AbiEventParameters(
             returnValues =
                 decodedParameters.filterValues { it != null }.mapValues { it.value as Any },
             // Filter out nulls and cast to Any
@@ -167,5 +167,25 @@ object EventUtils {
 
         return contractAddresses.isEmpty() ||
             contractAddresses.any { it.equals(event.address, ignoreCase = true) }
+    }
+
+    /**
+     * Generates a unique event ID based on transaction ID, output index, event index, and event
+     * hash.
+     *
+     * @param txId The transaction ID.
+     * @param outputIndex The index of the output in the transaction.
+     * @param eventIndex The index of the event in the output.
+     * @param event The event object to generate the ID for.
+     * @return A unique string identifier for the event.
+     */
+    fun generateEventId(
+        txId: String,
+        outputIndex: Int,
+        eventIndex: Int,
+        event: Any,
+    ): String {
+        val eventHash = event.hashCode() // Use hash of the event as a unique identifier
+        return "$txId-$outputIndex-$eventIndex-$eventHash"
     }
 }

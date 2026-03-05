@@ -1,0 +1,67 @@
+{
+  "number": 22316479,
+  "id": "0x015485bf1962e7770289ffcc4748da8ece1b3d2c6e627ce37953cd634151e9b4",
+  "size": 602,
+  "parentID": "0x015485be8cd4bc761b4edc05267b39e4760b431e3291eeed9ecb118279ee9082",
+  "timestamp": 1753202430,
+  "gasLimit": 40000000,
+  "beneficiary": "0xb4094c25f86d628fdd571afc4077f0d0196afb48",
+  "gasUsed": 72328,
+  "totalScore": 206696434,
+  "txsRoot": "0xc46a030ebdbdafb1beee98394b89d7d72ef0f094629374ab5353ffc60ca35bbb",
+  "txsFeatures": 1,
+  "stateRoot": "0x86c35f1525fab021e8688c4e3ca12df077949e2fa974fa391799f0e3b23859f4",
+  "receiptsRoot": "0xfa8cb8bfb5df68edbe8def151936227e6cd94415e3a4e539d6a7a509c174e408",
+  "com": true,
+  "signer": "0x2e0c2834932ce5e14862c20da0453c888f84aece",
+  "isTrunk": true,
+  "isFinalized": false,
+  "baseFeePerGas": "0x9184e72a000",
+  "transactions": [
+    {
+      "id": "0xab9d0c5fdaa969eb871ea6074be842d62a8b94705744783467ec7fa1fb9c6e12",
+      "type": 81,
+      "chainTag": 39,
+      "blockRef": "0x015485be8cd4bc76",
+      "expiration": 100,
+      "clauses": [
+        {
+          "to": "0x9c8a9c137609251ad160a339ef2906f3ba5308b6",
+          "value": "0x0",
+          "data": "0x23b872dd000000000000000000000000435933c8064b4ae76be665428e0307ef2ccfbd68000000000000000000000000f077b491b355e64048ce21e3a6fc4751eeea77fa0000000000000000000000000000000000000000000000000000000000000002"
+        }
+      ],
+      "maxFeePerGas": "0x95e27d75800",
+      "maxPriorityFeePerGas": "0x0",
+      "gas": 117328,
+      "origin": "0x435933c8064b4ae76be665428e0307ef2ccfbd68",
+      "delegator": null,
+      "nonce": "0x4dad2bbe",
+      "dependsOn": null,
+      "size": 228,
+      "gasUsed": 72328,
+      "gasPayer": "0x435933c8064b4ae76be665428e0307ef2ccfbd68",
+      "paid": "0xa099b53f1250000",
+      "reward": "0x0",
+      "reverted": false,
+      "outputs": [
+        {
+          "contractAddress": null,
+          "events": [
+            {
+              "address": "0x9c8a9c137609251ad160a339ef2906f3ba5308b6",
+              "topics": [
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                "0x000000000000000000000000435933c8064b4ae76be665428e0307ef2ccfbd68",
+                "0x000000000000000000000000f077b491b355e64048ce21e3a6fc4751eeea77fa",
+                "0x0000000000000000000000000000000000000000000000000000000000000002"
+              ],
+              "data": "0x"
+            }
+          ],
+          "transfers": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "SubstitutionTest",
+  "sameClause": true,
+  "events": [
+    {
+      "name": "${REPLACE_ME}",
+      "alias": "Test",
+      "conditions": []
+    }
+  ],
+  "rules": [],
+  "paramsDefinition": []
+}

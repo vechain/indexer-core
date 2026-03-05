@@ -1,360 +1,333 @@
 package org.vechain.indexer
 
+import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-import kotlinx.coroutines.*
+import kotlin.coroutines.cancellation.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.vechain.indexer.event.AbiManager
-import org.vechain.indexer.event.BusinessEventManager
-import org.vechain.indexer.event.BusinessEventProcessor
-import org.vechain.indexer.event.GenericEventIndexer
-import org.vechain.indexer.event.model.generic.FilterCriteria
-import org.vechain.indexer.event.model.generic.IndexedEvent
-import org.vechain.indexer.exception.BlockNotFoundException
+import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
+import org.vechain.indexer.thor.model.BlockRevision
+import org.vechain.indexer.thor.model.Clause
+import org.vechain.indexer.utils.IndexerUtils.ensureStatus
 
-/** Initial processing backoff duration */
-const val INITIAL_BACKOFF_PERIOD = 10_000L
-
-abstract class BlockIndexer(
+open class BlockIndexer(
+    override val name: String,
     protected open val thorClient: ThorClient,
-    protected val startBlock: Long = 0L,
-    private val syncLoggerInterval: Long = 1_000L,
-    protected open val abiManager: AbiManager? = null, // Optional AbiManager
-    protected open val businessEventManager: BusinessEventManager? =
-        null, // Optional BusinessEventManager
+    private val processor: IndexerProcessor,
+    protected val startBlock: Long,
+    private val syncLoggerInterval: Long,
+    protected val eventProcessor: CombinedEventProcessor?,
+    private val inspectionClauses: List<Clause>?,
+    override val dependsOn: Indexer?,
 ) : Indexer {
+
+    override fun getInspectionClauses(): List<Clause>? = inspectionClauses
+
     /** The last block that was successfully synchronised */
     private var previousBlock: BlockIdentifier? = null
 
-    /**
-     * The Number of indexer iterations remaining in case a given number of iterations has been
-     * specified
-     */
-    internal var remainingIterations: Long? = null
+    override fun getPreviousBlock(): BlockIdentifier? = previousBlock
 
-    val name: String
-        get() = this.javaClass.simpleName
+    protected fun setPreviousBlock(value: BlockIdentifier?) {
+        previousBlock = value
+    }
 
-    protected val logger: Logger = LoggerFactory.getLogger(this::class.java)
+    protected val logger: Logger = LoggerFactory.getLogger(name)
 
-    override var status = Status.SYNCING
+    private var status = Status.NOT_INITIALISED
 
-    var currentBlockNumber: Long = 0
-        protected set
+    protected fun setStatus(newStatus: Status) {
+        status = newStatus
+    }
+
+    override fun getStatus(): Status = status
+
+    private var currentBlockNumber: Long = 0
+
+    override fun getCurrentBlockNumber(): Long = currentBlockNumber
+
+    protected fun setCurrentBlockNumber(value: Long) {
+        currentBlockNumber = value
+    }
 
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
         internal set
 
-    private var backoffPeriod = 0L
-
     /** Initialises the indexer processing */
-    private fun initialise(blockNumber: Long? = null) {
-        // If no block number is provided, get the last synced block. If no block is found, start
-        // from the beginning.
-        val lastSyncedBlockNumber = blockNumber ?: getLastSyncedBlock()?.number ?: startBlock
+    override fun initialise() {
+        val lastSyncedBlockNumber = determineStartingBlock()
+        rollbackToSafeState(lastSyncedBlockNumber)
+        initializeState(lastSyncedBlockNumber)
+        logInitialization()
+    }
 
-        // To ensure data integrity roll back changes made in the last block
-        rollback(lastSyncedBlockNumber)
+    /**
+     * Determines the starting block number for initialization.
+     *
+     * @return The last synced block number if available, otherwise the configured start block.
+     */
+    protected open fun determineStartingBlock(): Long {
+        return getLastSyncedBlock()?.number ?: startBlock
+    }
 
-        // Initialise fields
-        currentBlockNumber = lastSyncedBlockNumber
-        status = Status.SYNCING
+    /**
+     * Rolls back to a safe state to ensure data integrity.
+     *
+     * Only rolls back if the block number is greater than zero.
+     *
+     * @param blockNumber The block number to roll back to.
+     */
+    protected open fun rollbackToSafeState(blockNumber: Long) {
+        if (blockNumber > 0) {
+            rollback(blockNumber)
+        }
+    }
 
-        // Set the previous block to the previously synced block if it exists, or null otherwise.
+    /**
+     * Initializes the indexer state fields.
+     *
+     * @param blockNumber The block number to initialize from.
+     */
+    protected open fun initializeState(blockNumber: Long) {
+        currentBlockNumber = blockNumber
+        previousBlock = calculatePreviousBlock(blockNumber)
+        status = Status.INITIALISED
+    }
+
+    /**
+     * Calculates the previous block identifier based on the current block number.
+     *
+     * @param currentBlock The current block number.
+     * @return The previous block identifier if it's sequential, null otherwise.
+     */
+    protected open fun calculatePreviousBlock(currentBlock: Long): BlockIdentifier? {
         val lastBlock = getLastSyncedBlock()
-        previousBlock =
-            if (lastBlock?.number == lastSyncedBlockNumber - 1L) {
-                lastBlock
-            } else {
-                null
-            }
+        return if (lastBlock?.id != null && lastBlock.number == currentBlock - 1L) {
+            lastBlock
+        } else {
+            null
+        }
+    }
+
+    /** Logs the initialization message. */
+    protected open fun logInitialization() {
+        logger.info("Initialised @ Block: $currentBlockNumber")
+    }
+
+    protected suspend fun buildIndexingResult(block: Block): IndexingResult {
+        val callResults =
+            inspectionClauses?.let { thorClient.inspectClauses(it, BlockRevision.Id(block.id)) }
+                ?: emptyList()
+        return buildIndexingResultWithCallResults(block, callResults)
+    }
+
+    protected fun buildIndexingResultWithCallResults(
+        block: Block,
+        callResults: List<org.vechain.indexer.thor.model.InspectionResult>
+    ): IndexingResult {
+        val events = eventProcessor?.processEvents(block) ?: emptyList()
+        return IndexingResult.BlockResult(block, events, callResults, status)
+    }
+
+    protected fun checkIfShuttingDown() {
+        // If shut down throw an error
+        if (status == Status.SHUT_DOWN) {
+            throw CancellationException("Indexer is shut down")
+        }
+    }
+
+    override suspend fun processBlock(block: Block) {
+        validateProcessingState()
+        validateBlockNumber(block)
+        updateSyncStatus(block)
+        checkForReorg(block)
+
+        processAndUpdateState(block)
+    }
+
+    override suspend fun processBlock(
+        block: Block,
+        inspectionResults: List<org.vechain.indexer.thor.model.InspectionResult>
+    ) {
+        validateProcessingState()
+        validateBlockNumber(block)
+        updateSyncStatus(block)
+        checkForReorg(block)
+
+        processAndUpdateStateWithResults(block, inspectionResults)
     }
 
     /**
-     * Triggers the non-blocking suspendable start() function inside its required coroutine scope.
-     */
-    override fun startInCoroutine(iterations: Long?) {
-        CoroutineScope(Dispatchers.Default).launch {
-            try {
-                start(iterations)
-            } catch (e: Exception) {
-                logger.error("Error starting indexer ${this.javaClass.simpleName}: ", e)
-                throw Exception(e.message, e)
-            }
-        }
-    }
-
-    /** Starts the indexer processing */
-    override suspend fun start(iterations: Long?) {
-        remainingIterations = iterations
-
-        if (this !is LogsIndexer) initialise()
-
-        logger.info("Starting @ Block: $currentBlockNumber")
-        run()
-    }
-
-    /** Restarts the processing based on the current indexer status */
-    private fun restart() {
-        // Initialise the indexer
-        when (status) {
-            Status.ERROR -> initialise(currentBlockNumber)
-            Status.REORG -> initialise(currentBlockNumber - 1)
-            else -> initialise()
-        }
-
-        logger.info("Restarting indexer @ Block: $currentBlockNumber")
-    }
-
-    /** The core indexer logic */
-    private tailrec suspend fun run() {
-        try {
-            if (hasNoRemainingIterations()) return
-
-            backoffDelay()
-
-            if (status == Status.ERROR || status == Status.REORG) restart()
-
-            val block = getBlockFromChain(currentBlockNumber)
-
-            // Check for chain re-organization.
-            if (
-                currentBlockNumber > startBlock &&
-                    previousBlock?.id?.let { it != block.parentID } == true
-            ) {
-                throw ReorgException(
-                    "Chain re-organization detected @ Block $currentBlockNumber with parent block ID ${block.parentID}",
-                )
-            }
-
-            if (logger.isTraceEnabled) {
-                logger.trace("Processing @ Block $currentBlockNumber ($status)")
-            } else if (status != Status.SYNCING || currentBlockNumber % syncLoggerInterval == 0L) {
-                logger.info("Processing @ Block $currentBlockNumber ($status)")
-            }
-
-            processBlock(block)
-            postProcessBlock(block)
-        } catch (_: BlockNotFoundException) {
-            logger.info("Block $currentBlockNumber not found. Indexer may be fully synchronised.")
-            handleFullySynced()
-            ensureFullySynced()
-        } catch (_: ReorgException) {
-            logger.error("REORG @ Block $currentBlockNumber")
-            handleReorg()
-        } catch (e: Exception) {
-            logger.error("Error while processing block $currentBlockNumber", e)
-            handleError()
-        }
-
-        run()
-    }
-
-    /**
-     * Checks whether there are remaining indexer iterations in case a given number of iterations
-     * has been specified
+     * Validates that the indexer is in a valid state for processing blocks.
      *
-     * @return whether the indexer has remaining iterations
+     * @throws CancellationException if the indexer is shut down.
+     * @throws IllegalStateException if the indexer is not in a valid processing state.
      */
-    internal fun hasNoRemainingIterations(): Boolean {
-        if (remainingIterations != null) {
-            if (remainingIterations!! <= 0) {
-                logger.info("Indexer finished at block $currentBlockNumber")
-                return true
-            }
-            remainingIterations = remainingIterations?.dec()
-        }
-        return false
-    }
-
-    private fun handleFullySynced() {
-        backoffPeriod = 4000
-        status = Status.FULLY_SYNCED
-    }
-
-    internal fun handleError() {
-        backoffPeriod = INITIAL_BACKOFF_PERIOD
-        status = Status.ERROR
-    }
-
-    private fun handleReorg() {
-        backoffPeriod = INITIAL_BACKOFF_PERIOD
-        status = Status.REORG
+    protected open fun validateProcessingState() {
+        checkIfShuttingDown()
+        ensureStatus(status, setOf(Status.INITIALISED, Status.SYNCING, Status.FULLY_SYNCED))
     }
 
     /**
-     * Ensures that indexer is fully synced, recalculates the backoff period & increments the
-     * current block number
+     * Validates that the block number matches the expected current block number.
      *
-     * @param block the block to undergo post-processing
+     * @param block The block to validate.
+     * @throws IllegalStateException if the block number doesn't match.
      */
-    private suspend fun postProcessBlock(block: Block) {
-        // Every 20 blocks, check if we are fully synced.
-        if (status == Status.FULLY_SYNCED && currentBlockNumber % 20 == 0L) {
-            ensureFullySynced()
+    protected open fun validateBlockNumber(block: Block) {
+        if (block.number != currentBlockNumber) {
+            throw IllegalStateException(
+                "Block number mismatch: expected $currentBlockNumber, got ${block.number}"
+            )
         }
+    }
 
-        // If we are fully synced, recalculate the backoff period.
-        if (status == Status.FULLY_SYNCED) {
-            val currentEpoch =
-                LocalDateTime.now(ZoneOffset.UTC).toInstant(ZoneOffset.UTC).toEpochMilli()
-            val timeSinceLastBlock = maxOf(currentEpoch - block.timestamp.times(1000), 0)
-            backoffPeriod = maxOf(0, INITIAL_BACKOFF_PERIOD - (timeSinceLastBlock)) + 100
+    /**
+     * Processes the block and updates the indexer state.
+     *
+     * @param block The block to process.
+     */
+    protected open suspend fun processAndUpdateState(block: Block) {
+        logProcessingBlock()
+        process(buildIndexingResult(block))
+        updateBlockState(block)
+    }
 
-            logger.info("Success @ Block $currentBlockNumber ($timeSinceLastBlock ms since mine)")
-        }
+    /**
+     * Processes the block with pre-computed inspection results and updates the indexer state.
+     *
+     * @param block The block to process.
+     * @param inspectionResults Pre-computed inspection results from pipelined fetch.
+     */
+    protected open suspend fun processAndUpdateStateWithResults(
+        block: Block,
+        inspectionResults: List<org.vechain.indexer.thor.model.InspectionResult>
+    ) {
+        logProcessingBlock()
+        process(buildIndexingResultWithCallResults(block, inspectionResults))
+        updateBlockState(block)
+    }
 
-        // Increment the current block.
-        currentBlockNumber++
-
-        // Set the previous block id.
+    /**
+     * Updates the block state after successful processing.
+     *
+     * @param block The processed block.
+     */
+    protected open fun updateBlockState(block: Block) {
+        currentBlockNumber = block.number + 1
         previousBlock = BlockIdentifier(number = block.number, id = block.id)
-
         timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
     }
 
-    /** Ensures that indexer is not behind on-chain best block when in fully synced state */
-    private suspend fun ensureFullySynced() {
-        if (status == Status.FULLY_SYNCED) {
-            val latestBlock = getBestBlockFromChain()
-            if (latestBlock.number > currentBlockNumber) {
-                logger.info(
-                    "$name - Changing status to SYNCING (indexerBlock=$currentBlockNumber, latestBlock=${latestBlock.number})",
-                )
-                status = Status.SYNCING
+    protected fun updateSyncStatus(block: Block) {
+        // if the timestamp of the block is within 15 seconds of the current time, we are fully
+        // synced
+        val blockTime = LocalDateTime.ofEpochSecond(block.timestamp, 0, ZoneOffset.UTC)
+        val now = LocalDateTime.now(ZoneOffset.UTC)
+        status =
+            if (Duration.between(blockTime, now).toSeconds() < 15) {
+                Status.FULLY_SYNCED
+            } else {
+                Status.SYNCING
             }
-        }
     }
 
-    internal suspend fun backoffDelay() {
-        if (status != Status.SYNCING) {
-            delay(backoffPeriod)
+    override fun getLastSyncedBlock(): BlockIdentifier? = processor.getLastSyncedBlock()
+
+    override fun rollback(blockNumber: Long) = processor.rollback(blockNumber)
+
+    override suspend fun process(entry: IndexingResult) = processor.process(entry)
+
+    private fun logProcessingBlock() {
+        if (shouldLogDebug()) {
+            logger.debug(buildLogMessage())
+        } else if (shouldLogInfo()) {
+            logger.info(buildLogMessage())
         }
     }
 
     /**
-     * Returns the block identified by its number from the chain, or throw a BlockNotFoundException
-     * if it doesn't exist.
+     * Determines whether debug logging should be enabled.
      *
-     * @param blockNumber the block number
-     * @return the block corresponding to the number
-     * @throws BlockNotFoundException if no block is found with that number
+     * @return true if debug logging is enabled, false otherwise.
      */
-    private suspend fun getBlockFromChain(blockNumber: Long): Block =
-        thorClient.getBlock(blockNumber)
+    protected open fun shouldLogDebug(): Boolean = logger.isDebugEnabled
 
     /**
-     * Returns the latest block from the chain
+     * Determines whether info logging should be enabled.
      *
-     * @return the chain best block
-     * @throws BlockNotFoundException if not found
+     * @return true if info logging should occur, false otherwise.
      */
-    private suspend fun getBestBlockFromChain(): Block = thorClient.getBestBlock()
-
-    /**
-     * @param block The block containing events to process.
-     * @param criteria Filtering criteria to determine which events to process.
-     * @return A list of decoded events and their associated parameters.
-     * @notice Processes all events (generic and business) in a block based on the provided
-     *   criteria.
-     * @dev Updates the filter criteria with business event names if applicable. Decodes and
-     *   processes both generic and business events.
-     */
-    protected open fun processAllEvents(
-        block: Block,
-        criteria: FilterCriteria = FilterCriteria(),
-    ): List<IndexedEvent> {
-        val updatedCriteria =
-            businessEventManager?.updateCriteriaWithBusinessEvents(criteria) ?: criteria
-        val decodedEvents = processBlockGenericEvents(block, updatedCriteria)
-        return processBusinessEvents(
-            decodedEvents,
-            updatedCriteria.businessEventNames,
-            updatedCriteria.removeDuplicates
-        )
+    protected open fun shouldLogInfo(): Boolean {
+        return status == Status.FULLY_SYNCED || currentBlockNumber % syncLoggerInterval == 0L
     }
 
     /**
-     * @param block The block containing events to process.
-     * @param criteria Filtering criteria to determine which generic events to process.
-     * @return A list of decoded generic events and their associated parameters.
-     * @notice Processes generic events in a block based on the provided criteria.
-     * @dev Requires the `AbiManager` to decode events. If not configured, skips processing and
-     *   returns an empty list.
+     * Builds the log message for block processing.
+     *
+     * @return The formatted log message.
      */
-    protected open fun processBlockGenericEvents(
-        block: Block,
-        criteria: FilterCriteria = FilterCriteria(),
-    ): List<IndexedEvent> {
-        if (abiManager == null) {
-            logger.warn("ABI Manager is not configured. Skipping generic event processing.")
-            return emptyList()
-        }
+    protected open fun buildLogMessage(): String {
+        return "($status) Processing Block  $currentBlockNumber"
+    }
 
-        val eventIndexer = GenericEventIndexer(abiManager!!)
-        return eventIndexer.getBlockEventsByFilters(
-            block = block,
-            filterCriteria = criteria,
-        )
+    internal fun checkForReorg(block: Block) {
+        if (shouldCheckForReorg() && isReorgDetected(block)) {
+            handleReorg(block)
+        }
     }
 
     /**
-     * @param decodedEvents The list of previously decoded generic events and their parameters.
-     * @param criteria Filtering criteria to determine which business events to process.
-     * @return A list of processed business events and their associated parameters.
-     * @notice Processes only business events in a block based on the provided decoded generic
-     *   events.
-     * @dev Requires the `BusinessEventManager` to decode and process business events.
+     * Determines whether a reorg check should be performed.
+     *
+     * @return true if reorg checking should occur, false otherwise.
      */
-    protected open fun processBlockBusinessEvents(
-        decodedEvents: List<IndexedEvent>,
-        criteria: FilterCriteria = FilterCriteria(),
-    ): List<IndexedEvent> {
-        if (businessEventManager == null) {
-            logger.warn(
-                "Business Event Manager is not configured. Skipping business event processing."
-            )
-            return emptyList()
-        }
-
-        // Process business events
-        val processor = BusinessEventProcessor(businessEventManager!!)
-        return processor.getOnlyBusinessEvents(
-            decodedEvents,
-            criteria.businessEventNames,
-            this is LogsIndexer
-        )
+    protected open fun shouldCheckForReorg(): Boolean {
+        return currentBlockNumber > startBlock && previousBlock != null
     }
 
     /**
-     * @param decodedEvents A list of decoded generic events and their associated parameters.
-     * @param businessEventNames A list of business event names to process.
-     * @return A list of processed business events and their associated parameters.
-     * @notice Processes business events from a list of decoded events.
-     * @dev Utilizes the `BusinessEventProcessor` to process events if the `BusinessEventManager` is
-     *   configured. Logs a debug message if the `BusinessEventManager` is not present.
+     * Detects if a chain reorganization has occurred.
+     *
+     * @param block The current block to check.
+     * @return true if a reorg is detected, false otherwise.
      */
-    internal fun processBusinessEvents(
-        decodedEvents: List<IndexedEvent>,
-        businessEventNames: List<String>,
-        removeDuplicates: Boolean? = true,
-    ): List<IndexedEvent> {
-        if (businessEventManager != null) {
-            val processor = BusinessEventProcessor(businessEventManager!!)
-            val logsIndexer = this is LogsIndexer
-            return processor.processEvents(
-                decodedEvents,
-                businessEventNames,
-                removeDuplicates ?: true,
-                logsIndexer
-            )
-        }
-        logger.debug("Skipping business event processing as manager is missing.")
-        return decodedEvents
+    protected open fun isReorgDetected(block: Block): Boolean {
+        return previousBlock?.id?.let { it != block.parentID } == true
+    }
+
+    /**
+     * Handles a detected chain reorganization.
+     *
+     * @param block The block where the reorg was detected.
+     * @throws ReorgException always, after logging and rolling back.
+     */
+    protected open fun handleReorg(block: Block) {
+        val message = buildReorgMessage(block)
+        logger.error(message)
+        rollback(currentBlockNumber - 1)
+        throw ReorgException(message)
+    }
+
+    /**
+     * Builds the reorg error message.
+     *
+     * @param block The block where the reorg was detected.
+     * @return The formatted reorg message.
+     */
+    protected open fun buildReorgMessage(block: Block): String {
+        return "REORG @ Block $currentBlockNumber " +
+            "previousBlock=(id=${previousBlock?.id ?: "null"} number=${previousBlock?.number ?: "null"}) " +
+            "block=(parentID=${block.parentID} blockNumber=${block.number} id=${block.id})"
+    }
+
+    override fun shutDown() {
+        setStatus(Status.SHUT_DOWN)
+        logger.info("Indexer Shut down")
     }
 }
