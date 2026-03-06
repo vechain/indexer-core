@@ -14,6 +14,7 @@ import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlin.test.assertFailsWith
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.vechain.indexer.exception.BlockNotFoundException
+import org.vechain.indexer.exception.RateLimitException
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.thor.model.BlockUnexpanded
@@ -128,7 +130,7 @@ open class DefaultThorClientTest {
         val result = client.waitForBlockUnexpanded(BlockRevision.Number(block.number))
 
         expectThat(result).isEqualTo(block)
-        expectThat(currentTime).isEqualTo(4_000L)
+        expectThat(currentTime).isEqualTo(3_000L)
     }
 
     @Test
@@ -146,11 +148,11 @@ open class DefaultThorClientTest {
         val result = client.waitForBlock(BlockRevision.Number(block.number))
 
         expectThat(result).isEqualTo(block)
-        expectThat(currentTime).isEqualTo(4_000L)
+        expectThat(currentTime).isEqualTo(3_000L)
     }
 
     @Test
-    fun `waitForBlock caps retry delay at minimum`() = runTest {
+    fun `waitForBlock uses fixed poll delay while block is unavailable`() = runTest {
         val block = sampleBlock(7)
         val endpoint = "${baseUrl}/blocks/${block.number}"
         val params = listOf("expanded" to true)
@@ -162,7 +164,7 @@ open class DefaultThorClientTest {
         val result = client.waitForBlock(BlockRevision.Number(block.number))
 
         expectThat(result).isEqualTo(block)
-        expectThat(currentTime).isEqualTo(18_500L)
+        expectThat(currentTime).isEqualTo(24_000L)
     }
 
     @Test
@@ -186,11 +188,65 @@ open class DefaultThorClientTest {
     }
 
     @Test
+    fun `waitForBlock propagates cancellation immediately`() = runTest {
+        val cancellingClient =
+            object : DefaultThorClient(baseUrl) {
+                override suspend fun getBlock(revision: BlockRevision): Block {
+                    throw CancellationException("cancelled")
+                }
+            }
+
+        val exception =
+            assertFailsWith<CancellationException> {
+                cancellingClient.waitForBlock(BlockRevision.Number(42))
+            }
+
+        expectThat(exception.message.orEmpty()).containsIgnoringCase("cancelled")
+        expectThat(currentTime).isEqualTo(0L)
+    }
+
+    @Test
+    fun `getBlock throws RateLimitException on 429`() = runTest {
+        val endpoint = "${baseUrl}/blocks/42"
+        val params = listOf("expanded" to true)
+        stubFuelGet(endpoint, params, HttpResult.Success(ByteArray(0), statusCode = 429))
+
+        val exception =
+            assertFailsWith<RateLimitException> { client.getBlock(BlockRevision.Number(42)) }
+
+        expectThat(exception.message.orEmpty()).containsIgnoringCase("rate limited")
+        verify(exactly = 1) { Fuel.get(endpoint, params) }
+    }
+
+    @Test
+    fun `waitForBlock uses rate limit backoff on 429`() = runTest {
+        val block = sampleBlock(56)
+        val endpoint = "${baseUrl}/blocks/${block.number}"
+        val params = listOf("expanded" to true)
+        stubFuelGet(
+            endpoint,
+            params,
+            HttpResult.Success(ByteArray(0), statusCode = 429),
+            HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)),
+        )
+
+        val result = client.waitForBlock(BlockRevision.Number(block.number))
+
+        expectThat(result).isEqualTo(block)
+        expectThat(currentTime).isEqualTo(10_000L)
+        verify(exactly = 2) { Fuel.get(endpoint, params) }
+    }
+
+    @Test
     fun `getBestBlock returns parsed block`() = runTest {
         val block = sampleBlock(77)
         val endpoint = "${baseUrl}/blocks/best"
         val params = listOf("expanded" to true)
-        stubFuelGet(endpoint, params, HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)))
+        stubFuelGet(
+            endpoint,
+            params,
+            HttpResult.Success(JsonUtils.mapper.writeValueAsBytes(block)),
+        )
 
         val result = client.getBlock(BlockRevision.Keyword.BEST)
 
@@ -449,9 +505,14 @@ open class DefaultThorClientTest {
         )
 
     private sealed class HttpResult {
-        data class Success(val body: ByteArray) : HttpResult()
+        abstract val statusCode: Int
 
-        data class Failure(val throwable: Throwable) : HttpResult()
+        data class Success(val body: ByteArray, override val statusCode: Int = 200) : HttpResult()
+
+        data class Failure(
+            val throwable: Throwable,
+            override val statusCode: Int = 200,
+        ) : HttpResult()
     }
 
     private fun stubFuelGet(
@@ -465,6 +526,7 @@ open class DefaultThorClientTest {
                 val request = mockk<Request>(relaxed = true)
                 val response = mockk<Response>(relaxed = true)
                 every { request.appendHeader(*anyVararg()) } returns request
+                every { response.statusCode } returns result.statusCode
                 val payload =
                     when (result) {
                         is HttpResult.Success -> Result.Success(result.body)
@@ -487,6 +549,7 @@ open class DefaultThorClientTest {
         val response = mockk<Response>(relaxed = true)
         every { Fuel.post(path = path, parameters = parameters) } returns request
         every { request.appendHeader(*anyVararg()) } returns request
+        every { response.statusCode } returns result.statusCode
         if (bodySlot != null) {
             every { request.body(capture(bodySlot)) } returns request
         } else {
