@@ -240,9 +240,10 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                     fetcher.prefetchBlocksInOrder(
                         startBlock = startBlock,
                         maxBatchSize = batchSize,
-                        groupChannels = groupChannels,
                         deadlineMark = deadlineMark,
-                    )
+                    ) { preparedBlock ->
+                        groupChannels.forEach { channel -> channel.send(preparedBlock) }
+                    }
                 } finally {
                     groupChannels.forEach { it.close() }
                 }

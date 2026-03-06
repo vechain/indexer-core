@@ -2,7 +2,6 @@ package org.vechain.indexer
 
 import kotlin.time.TimeMark
 import kotlinx.coroutines.async
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import org.slf4j.Logger
@@ -39,8 +38,8 @@ class BlockFetcher(
     suspend fun prefetchBlocksInOrder(
         startBlock: Long,
         maxBatchSize: Int,
-        groupChannels: List<Channel<PreparedBlock>>,
         deadlineMark: TimeMark? = null,
+        onBlockPrepared: suspend (PreparedBlock) -> Unit,
     ) = coroutineScope {
         require(startBlock >= 0) { "startBlock must be >= 0" }
         require(maxBatchSize >= 1) { "maxBatchSize must be >= 1" }
@@ -62,7 +61,7 @@ class BlockFetcher(
             // Await and send in order
             deferredBlocks.forEach { deferred ->
                 val preparedBlock = deferred.await()
-                groupChannels.forEach { channel -> channel.send(preparedBlock) }
+                onBlockPrepared(preparedBlock)
                 nextBlockNumber++
                 lastBlockTimestamp = preparedBlock.block.timestamp
             }
