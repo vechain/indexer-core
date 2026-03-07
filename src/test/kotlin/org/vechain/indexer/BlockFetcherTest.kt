@@ -12,6 +12,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -151,7 +152,7 @@ internal class BlockFetcherTest {
     inner class PrefetchBlocksInOrder {
 
         @Test
-        fun `sends blocks to all channels in order`() = runTest {
+        fun `emits prepared blocks in order`() = runTest {
             val thorClient = mockk<ThorClient>()
             val blocks = (0L..2L).map { buildBlock(num = it) }
 
@@ -164,25 +165,25 @@ internal class BlockFetcherTest {
                     buildBlock(num = 3L)
                 }
 
-            val channel1 = Channel<PreparedBlock>(capacity = 5)
-            val channel2 = Channel<PreparedBlock>(capacity = 5)
+            val emitted = Channel<Long>(capacity = 3)
 
             val fetcher = BlockFetcher(thorClient, emptyList())
             val job = launch {
                 fetcher.prefetchBlocksInOrder(
                     startBlock = 0L,
                     maxBatchSize = 1,
-                    groupChannels = listOf(channel1, channel2),
-                )
+                ) { preparedBlock ->
+                    emitted.send(preparedBlock.block.number)
+                }
             }
 
-            val received1 = (0..2).map { channel1.receive().block.number }
-            val received2 = (0..2).map { channel2.receive().block.number }
+            val received = withTimeout(1_000) { List(3) { emitted.receive() } }
+
+            emitted.close()
 
             job.cancelAndJoin()
 
-            expectThat(received1).isEqualTo(listOf(0L, 1L, 2L))
-            expectThat(received2).isEqualTo(listOf(0L, 1L, 2L))
+            expectThat(received).isEqualTo(listOf(0L, 1L, 2L))
         }
 
         @Test
@@ -193,8 +194,7 @@ internal class BlockFetcherTest {
                 fetcher.prefetchBlocksInOrder(
                     startBlock = -1,
                     maxBatchSize = 1,
-                    groupChannels = emptyList(),
-                )
+                ) {}
             }
         }
 
@@ -206,8 +206,7 @@ internal class BlockFetcherTest {
                 fetcher.prefetchBlocksInOrder(
                     startBlock = 0,
                     maxBatchSize = 0,
-                    groupChannels = emptyList(),
-                )
+                ) {}
             }
         }
 
@@ -222,8 +221,8 @@ internal class BlockFetcherTest {
                     buildBlock(num = blockNum)
                 }
 
-            val channel = Channel<PreparedBlock>(capacity = 20)
             val fetcher = BlockFetcher(thorClient, emptyList())
+            val received = mutableListOf<Long>()
 
             // Create deadline mark, then advance time past it
             val deadlineMark = testTimeSource.markNow() + 100.milliseconds
@@ -232,16 +231,12 @@ internal class BlockFetcherTest {
             fetcher.prefetchBlocksInOrder(
                 startBlock = 0L,
                 maxBatchSize = 1,
-                groupChannels = listOf(channel),
                 deadlineMark = deadlineMark,
-            )
+            ) { preparedBlock ->
+                received.add(preparedBlock.block.number)
+            }
 
             // Should have exited immediately without fetching any blocks
-            channel.close()
-            val received = mutableListOf<Long>()
-            for (block in channel) {
-                received.add(block.block.number)
-            }
             expectThat(received.size).isEqualTo(0)
             coVerify(exactly = 0) { thorClient.waitForBlock(any<BlockRevision>()) }
         }
@@ -258,22 +253,17 @@ internal class BlockFetcherTest {
                     buildBlock(num = blockNum)
                 }
 
-            val channel = Channel<PreparedBlock>(capacity = 20)
             val fetcher = BlockFetcher(thorClient, emptyList())
+            val received = mutableListOf<Long>()
 
             val deadlineMark = testTimeSource.markNow() + 350.milliseconds
 
             fetcher.prefetchBlocksInOrder(
                 startBlock = 0L,
                 maxBatchSize = 1,
-                groupChannels = listOf(channel),
                 deadlineMark = deadlineMark,
-            )
-
-            channel.close()
-            val received = mutableListOf<Long>()
-            for (block in channel) {
-                received.add(block.block.number)
+            ) { preparedBlock ->
+                received.add(preparedBlock.block.number)
             }
 
             // Should have fetched some blocks but stopped when deadline passed
@@ -300,8 +290,9 @@ internal class BlockFetcherTest {
                 fetcher.prefetchBlocksInOrder(
                     startBlock = 0L,
                     maxBatchSize = 5,
-                    groupChannels = listOf(channel),
-                )
+                ) { preparedBlock ->
+                    channel.send(preparedBlock)
+                }
             }
 
             // Drain some blocks

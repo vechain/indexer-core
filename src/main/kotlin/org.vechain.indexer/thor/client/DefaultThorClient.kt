@@ -3,6 +3,7 @@ package org.vechain.indexer.thor.client
 import com.fasterxml.jackson.core.type.TypeReference
 import com.github.kittinunf.fuel.Fuel
 import com.github.kittinunf.result.Result
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -12,11 +13,9 @@ import org.vechain.indexer.exception.RateLimitException
 import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.JsonUtils
 
-private const val TIP_POLL_MIN_DELAY_MS = 1_000L
-private const val TIP_POLL_INITIAL_DELAY_MS = 4_000L
-private const val TIP_POLL_DELAY_STEP_MS = 500L
+private const val TIP_POLL_DELAY_MS = 3_000L
 private const val TIP_POLL_ERROR_DELAY_MS = 10_000L
-private const val RATE_LIMIT_DELAY_MS = 30_000L
+private const val RATE_LIMIT_DELAY_MS = 10_000L
 private const val HTTP_TOO_MANY_REQUESTS = 429
 
 /**
@@ -79,7 +78,6 @@ open class DefaultThorClient(
         fetch: suspend () -> T,
     ): T {
         val startTime = System.currentTimeMillis()
-        var delayMs = TIP_POLL_INITIAL_DELAY_MS
         var attempts = 0
         while (true) {
             attempts++
@@ -99,11 +97,12 @@ open class DefaultThorClient(
                 logger.info(
                     "Block {} not yet available, waiting {}ms (attempt {})",
                     revision.value,
-                    delayMs,
+                    TIP_POLL_DELAY_MS,
                     attempts
                 )
-                delay(delayMs)
-                delayMs = (delayMs - TIP_POLL_DELAY_STEP_MS).coerceAtLeast(TIP_POLL_MIN_DELAY_MS)
+                delay(TIP_POLL_DELAY_MS)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: RateLimitException) {
                 logger.warn(
                     "Rate limited on block {}, backing off {}ms (attempt {})",
