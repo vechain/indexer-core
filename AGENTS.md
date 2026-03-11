@@ -34,14 +34,14 @@ If the task is consumer guidance, optimize for correct mode selection and integr
 
 Before making claims about library behavior, read in this order:
 
-1. [`README.md`](/Users/Daithi.Hearn/workspace/vechain/indexer-core/README.md)
-2. [`docs/README.md`](/Users/Daithi.Hearn/workspace/vechain/indexer-core/docs/README.md)
+1. [`README.md`](README.md)
+2. [`docs/README.md`](docs/README.md)
 3. one targeted guide based on the task:
-   - runtime model and lifecycle: [`docs/IndexerOverview.md`](/Users/Daithi.Hearn/workspace/vechain/indexer-core/docs/IndexerOverview.md)
-   - log-based mode and fast sync: [`docs/LogsIndexerOverview.md`](/Users/Daithi.Hearn/workspace/vechain/indexer-core/docs/LogsIndexerOverview.md)
-   - ABI loading and decoded events: [`docs/EventsAndABIHandling.md`](/Users/Daithi.Hearn/workspace/vechain/indexer-core/docs/EventsAndABIHandling.md)
-   - business event design: [`docs/BusinessEvents.md`](/Users/Daithi.Hearn/workspace/vechain/indexer-core/docs/BusinessEvents.md)
-   - upgrade / compatibility questions: [`docs/MIGRATION-8.0.0.md`](/Users/Daithi.Hearn/workspace/vechain/indexer-core/docs/MIGRATION-8.0.0.md)
+   - runtime model and lifecycle: [`docs/IndexerOverview.md`](docs/IndexerOverview.md)
+   - log-based mode and fast sync: [`docs/LogsIndexerOverview.md`](docs/LogsIndexerOverview.md)
+   - ABI loading and decoded events: [`docs/EventsAndABIHandling.md`](docs/EventsAndABIHandling.md)
+   - business event design: [`docs/BusinessEvents.md`](docs/BusinessEvents.md)
+   - upgrade / compatibility questions: [`docs/MIGRATION-8.0.0.md`](docs/MIGRATION-8.0.0.md)
 
 The repo markdown docs are the source of truth. Prefer them over memory, ad hoc code reading, or external copies.
 
