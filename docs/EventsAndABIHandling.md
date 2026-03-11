@@ -1,162 +1,183 @@
 # Events and ABI Handling
 
-## Introduction
+Event decoding in `indexer-core` is driven by `CombinedEventProcessor`, which is configured for you through `IndexerFactory`.
 
-The `indexer-core` library provides tools for handling blockchain events. This includes **Generic Events** (decoded from smart contract logs) and **Business Events** (derived from correlated raw events). To process these, we utilize **ABI Management** and various filtering options.
+The current event stack is:
 
-This feature is optional. The `GenericEventIndexer` can be used to decode events, but it is not required to run the indexer. If your use case does not involve event processing, you can safely ignore this functionality.
+- `AbiLoader`: loads ABI JSON resources from the classpath
+- `AbiEventProcessor`: decodes ABI events and optional VET transfers
+- `BusinessEventProcessor`: derives higher-level business events
+- `CombinedEventProcessor`: merges ABI events and business events into one output stream
 
-However, to use this feature, you must configure an instance of `AbiManager` before using `GenericEventIndexer` to ensure ABI definitions are available.
+## Recommended Usage
 
-If you are indexing VeChain contracts, you can find a collection of ABIs in the [b32 repository](https://github.com/vechain/b32), which contains all major VeChain smart contract ABIs.
+In most applications you should configure event decoding through `IndexerFactory` rather than constructing processors manually.
 
----
-## Generic Event Handling
-
-Generic events are extracted directly from smart contracts using ABIs. The `GenericEventIndexer` simplifies this process by decoding raw event logs into structured data. If your class extends Indexer, you can call `processBlockGenericEvents` to extract and process events as part of your block processing logic.
-
-#### Example: Extracting Events from a Block
 ```kotlin
-// Create a mapping of ABI file streams in your own code
-val abiFileStreams = loadAbiFiles("src/main/resources/abis")
+val indexer =
+    IndexerFactory()
+        .name("events")
+        .thorClient(thorClient)
+        .processor(processor)
+        .abis("abis")
+        .abiEventNames(listOf("Transfer", "Approval"))
+        .abiContracts(listOf("0xabc..."))
+        .includeVetTransfers()
+        .build()
+```
 
-// Configure ABI Manager
-val abiManager = AbiManager()
-abiManager.loadAbis(abiFileStreams)
+That configuration builds a `CombinedEventProcessor` internally and emits decoded `IndexedEvent` values inside `IndexingResult`.
 
-// Implement GenericEventIndexer and extract events
-val eventIndexer = GenericEventIndexer(abiManager)
-val events = eventIndexer.getEvents(block)
-````
-Each extracted event contains:
+## ABI Resource Loading
 
-- `IndexedEvent` – Metadata such as block number, transaction ID, and event signature.
+ABI files are loaded from the classpath, not from arbitrary filesystem paths.
 
-- `GenericEventParameters` – Decoded event parameters and name.
+`AbiLoader` scans a base resource directory for `.json` files up to two levels deep.
 
-### Processing Events Inside an Indexer
-
-If your indexer class extends Indexer, you can directly use `processBlockGenericEvents` to extract and process events while handling a block. This method simplifies event extraction and ensures all relevant contract logs are processed efficiently.
-
-#### Example: Processing Events in an Indexer
 ```kotlin
-class MyCustomIndexer(thorClient: ThorClient, abiManager: AbiManager) : Indexer(thorClient) {
-    private val eventIndexer = GenericEventIndexer(abiManager)
-
-    override fun processBlock(block: Block) {
-        val events = processBlockGenericEvents(block)
-        events.forEach { (indexedEvent, parameters) ->
-            println("Processed event: ${indexedEvent.eventType} with params: ${parameters.params}")
-        }
-    }
-}
-````
-This ensures that every block processed by the indexer will automatically extract and handle relevant events.
-
-#### Why Use `processBlockGenericEvents`?
-
-- **Automatically extracts and decodes all contract events from a block.**
-
-- **Reduces boilerplate code**, since event extraction is built into the indexer lifecycle.
-
-- **Improves maintainability**, making it easier to extend and add new event processing logic later.
-
-#### Filtering Events
-
-To filter events, use:
-```kotlin
-val filteredEvents = eventIndexer.getEventsByFilters(
-    block,
-    abiNames = listOf("MyContract"),
-    eventNames = listOf("Transfer"),
-    contractAddresses = listOf("0x1234..."),
-    vetTransfers = true
+val events = AbiLoader.loadEvents(
+    basePath = "abis",
+    eventNames = listOf("Transfer", "Approval"),
 )
 ```
-Filtering options:
 
-- **abiNames**: Limits event extraction to specific contract ABIs.
-
-- **eventNames**: Extracts only specific event types.
-
-- **contractAddresses**: Filters events based on contract addresses.
-
-- **vetTransfers**: Includes native VET transfer events.
-
-- **removeDuplicates**: Ensures that duplicate events are not processed twice.
-
-----
-## Setting Up ABI Manager
-
-The `AbiManager` is responsible for **loading and storing ABI definitions**. To use ABI-based event processing, it must be **initialized before** `GenericEventIndexer` to ensure ABI definitions are available when events are processed.
-
-### **Configuring ABI Manager Before Event Indexing**
-ABI files must be **loaded as a mapping of file streams (`Map<String, InputStream>`)** before event processing.
-
-#### **Loading ABI Files**
 ```kotlin
-val abiFileStreams = loadAbiFiles("abis") // Replace with your own implementation
+val functions = AbiLoader.loadFunctions(
+    basePath = "abis",
+    functionNames = listOf("balanceOf", "totalSupply"),
+)
+```
 
-val abiManager = AbiManager()
-abiManager.loadAbis(abiFileStreams) // Load ABIs before processing events
-````
+Behavior to be aware of:
 
-#### Retrieving ABI Events
-`````kotlin
-val events = abiManager.getEventsByNames(listOf("MyContract"), listOf("Transfer"))
-`````
-This ensures that only known and defined events are decoded correctly.
+- if `eventNames` or `functionNames` is empty, all matching ABI elements are loaded
+- duplicate ABI elements are deduplicated by signature shape
+- if a requested name is not present, loading fails with `IllegalArgumentException`
+- placeholder substitution is supported with `${NAME}` syntax
 
-#### ABI File (JSON Format)
-```json
-[
-  {
-    "type": "event",
-    "name": "Transfer",
-    "inputs": [
-      { "name": "from", "type": "address", "indexed": true },
-      { "name": "to", "type": "address", "indexed": true },
-      { "name": "value", "type": "uint256", "indexed": false }
-    ]
-  }
-]
-````
-----
-## Event Decoding
+### Placeholder Substitution
 
-The `EventUtils` class decodes event data using Solidity types. This can be used independently, but if you are working within an Indexer, the recommended approach is to use `processBlockGenericEvents`.
+Both ABI and business-event JSON can contain placeholders such as `${TOKEN_NAME}`.
+
+Values are resolved from:
+
+1. the substitution map you pass in
+2. environment variables
+
+If any placeholders remain unresolved, loading fails.
+
+## ABI Event Decoding
+
+`AbiEventProcessor` can decode events from either:
+
+- a full `Block`
+- Thor `EventLog` and `TransferLog` payloads
+
+For each decoded ABI event it produces an `IndexedEvent` containing:
+
+- block ID and block number
+- timestamp
+- transaction ID
+- origin
+- gas metadata when block data is available
+- raw topics/data when present
+- decoded parameter values in `params`
+- `eventType`
+- `clauseIndex`
+
+## Filtering Options
+
+There are two layers of filtering.
+
+### ABI-Level Filtering
+
+Configured through the factory:
+
+- `abiEventNames(...)`: load only selected ABI event names
+- `abiContracts(...)`: accept events only from selected contract addresses
+
+### Thor Log Filtering
+
+These filters are applied before decoding in `LogsIndexer` mode:
+
+- `eventCriteriaSet(...)`
+- `transferCriteriaSet(...)`
+
+This is the most efficient way to reduce remote log volume.
+
+## VET Transfers
+
+Native VET transfers are not ABI events, but the library can represent them as synthetic `IndexedEvent` values with:
+
+- `eventType = "VET_TRANSFER"`
+- params:
+  - `from`
+  - `to`
+  - `amount`
+
+Enable them with:
+
 ```kotlin
-val decodedEvent = EventUtils.decodeEvent(event, abiElement)
-````
-It automatically:
+IndexerFactory()
+    .includeVetTransfers()
+```
 
-1. Matches event topics with ABI signatures.
+This works in both block-based and log-based processing.
 
-2. Extracts and converts indexed and non-indexed parameters.
+It is also enabled automatically when a configured business event definition depends on `VET_TRANSFER`.
 
-3. Supports various Solidity data types (e.g., address, uint256, bytes).
+## Event Signatures and Matching
 
-#### Example: Computing an Event Signature
+`EventUtils` provides the low-level helpers used by the runtime:
+
+- `getEventSignature("Transfer(address,address,uint256)")`
+- ABI/topic matching
+- indexed and non-indexed parameter decoding
+
+ABI matching is based on:
+
+- topic0 signature
+- indexed parameter count
+- optional contract-address filtering
+
+## Manual Usage
+
+If you need direct access to the event stack outside `IndexerFactory`, you can construct a combined processor manually:
+
 ```kotlin
-val signature = EventUtils.getEventSignature("Transfer(address,address,uint256)")
-````
-This returns the Keccak256 hash of the event signature.
+val processor =
+    CombinedEventProcessor.create(
+        abiBasePath = "abis",
+        abiEventNames = listOf("Transfer"),
+        abiContracts = listOf("0xabc..."),
+        includeVetTransfers = true,
+        businessEventPath = null,
+        businessEventAbiBasePath = null,
+        businessEventNames = emptyList(),
+        businessEventContracts = emptyList(),
+        substitutionParams = emptyMap(),
+    )
+```
 
-----
-## Summary
+Then process either a block:
 
-- Use `GenericEventIndexer` to extract and filter events from blocks.
+```kotlin
+val events = processor.processEvents(block)
+```
 
-- If extending Indexer, call `processBlockGenericEvents` inside `processBlock` to integrate event processing.
+or log payloads:
 
-- `AbiManager` loads and retrieves ABI definitions for event decoding.
+```kotlin
+val events = processor.processEvents(eventLogs, transferLogs)
+```
 
-- `EventUtils` provides low-level utilities for decoding Solidity event data.
+## Interaction with Business Events
 
-- This feature is **optional** and can be skipped if event indexing is not required.
+When both ABI events and business events are enabled:
 
-- You must configure `AbiManager` before using GenericEventIndexer to ensure ABI definitions are available.
-- VeChain ABIs are available in the [b32 repository](https://github.com/vechain/b32).
+- business events are derived from decoded ABI events and optional VET transfers
+- if a business event matches the same `txId` and `clauseIndex` as an ABI event, the ABI event is removed from the final output
 
-The next section will cover Business Events and how to correlate multiple raw events into meaningful actions.
+This keeps the final event list focused on the higher-level semantic event where possible.
 
+See [`BusinessEvents.md`](./BusinessEvents.md) for the business-event definition model.

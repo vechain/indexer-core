@@ -1,152 +1,154 @@
-# Logs Indexer Documentation
+# Logs Indexer Overview
 
-## Introduction
+`LogsIndexer` is the default indexer produced by `IndexerFactory`. It is designed for the common case where you want decoded events and VET transfers without processing every full block during catch-up.
 
-The `LogsIndexer` is an optimized indexing mechanism designed to **process blockchain logs directly** instead of iterating through full blocks. This approach significantly improves **indexing speed and efficiency**, making it ideal for **real-time event tracking**.
+## When `LogsIndexer` Is Used
 
-Unlike `BlockIndexer`, which processes **entire blocks**, `LogsIndexer` fetches **only relevant logs (event logs & transfer logs)** from the VeChainThor blockchain, reducing the amount of unnecessary data processing.
+`IndexerFactory.build()` returns a `LogsIndexer` when:
 
----
+- `includeFullBlock()` is not enabled
+- `dependsOn(...)` is not set
 
-## Responsibilities of the Logs Indexer
+If either of those is set, the factory returns a `BlockIndexer` instead.
 
-A `LogsIndexer` is responsible for:
+## What It Does
 
-1. **Tracking the last synced block** – Ensuring log consistency across runs.
-2. **Fetching logs from VeChainThor** – Using event and transfer log queries instead of full block processing.
-3. **Filtering and decoding logs** – Extracting relevant logs based on criteria.
-4. **Handling re-organizations** – Rolling back processed logs if the blockchain forks.
-5. **Managing data storage** – Storing and indexing extracted logs efficiently.
+`LogsIndexer` fast-syncs by querying Thor log endpoints in block ranges:
 
----
+- event logs from `/logs/event`
+- transfer logs from `/logs/transfer`
 
-## How Logs Indexer Works
-
-### **1️⃣ Fast Sync Mode (Log-Based Indexing)**
-- Fetches **event logs** and **VET transfer logs** using:
-  - `getEventLogs()` for smart contract events.
-  - `getVetTransfers()` for VET transfers.
-- Uses **batch processing** with `BLOCK_BATCH_SIZE` to **retrieve multiple blocks' logs at once**.
-- Stores only the relevant **decoded events** and **transfers**.
-- Skips unnecessary transactions, unlike block-based processing.
-
-### **2️⃣ Switching to Block Indexing**
-- The indexer operates in **Fast Sync Mode** until it reaches `blockSwitchThreshold`.
-- Once within the threshold (e.g., **1000 blocks behind the best block**), it **switches to `BlockIndexer`**.
-- The reason for switching:
-  - **Better finality**: Ensures blockchain reorgs don’t lead to missing logs.
-
----
-
-## Implementing the Logs Indexer
-
-To use the `LogsIndexer`, create a new class that extends it and implements `processLogs()`.
-
-#### Example:
+It then decodes those logs into `IndexedEvent` values and emits:
 
 ```kotlin
-class MyLogsIndexer(
-    thorClient: ThorClient,
-    abiManager: AbiManager,
-    businessEventManager: BusinessEventManager
-) : LogsIndexer(thorClient, abiManager, businessEventManager) {
-    override fun processLogs(events: List<EventLog>, transfers: List<TransferLog>) {
-        events.forEach { event ->
-            println("Processed event: ${event.topics[0]} at block ${event.meta.blockNumber}")
-        }
-        transfers.forEach { transfer ->
-            println("Processed VET transfer from ${transfer.sender} to ${transfer.recipient}")
-        }
-    }
-}
+IndexingResult.LogResult(
+    endBlock = ...,
+    events = ...,
+    status = ...
+)
 ```
 
----
+## Fast Sync Behaviour
 
-## Logs Indexer Lifecycle
+`LogsIndexer` implements `FastSyncableIndexer`.
 
-### **1️⃣ Initialization**
-When the indexer starts, it:
+Its fast-sync path is:
 
-1. Determines where to resume indexing using the last synced block.
-2. Calls `rollback()` to revert logs from the last block (if needed for consistency).
-3. Begins processing logs in batches.
+1. move to `FAST_SYNCING`
+2. fetch the latest finalized block
+3. process log batches until the current block reaches that finalized block number
+4. move back to `INITIALISED`
 
-### **2️⃣ Processing Logs**
-The `processLogs()` method is where users implement their logic to handle **only the relevant logs** provided as input. The logs that are passed to this method have already been filtered according to configured `eventCriteriaSet` and `transferCriteriaSet`. The method should:
+This is different from the older behavior documented previously. The current implementation does not switch to a separate “near-tip block mode” based on a threshold. Steady-state block processing is coordinated by `IndexerRunner` after fast sync completes.
 
-1. **Store logs** – Save logs to a database, cache, or external system.
-2. **Trigger business logic** – Update indexes, trigger alerts, or notify other systems.
-3. **Ensure data integrity** – Handle duplicates and missing data gracefully.
+## Configuration
 
-#### Example:
-```kotlin
-override fun processLogs(events: List<EventLog>, transfers: List<TransferLog>) {
-    events.forEach { event ->
-        logger.info("Storing event: ${event.topics[0]} from block ${event.meta.blockNumber}")
-    }
-    transfers.forEach { transfer ->
-        logger.info("Recording VET transfer from ${transfer.sender} to ${transfer.recipient}")
-    }
-  
-  // Optionally decode events with processAllEvents(events: List<EventLog>, transfers: List<TransferLog>)
-}
-```
+These options are exposed through `IndexerFactory` and apply to `LogsIndexer` mode:
 
-### **3️⃣ Handling Re-orgs**
-Blockchain reorganizations occur when:
-- A different chain becomes the canonical chain.
-- Previously indexed logs are no longer valid.
+- `abis(basePath)`
+- `abiEventNames(eventNames)`
+- `abiContracts(contractAddresses)`
+- `businessEvents(basePath, abiBasePath)`
+- `businessEventNames(eventNames)`
+- `businessEventContracts(contractAddresses)`
+- `businessEventSubstitutionParams(params)`
+- `includeVetTransfers()` / `excludeVetTransfers()`
+- `eventCriteriaSet(criteria)`
+- `transferCriteriaSet(criteria)`
+- `blockBatchSize(size)`
+- `logFetchLimit(limit)`
 
-The `rollback()` method is used to remove logs from orphaned blocks.
+### `blockBatchSize(...)`
 
----
+Controls the size of the block range queried per log-sync batch.
 
-## Logs Indexer Configuration
+Default: `100`
 
-The `LogsIndexer` class allows configuration parameters to be set **at initialization**. These values define how logs are fetched, processed, and indexed.
+### `logFetchLimit(...)`
 
-#### **Where These Are Set**
+Controls the page size used for each Thor log request.
 
-These parameters are passed to the `LogsIndexer` constructor:
+Default: `1000`
+
+### `eventCriteriaSet(...)`
+
+Narrows `/logs/event` requests before decoding.
 
 ```kotlin
-abstract class LogsIndexer(
-    override val thorClient: ThorClient,
-    startBlock: Long = 0L,
-    private val syncLoggerInterval: Long = 1_000L,
-    private val blockSwitchThreshold: Long = 1_000L,
-    private val logsType: Set<LogType> = setOf(LogType.EVENT),
-    private val blockBatchSize: Long = 100L,
-    private val logFetchLimit: Long = 1_000L,
-    private var eventCriteriaSet: List<EventCriteria>? = null,
-    private var transferCriteriaSet: List<TransferCriteria>? = null,
-    final override val abiManager: AbiManager? = null,
-    override val businessEventManager: BusinessEventManager? = null,
-) : BlockIndexer(thorClient, startBlock, syncLoggerInterval, abiManager, businessEventManager)
+val criteria =
+    listOf(
+        EventCriteria(
+            address = "0xabc...",
+            topic0 = "0xddf252ad..."
+        )
+    )
 ```
 
-### **🛠 Configuration Parameters**
+### `transferCriteriaSet(...)`
 
-| Parameter                | Default Value | Description                                                 |
-|--------------------------|--------------|-------------------------------------------------------------|
-| `syncLoggerInterval`     | `1000`      | Defines how often log sync progress is printed.             |
-| `blockSwitchThreshold`   | `1000`      | The number of blocks before switching to `BlockIndexer`.    |
-| `logsType`               | `EVENT` | Determines which logs are indexed (`EVENT`, `TRANSFER`, or both). |
-| `blockBatchSize`         | `100`       | The number of blocks processed in a single batch.           |
-| `logFetchLimit`          | `1000`      | The maximum number of logs retrieved in one request.        |
-| `eventCriteriaSet`       | `null`      | Optional filtering criteria for **event logs**.             |
-| `transferCriteriaSet`    | `null`      | Optional filtering criteria for **transfer logs**.          |
+Narrows `/logs/transfer` requests before decoding.
 
----
+```kotlin
+val criteria =
+    listOf(
+        TransferCriteria(
+            sender = "0x123...",
+            recipient = "0x456...",
+        )
+    )
+```
 
-## Summary
-- `LogsIndexer` fetches logs **instead of full blocks**, making it much faster.
-- Uses **batch processing** to improve efficiency.
-- Switches to `BlockIndexer` **near latest blocks** to ensure finality.
-- Supports **both event logs and VET transfers**.
-- Can be **customized** via constructor parameters.
-- Handles **chain reorganizations with rollback support**.
+## Example
 
-By using `LogsIndexer`, you can **speed up blockchain indexing** without sacrificing data integrity! 🚀
+```kotlin
+val tokenIndexer =
+    IndexerFactory()
+        .name("token-events")
+        .thorClient(thorClient)
+        .processor(processor)
+        .startBlock(19_000_000)
+        .abis("abis")
+        .abiEventNames(listOf("Transfer", "Approval"))
+        .abiContracts(listOf("0x0000000000000000000000000000456e65726779"))
+        .includeVetTransfers()
+        .eventCriteriaSet(
+            listOf(
+                EventCriteria(
+                    topic0 = "0xddf252ad..."
+                )
+            )
+        )
+        .build()
+```
 
+## Processing Model
+
+For each batch:
+
+1. the batch end block is computed from `currentBlock + blockBatchSize - 1`
+2. matching event logs are fetched if ABI processing is configured
+3. matching transfer logs are fetched if VET transfers are enabled
+4. decoded events are emitted via `IndexerProcessor.process(...)`
+5. the current block is advanced to `batchEndBlock + 1`
+
+If a batch contains no logs, the block pointer still advances.
+
+## Returned Data
+
+The processor receives decoded `IndexedEvent` items. Depending on configuration, those may include:
+
+- ABI-decoded events
+- synthetic `VET_TRANSFER` events
+- business events derived from decoded ABI and transfer data
+
+If both ABI events and business events are enabled, ABI events that are covered by a business event for the same `txId` and `clauseIndex` are removed from the final output.
+
+## When Not to Use `LogsIndexer`
+
+Use `BlockIndexer` instead when you need:
+
+- access to the full `Block`
+- reverted transactions
+- gas and fee details from full block processing
+- contract call inspection through `callDataClauses(...)`
+- dependency ordering via `dependsOn(...)`

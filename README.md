@@ -1,127 +1,94 @@
 # Indexer Core
 
-This library provides the core functionality for building an indexer for VechainThor. It supports running multiple indexers concurrently with automatic dependency management and parallel processing.
+`indexer-core` provides the core building blocks for VeChainThor indexers. It supports fast log-based catch-up, full block processing when required, ABI and business-event decoding, dependency-aware execution, and rollback-safe reprocessing after reorgs.
 
-## Features
+## Requirements
 
-- **Parallel Processing**: Multiple indexers process blocks concurrently for maximum performance
-- **Dependency Management**: Automatically orders indexers based on their dependencies using topological sorting
-- **Retry Logic**: Built-in retry mechanisms for initialization, sync, and block processing
-- **Block Buffering**: Configurable buffering to optimize throughput
-- **Group Coordination**: Indexers with dependencies are organized into processing groups that maintain proper ordering
+- Java 21
+- Access to a Thor API endpoint
+- A persistence layer that can store the last synced block and roll back on reorgs
 
-## Example usage
+## Installation
+
+Gradle Kotlin DSL:
 
 ```kotlin
-@Configuration
-open class IndexerConfig() {
-
-    @Bean
-    open fun myPruner(): Pruner = PrunerService()
-
-    @Bean
-    open fun blockIndexer(myPruner: Pruner): Indexer =
-        IndexerFactory()
-            .name("BlockIndexer")
-            .thorClient("https://mainnet.vechain.org", Pair("X-Project-Id", "my-indexer"))
-            .processor(blockProcessor)
-            .pruner(myPruner)
-            .startBlock(0)
-            .syncLoggerInterval(1000)
-            .abis("/abis")
-            .businessEvents("/business-events", "/abis")
-            .includeVetTransfers()
-            .build()
-
-    @Bean
-    open fun transactionIndexer(blockIndexer: Indexer): Indexer =
-        IndexerFactory()
-            .name("TransactionIndexer")
-            .thorClient("https://mainnet.vechain.org")
-            .processor(txProcessor)
-            .dependsOn(blockIndexer)  // Ensures BlockIndexer processes blocks first
-            .startBlock(0)
-            .build()
-
-    @Bean
-    open fun indexerRunner(
-        scope: CoroutineScope,
-        thorClient: ThorClient,
-        blockIndexer: Indexer,
-        transactionIndexer: Indexer
-    ): Job {
-        return IndexerRunner.launch(
-            scope = scope,
-            thorClient = thorClient,
-            indexers = listOf(blockIndexer, transactionIndexer),
-            blockBatchSize = 10  // Buffer up to 10 blocks per group
-        )
-    }
+dependencies {
+    implementation("org.vechain:indexer-core:8.0.3")
 }
 ```
 
-The `IndexerFactory` can be used to configure your indexer. The only required parameters are the `name`, `thorClient` and the `processor`.
-For details of the available configuration options, see the comments in the `IndexerFactory` class.
+Gradle Groovy DSL:
 
+```groovy
+dependencies {
+    implementation 'org.vechain:indexer-core:8.0.3'
+}
+```
 
-## IndexerProcessor Implementation
-
-An example of an `IndexerProcessor` implementation:
+## Quick Start
 
 ```kotlin
-@Component
-open class MyProcessor(
-  private val myService: Service,
+class MyProcessor(
+    private val repository: MyRepository,
 ) : IndexerProcessor {
-    override fun process(entry: IndexingResult) {
-        if (entry.events().isEmpty()) {
-            return
-        }
-        myService.processEvents(entry.events())
-    }
+    override fun getLastSyncedBlock(): BlockIdentifier? = repository.getLastSyncedBlock()
 
     override fun rollback(blockNumber: Long) {
-        myService.rollback(blockNumber)
+        repository.rollbackFrom(blockNumber)
     }
 
-    override fun getLastSyncedBlock(): BlockIdentifier? {
-      myService.getLatestRecord()?.let {
-        return BlockIdentifier(number = it.blockNumber, id = it.blockId)
-      }
-      logger.info("No records found in repository, returning null")
-      return null
+    override suspend fun process(entry: IndexingResult) {
+        when (entry) {
+            is IndexingResult.LogResult -> repository.storeEvents(entry.endBlock, entry.events)
+            is IndexingResult.BlockResult ->
+                repository.storeBlock(entry.block, entry.events, entry.callResults)
+        }
     }
 }
+
+val thorClient = DefaultThorClient("https://mainnet.vechain.org")
+
+val indexer =
+    IndexerFactory()
+        .name("example-indexer")
+        .thorClient(thorClient)
+        .processor(MyProcessor(repository))
+        .startBlock(19_000_000)
+        .build()
+
+val job =
+    IndexerRunner.launch(
+        scope = scope,
+        thorClient = thorClient,
+        indexers = listOf(indexer),
+    )
 ```
 
-## Architecture
+## Choosing a Mode
 
-### IndexerRunner
+- Default `LogsIndexer`: best when you want the fastest catch-up path and only need decoded events or transfers.
+- `includeFullBlock()`: use when you need full block contents, reverted transactions, gas metadata, or clause inspection results.
+- `dependsOn(...)`: use when one indexer must finish a block before another processes that same block.
 
-The `IndexerRunner` coordinates multiple indexers:
+Processors should handle both `IndexingResult.LogResult` and `IndexingResult.BlockResult`.
 
-1. **Initialization Phase**: All indexers are initialized and fast-synced concurrently
-2. **Execution Phase**: Indexers are organized into dependency groups and process blocks in parallel
-   - Groups are determined by topological sorting based on `dependsOn` relationships
-   - Within each group, indexers process the same block **sequentially** in list order
-   - Different groups can work on different blocks simultaneously (e.g., Group 2 on block N+1 while Group 1 on block N+2)
+## Documentation
 
-### Dependency Management
+The detailed documentation lives in [`docs/README.md`](docs/README.md) and is the canonical source of truth for library behavior.
 
-The `IndexerOrderUtils` provides topological sorting to determine the correct processing order:
+- [`docs/README.md`](docs/README.md): documentation index and navigation
+- [`docs/IndexerOverview.md`](docs/IndexerOverview.md): runtime model, lifecycle, runner behavior
+- [`docs/LogsIndexerOverview.md`](docs/LogsIndexerOverview.md): log-based indexing and fast sync
+- [`docs/EventsAndABIHandling.md`](docs/EventsAndABIHandling.md): ABI loading and event decoding
+- [`docs/BusinessEvents.md`](docs/BusinessEvents.md): business event definitions and matching
+- [`docs/MIGRATION-8.0.0.md`](docs/MIGRATION-8.0.0.md): 7.x to 8.x migration guide
 
-```kotlin
-val indexer1 = createIndexer("Base")
-val indexer2 = createIndexer("DependentA", dependsOn = indexer1)
-val indexer3 = createIndexer("DependentB", dependsOn = indexer1)
-val indexer4 = createIndexer("FinalIndexer", dependsOn = indexer2)
+## Documentation Model
 
-// Results in groups: [[Base], [DependentA, DependentB], [FinalIndexer]]
-// DependentA and DependentB can process blocks in parallel
-```
+To reduce drift:
 
-## Java compatibility
-
-When using the indexer-core package in a Java project, prefer using `startInCoroutine()` to start your indexer implementation,
-as the regular `start()` is a suspend function for which the caller has to supply a coroutine scope.
-Otherwise, the package is Java compatible as is.
+- keep `README.md` short and focused on overview plus quick start
+- keep detailed technical docs in `docs/`
+- treat the repo docs as the canonical source
+- use Confluence as a landing page that links to the repo docs instead of duplicating them manually
