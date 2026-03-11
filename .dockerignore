@@ -1,0 +1,17 @@
+.git
+.github
+.idea
+.vscode
+.gradle
+.gradle-home
+.gradle-user
+.kotlin
+.claude
+.DS_Store
+.swift-module-cache/
+
+build/
+out/
+
+docs/confluence/
+docs/temp.md
