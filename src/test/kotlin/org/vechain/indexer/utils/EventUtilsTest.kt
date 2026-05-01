@@ -160,6 +160,144 @@ internal class EventUtilsTest {
         }
 
         @Test
+        fun `should decode empty dynamic bytes correctly`() {
+            val abi =
+                AbiElement(
+                    name = "BytesTest",
+                    type = "event",
+                    anonymous = false,
+                    stateMutability = null,
+                    inputs =
+                        listOf(
+                            InputOutput("bytes", "data", "bytes", indexed = false),
+                        ),
+                    outputs = emptyList(),
+                    signature = "9999999999999999999999999999999999999999999999999999999999999999",
+                )
+
+            val event =
+                TxEvent(
+                    address = "0xd9145cce52d386f254917e481eb44e9943f39138",
+                    topics =
+                        listOf(
+                            "0x9999999999999999999999999999999999999999999999999999999999999999",
+                        ),
+                    data =
+                        @Suppress("ktlint:standard:max-line-length")
+                        "0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
+                )
+
+            val result = EventUtils.decodeEvent(event, abi)
+            expectThat(result)
+                .isEqualTo(
+                    AbiEventParameters(
+                        returnValues = mapOf("data" to "0x"),
+                        eventType = "BytesTest",
+                    ),
+                )
+        }
+
+        @Test
+        fun `should decode non-empty dynamic bytes correctly`() {
+            val abi =
+                AbiElement(
+                    name = "BytesTest",
+                    type = "event",
+                    anonymous = false,
+                    stateMutability = null,
+                    inputs =
+                        listOf(
+                            InputOutput("bytes", "data", "bytes", indexed = false),
+                        ),
+                    outputs = emptyList(),
+                    signature = "9999999999999999999999999999999999999999999999999999999999999999",
+                )
+
+            val event =
+                TxEvent(
+                    address = "0xd9145cce52d386f254917e481eb44e9943f39138",
+                    topics =
+                        listOf(
+                            "0x9999999999999999999999999999999999999999999999999999999999999999",
+                        ),
+                    data =
+                        @Suppress("ktlint:standard:max-line-length")
+                        "0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000004deadbeef00000000000000000000000000000000000000000000000000000000",
+                )
+
+            val result = EventUtils.decodeEvent(event, abi)
+            expectThat(result)
+                .isEqualTo(
+                    AbiEventParameters(
+                        returnValues = mapOf("data" to "0xdeadbeef"),
+                        eventType = "BytesTest",
+                    ),
+                )
+        }
+
+        @Test
+        fun `should decode mixed event with bytes and string after head slots`() {
+            // Mirrors the SafeTxProposed shape: address, uint256, bytes, uint8, uint256, string.
+            // The fixture matches an actual Safe proposal of 2 VET to 0xc521... with empty
+            // calldata and description "Tset 2".
+            val abi =
+                AbiElement(
+                    name = "SafeTxProposed",
+                    type = "event",
+                    anonymous = false,
+                    stateMutability = null,
+                    inputs =
+                        listOf(
+                            InputOutput("address", "to", "address", indexed = false),
+                            InputOutput("uint256", "value", "uint256", indexed = false),
+                            InputOutput("bytes", "data", "bytes", indexed = false),
+                            InputOutput("uint8", "operation", "uint8", indexed = false),
+                            InputOutput("uint256", "nonce", "uint256", indexed = false),
+                            InputOutput("string", "description", "string", indexed = false),
+                        ),
+                    outputs = emptyList(),
+                    signature = "9999999999999999999999999999999999999999999999999999999999999999",
+                )
+
+            val event =
+                TxEvent(
+                    address = "0xd9145cce52d386f254917e481eb44e9943f39138",
+                    topics =
+                        listOf(
+                            "0x9999999999999999999999999999999999999999999999999999999999999999",
+                        ),
+                    data =
+                        @Suppress("ktlint:standard:max-line-length")
+                        "0x000000000000000000000000c5213085d3fc19b6a883a92a5703f7733360f063" +
+                            "0000000000000000000000000000000000000000000000001bc16d674ec80000" +
+                            "00000000000000000000000000000000000000000000000000000000000000c0" +
+                            "0000000000000000000000000000000000000000000000000000000000000000" +
+                            "0000000000000000000000000000000000000000000000000000000000000000" +
+                            "00000000000000000000000000000000000000000000000000000000000000e0" +
+                            "0000000000000000000000000000000000000000000000000000000000000000" +
+                            "0000000000000000000000000000000000000000000000000000000000000006" +
+                            "5473657420320000000000000000000000000000000000000000000000000000",
+                )
+
+            val result = EventUtils.decodeEvent(event, abi)
+            expectThat(result)
+                .isEqualTo(
+                    AbiEventParameters(
+                        returnValues =
+                            mapOf(
+                                "to" to "0xc5213085d3fc19b6a883a92a5703f7733360f063",
+                                "value" to BigInteger("2000000000000000000"),
+                                "data" to "0x",
+                                "operation" to BigInteger.ZERO,
+                                "nonce" to BigInteger.ZERO,
+                                "description" to "Tset 2",
+                            ),
+                        eventType = "SafeTxProposed",
+                    ),
+                )
+        }
+
+        @Test
         fun `should decode address array correctly `() {
             val randomAbiElement =
                 AbiElement(
