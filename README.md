@@ -14,7 +14,7 @@ Gradle Kotlin DSL:
 
 ```kotlin
 dependencies {
-    implementation("org.vechain:indexer-core:8.0.3")
+    implementation("org.vechain:indexer-core:8.0.4")
 }
 ```
 
@@ -22,7 +22,7 @@ Gradle Groovy DSL:
 
 ```groovy
 dependencies {
-    implementation 'org.vechain:indexer-core:8.0.3'
+    implementation 'org.vechain:indexer-core:8.0.4'
 }
 ```
 
