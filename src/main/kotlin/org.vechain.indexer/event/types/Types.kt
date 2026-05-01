@@ -101,6 +101,16 @@ enum class Types {
             startPosition: Int,
             components: List<InputOutput>?,
         ): DecodedValue<T> {
+            // Dynamic `bytes` stores an offset in the head slot; dereference via `fullData`.
+            // Static `bytesN` and indexed dynamic bytes (no `fullData`) use `encoded` directly.
+            if (name == "bytes" && !fullData.isNullOrEmpty()) {
+                val decoded =
+                    decodeAbiBytes(fullData, startPosition)
+                        ?: throw IllegalArgumentException(
+                            "Error decoding bytes at offset: $startPosition",
+                        )
+                return DecodedValue(decoded, clazz, clazz.cast(decoded), name)
+            }
             if (encoded.length % 2 != 0 || !encoded.startsWith("0x")) {
                 throw IllegalArgumentException("Invalid bytes value: $encoded")
             }
@@ -296,6 +306,38 @@ enum class Types {
                 )
             } catch (e: Exception) {
                 logger.error("Error decoding string at offset: $startPosition", e)
+                return null
+            }
+        }
+
+        fun decodeAbiBytes(
+            encodedData: String,
+            startPosition: Int,
+        ): String? {
+            val inputData = DataUtils.removePrefix(encodedData)
+            try {
+                if (inputData.length < startPosition + 64) {
+                    throw IllegalArgumentException("Data is too short for extracting offset")
+                }
+                val offsetHex = inputData.substring(startPosition, startPosition + 64)
+                val offset = DataUtils.decodeQuantity(DataUtils.addPrefix(offsetHex)).toInt()
+                if (offset * 2 + 64 > inputData.length) {
+                    throw IllegalArgumentException("Invalid offset or data length")
+                }
+
+                val lengthHex = inputData.substring(offset * 2, offset * 2 + 64)
+                val length = DataUtils.decodeQuantity(DataUtils.addPrefix(lengthHex)).toInt()
+                val bytesStart = offset * 2 + 64
+                val bytesEnd = bytesStart + length * 2
+
+                if (inputData.length < bytesEnd) {
+                    throw IllegalArgumentException("Bytes end exceeds data length")
+                }
+
+                val bytesHex = inputData.substring(bytesStart, bytesEnd)
+                return DataUtils.addPrefix(bytesHex)
+            } catch (e: Exception) {
+                logger.error("Error decoding bytes at offset: $startPosition", e)
                 return null
             }
         }
