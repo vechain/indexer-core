@@ -40,12 +40,14 @@ open class LogsIndexer(
         dependsOn = null,
     ),
     FastSyncableIndexer {
-    private var currentBlockBatchSize: Long =
-        blockBatchSize.coerceIn(MIN_BLOCK_BATCH_SIZE, MAX_BLOCK_BATCH_SIZE)
+    private var currentBlockBatchSize: Long = blockBatchSize
 
     init {
-        require(blockBatchSize >= 1) { "blockBatchSize must be >= 1" }
+        require(blockBatchSize in MIN_BLOCK_BATCH_SIZE..MAX_BLOCK_BATCH_SIZE) {
+            "blockBatchSize must be between $MIN_BLOCK_BATCH_SIZE and $MAX_BLOCK_BATCH_SIZE"
+        }
         require(logFetchLimit >= 1) { "logFetchLimit must be >= 1" }
+    }
     }
 
     protected open val logClient = LogClient(thorClient)
