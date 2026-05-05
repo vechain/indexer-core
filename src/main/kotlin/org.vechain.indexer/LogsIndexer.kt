@@ -40,6 +40,9 @@ open class LogsIndexer(
         dependsOn = null,
     ),
     FastSyncableIndexer {
+    private var currentBlockBatchSize: Long =
+        blockBatchSize.coerceIn(MIN_BLOCK_BATCH_SIZE, MAX_BLOCK_BATCH_SIZE)
+
     init {
         require(blockBatchSize >= 1) { "blockBatchSize must be >= 1" }
         require(logFetchLimit >= 1) { "logFetchLimit must be >= 1" }
@@ -66,15 +69,17 @@ open class LogsIndexer(
     /**
      * Synchronizes logs from the current block to the target block.
      *
-     * This method processes blocks in batches determined by [blockBatchSize]. For each batch:
+     * This method processes blocks in batches determined by the current adaptive block range. For
+     * each batch:
      * 1. Fetches event logs (if ABIs are configured)
      * 2. Fetches transfer logs (if not excluded)
      * 3. Processes and indexes the logs
-     * 4. Updates the current block number
+     * 4. Adjusts the next block range based on raw log count
+     * 5. Updates the current block number
      *
      * The sync continues until [getCurrentBlockNumber] reaches [toBlock].number.
      *
-     * @param toBlock The block identifier to sync up to (inclusive).
+     * @param toBlock The block cursor to sync up to.
      *
      * Note: This method is internal to allow for testing via TestableLogsIndexer.
      */
@@ -97,13 +102,16 @@ open class LogsIndexer(
 
         val eventLogs = fetchEventLogsIfNeeded(batchEndBlock)
         val transferLogs = fetchTransferLogsIfNeeded(batchEndBlock)
+        val totalFetchedLogs = eventLogs.size + transferLogs.size
 
         if (hasNoLogs(eventLogs, transferLogs)) {
+            adjustBlockBatchSize(totalFetchedLogs)
             updateBlockNumberAndTime(batchEndBlock)
             return
         }
 
         processAndIndexEvents(eventLogs, transferLogs, batchEndBlock)
+        adjustBlockBatchSize(totalFetchedLogs)
         updateBlockNumberAndTime(batchEndBlock)
     }
 
@@ -111,10 +119,39 @@ open class LogsIndexer(
      * Calculates the end block number for the current batch.
      *
      * @param toBlockNumber The target block number for the overall sync operation.
-     * @return The batch end block number (will not exceed toBlockNumber).
+     * @return The batch end block number (will not cross toBlockNumber).
      */
     protected open fun calculateBatchEndBlock(toBlockNumber: Long): Long {
-        return minOf(getCurrentBlockNumber() + blockBatchSize - 1, toBlockNumber)
+        return minOf(getCurrentBlockNumber() + currentBlockBatchSize - 1, toBlockNumber - 1)
+    }
+
+    /**
+     * Adjusts the next block range using raw log volume as backpressure.
+     *
+     * Raw logs are used instead of processed events so the range reacts to Thor query volume before
+     * ABI filtering, business event grouping, or deduplication.
+     */
+    protected open fun adjustBlockBatchSize(totalFetchedLogs: Int) {
+        val nextBlockBatchSize =
+            when {
+                totalFetchedLogs == 0 -> currentBlockBatchSize * 2
+                totalFetchedLogs <= TARGET_LOGS_PER_BATCH / 2 -> increaseBlockBatchSize()
+                totalFetchedLogs <= TARGET_LOGS_PER_BATCH -> currentBlockBatchSize
+                else -> shrinkBlockBatchSize(totalFetchedLogs)
+            }
+
+        currentBlockBatchSize =
+            nextBlockBatchSize.coerceIn(MIN_BLOCK_BATCH_SIZE, MAX_BLOCK_BATCH_SIZE)
+    }
+
+    private fun increaseBlockBatchSize(): Long {
+        return currentBlockBatchSize + ((currentBlockBatchSize + 1) / 2)
+    }
+
+    private fun shrinkBlockBatchSize(totalFetchedLogs: Int): Long {
+        return (currentBlockBatchSize * TARGET_LOGS_PER_BATCH / totalFetchedLogs).coerceAtLeast(
+            MIN_BLOCK_BATCH_SIZE
+        )
     }
 
     /**
@@ -205,5 +242,11 @@ open class LogsIndexer(
 
     private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long, status: Status) {
         logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
+    }
+
+    companion object {
+        private const val MIN_BLOCK_BATCH_SIZE = 1L
+        private const val MAX_BLOCK_BATCH_SIZE = 1_000L
+        private const val TARGET_LOGS_PER_BATCH = 1_000
     }
 }
