@@ -84,6 +84,8 @@ The emitted business event reuses metadata from the first matched source event:
 - `gasPayer`
 - `paid`
 - `clauseIndex`
+- `txIndex`, when available
+- `logIndex`, when available
 
 ## Definition Structure
 
@@ -165,6 +167,7 @@ If you configure both ABI events and business events:
 - ABI events are decoded first
 - business events are derived from those decoded events
 - ABI events that are covered by a business event with the same `txId` and `clauseIndex` are removed from the final output list
+- final mixed output is sorted by block number, transaction index when available, clause index, and log index when available
 
 This prevents double-reporting of the same semantic action.
 

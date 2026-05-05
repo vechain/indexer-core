@@ -8,6 +8,7 @@ import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.utils.BusinessEventUtils
 import org.vechain.indexer.event.utils.BusinessEventUtils.containsVetTransferEvent
 import org.vechain.indexer.event.utils.BusinessEventUtils.extractAbiEventNames
+import org.vechain.indexer.event.utils.IndexedEventOrder
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.TransferLog
@@ -72,6 +73,7 @@ open class BusinessEventProcessor(
                         processTransactionForBusinessEvents(transactionEvents)
                     }
             }
+            .let(IndexedEventOrder::sortChronologically)
 
     /** Processes events within a single transaction to determine if they match business events. */
     private fun processTransactionForBusinessEvents(
@@ -172,6 +174,8 @@ open class BusinessEventProcessor(
             params = AbiEventParameters(params, definition.name),
             eventType = definition.name,
             clauseIndex = firstEvent.clauseIndex,
+            txIndex = firstEvent.txIndex,
+            logIndex = firstEvent.logIndex,
         )
     }
 }

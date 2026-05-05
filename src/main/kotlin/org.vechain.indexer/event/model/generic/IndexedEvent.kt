@@ -16,6 +16,8 @@ data class IndexedEvent(
     val eventType: String,
     val clauseIndex: Long,
     val signature: String? = null,
+    val txIndex: Long? = null,
+    val logIndex: Long? = null,
 ) {
     fun get(fieldName: String): Any? =
         when (fieldName) {
@@ -30,6 +32,8 @@ data class IndexedEvent(
             "clauseIndex" -> clauseIndex
             "signature" -> signature
             "gasPayer" -> gasPayer
+            "txIndex" -> txIndex
+            "logIndex" -> logIndex
             else -> null
         }
 }

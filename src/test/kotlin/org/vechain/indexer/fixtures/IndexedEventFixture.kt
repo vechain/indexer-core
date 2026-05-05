@@ -20,7 +20,9 @@ object IndexedEventFixture {
         address: String? = null,
         eventType: String = "default-event-type",
         clauseIndex: Long = 0L,
-        signature: String? = null
+        signature: String? = null,
+        txIndex: Long? = null,
+        logIndex: Long? = null,
     ): IndexedEvent {
         return IndexedEvent(
             id,
@@ -37,7 +39,9 @@ object IndexedEventFixture {
             address,
             eventType,
             clauseIndex,
-            signature
+            signature,
+            txIndex,
+            logIndex,
         )
     }
 }

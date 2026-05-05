@@ -68,8 +68,8 @@ class BusinessEventProcessorTest {
 
             expectThat(indexedEvents).hasSize(2)
             expect {
-                that(indexedEvents[0].eventType).isEqualTo("STARGATE_DELEGATE")
-                that(indexedEvents[1].eventType).isEqualTo("STARGATE_STAKE")
+                that(indexedEvents[0].eventType).isEqualTo("STARGATE_STAKE")
+                that(indexedEvents[1].eventType).isEqualTo("STARGATE_DELEGATE")
             }
         }
 

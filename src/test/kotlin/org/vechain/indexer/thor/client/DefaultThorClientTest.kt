@@ -311,6 +311,8 @@ open class DefaultThorClientTest {
                             txID = "0x2",
                             txOrigin = "0x3",
                             clauseIndex = 0,
+                            txIndex = 4,
+                            logIndex = 5,
                         ),
                 ),
             )
@@ -363,6 +365,8 @@ open class DefaultThorClientTest {
                             txID = "0x8",
                             txOrigin = "0x7",
                             clauseIndex = 1,
+                            txIndex = 6,
+                            logIndex = 7,
                         ),
                 ),
             )

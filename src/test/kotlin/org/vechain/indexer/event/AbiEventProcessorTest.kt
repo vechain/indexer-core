@@ -135,6 +135,30 @@ class AbiEventProcessorTest {
         }
 
         @Test
+        fun `decodeLogEvents should include index metadata when present`() {
+            val processor =
+                TestableAbiEventProcessor(
+                    basePath = "test-abis/b3tr",
+                    eventNames = listOf("RewardDistributed"),
+                    contractAddresses = emptyList(),
+                    includeVetTransfers = false
+                )
+
+            val logs =
+                LOGS_B3TR_ACTION.mapIndexed { index, log ->
+                    log.copy(meta = log.meta.copy(txIndex = 7, logIndex = index.toLong()))
+                }
+
+            val result = processor.publicDecodeLogEvents(logs)
+
+            expectThat(result).isNotEmpty()
+            expectThat(result[0]) {
+                get { txIndex }.isEqualTo(7)
+                get { logIndex }.isEqualTo(0)
+            }
+        }
+
+        @Test
         fun `decodeLogEvents should return empty list if no logs match`() {
             val processor =
                 TestableAbiEventProcessor(
@@ -177,7 +201,9 @@ class AbiEventProcessorTest {
                             blockNumber = 1L,
                             blockTimestamp = 1000L,
                             txOrigin = "origin1",
-                            clauseIndex = 0
+                            clauseIndex = 0,
+                            txIndex = 2,
+                            logIndex = 3,
                         ),
                 )
 
@@ -195,6 +221,8 @@ class AbiEventProcessorTest {
                 get { params.params }.isNotEmpty()
                 get { eventType }.isEqualTo("VET_TRANSFER")
                 get { clauseIndex }.isEqualTo(log.meta.clauseIndex.toLong())
+                get { txIndex }.isEqualTo(2)
+                get { logIndex }.isEqualTo(3)
             }
         }
 
@@ -211,6 +239,49 @@ class AbiEventProcessorTest {
             val result = processor.publicDecodeLogTransfers(emptyList())
 
             expectThat(result).isEmpty()
+        }
+    }
+
+    @Nested
+    inner class ProcessLogEvents {
+        @Test
+        fun `processEvents should sort decoded ABI events and VET transfers by transaction index`() {
+            val processor =
+                TestableAbiEventProcessor(
+                    basePath = "test-abis/b3tr",
+                    eventNames = listOf("RewardDistributed"),
+                    contractAddresses = emptyList(),
+                    includeVetTransfers = true
+                )
+            val eventLogs =
+                listOf(
+                    LOGS_B3TR_ACTION.first()
+                        .copy(meta = LOGS_B3TR_ACTION.first().meta.copy(txIndex = 2, logIndex = 0))
+                )
+            val transferLogs =
+                listOf(
+                    TransferLog(
+                        sender = "sender",
+                        recipient = "recipient",
+                        amount = "0x1",
+                        meta =
+                            EventMeta(
+                                txID = "tx1",
+                                blockID = eventLogs.first().meta.blockID,
+                                blockNumber = eventLogs.first().meta.blockNumber,
+                                blockTimestamp = eventLogs.first().meta.blockTimestamp,
+                                txOrigin = "origin1",
+                                clauseIndex = 0,
+                                txIndex = 1,
+                                logIndex = 0,
+                            ),
+                    )
+                )
+
+            val result = processor.processEvents(eventLogs, transferLogs)
+
+            expectThat(result.map { it.eventType })
+                .isEqualTo(listOf("VET_TRANSFER", "RewardDistributed"))
         }
     }
 

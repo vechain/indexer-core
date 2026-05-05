@@ -127,7 +127,9 @@ For each batch:
 
 1. the batch end block is computed from `currentBlock + blockBatchSize - 1`
 2. matching event logs are fetched if ABI processing is configured
+   - log requests include Thor index metadata when the node supports it
 3. matching transfer logs are fetched if VET transfers are enabled
+   - transfer log requests include Thor index metadata when the node supports it
 4. decoded events are emitted via `IndexerProcessor.process(...)`
 5. the current block is advanced to `batchEndBlock + 1`
 
@@ -142,6 +144,15 @@ The processor receives decoded `IndexedEvent` items. Depending on configuration,
 - business events derived from decoded ABI and transfer data
 
 If both ABI events and business events are enabled, ABI events that are covered by a business event for the same `txId` and `clauseIndex` are removed from the final output.
+
+Mixed ABI events, business events, and VET transfers are returned in chronological order using:
+
+- `blockNumber`
+- `txIndex`, when Thor returns it
+- `clauseIndex`
+- `logIndex`, when Thor returns it
+
+When connected to an older Thor node that does not return index metadata, ordering within the same block falls back to the stable order returned by the log endpoints.
 
 ## When Not to Use `LogsIndexer`
 

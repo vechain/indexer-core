@@ -78,12 +78,14 @@ For each decoded ABI event it produces an `IndexedEvent` containing:
 - block ID and block number
 - timestamp
 - transaction ID
+- transaction index when Thor provides it or when processing a full block
 - origin
 - gas metadata when block data is available
 - raw topics/data when present
 - decoded parameter values in `params`
 - `eventType`
 - `clauseIndex`
+- log index when Thor provides it or when processing a full block
 
 ## Filtering Options
 
@@ -177,6 +179,7 @@ When both ABI events and business events are enabled:
 
 - business events are derived from decoded ABI events and optional VET transfers
 - if a business event matches the same `txId` and `clauseIndex` as an ABI event, the ABI event is removed from the final output
+- final mixed output is sorted by block number, transaction index when available, clause index, and log index when available
 
 This keeps the final event list focused on the higher-level semantic event where possible.
 

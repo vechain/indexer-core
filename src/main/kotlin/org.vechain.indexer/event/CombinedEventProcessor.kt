@@ -1,6 +1,7 @@
 package org.vechain.indexer.event
 
 import org.vechain.indexer.event.model.generic.IndexedEvent
+import org.vechain.indexer.event.utils.IndexedEventOrder
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.TransferLog
@@ -119,20 +120,22 @@ protected constructor(
         businessEvents: List<IndexedEvent>
     ): List<IndexedEvent> {
         if (businessEvents.isEmpty()) {
-            return abiEvents
+            return IndexedEventOrder.sortChronologically(abiEvents)
         }
 
         // If there are no ABI events, return only business events.
         if (abiEvents.isEmpty()) {
-            return businessEvents
+            return IndexedEventOrder.sortChronologically(businessEvents)
         }
 
         // Filter out ABI events that are already covered by business events.
         // Filter based on txId and clauseIndex combination.
         val businessEventMap = businessEvents.associateBy { it.txId to it.clauseIndex }
-        return abiEvents.filterNot { event ->
-            val key = event.txId to event.clauseIndex
-            businessEventMap.containsKey(key)
-        } + businessEvents
+        return IndexedEventOrder.sortChronologically(
+            abiEvents.filterNot { event ->
+                val key = event.txId to event.clauseIndex
+                businessEventMap.containsKey(key)
+            } + businessEvents
+        )
     }
 }
