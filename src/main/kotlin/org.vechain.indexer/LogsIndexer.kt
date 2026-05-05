@@ -48,7 +48,6 @@ open class LogsIndexer(
         }
         require(logFetchLimit >= 1) { "logFetchLimit must be >= 1" }
     }
-    }
 
     protected open val logClient = LogClient(thorClient)
 
