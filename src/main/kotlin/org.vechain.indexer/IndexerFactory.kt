@@ -23,8 +23,6 @@ class IndexerFactory {
     private var businessEventNames: List<String> = emptyList()
     private var businessEventContracts: List<String> = emptyList()
     private var substitutionParams: Map<String, String> = emptyMap()
-    private var blockBatchSize: Long = 100L //  Block batch size
-    private var logFetchLimit: Long = 1000L //  Limits logs per API call (pagination)
     private var eventCriteriaSet: List<EventCriteria>? = null
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
@@ -77,8 +75,8 @@ class IndexerFactory {
                 startBlock = startBlock,
                 syncLoggerInterval = syncLoggerInterval,
                 excludeVetTransfers = !needsVetTransfers,
-                blockBatchSize = blockBatchSize,
-                logFetchLimit = logFetchLimit,
+                blockBatchSize = INITIAL_ADAPTIVE_BLOCK_RANGE,
+                logFetchLimit = LOG_FETCH_PAGE_SIZE,
                 eventCriteriaSet = eventCriteriaSet ?: emptyList(),
                 transferCriteriaSet = transferCriteriaSet ?: emptyList(),
                 eventProcessor = eventProcessor,
@@ -265,24 +263,6 @@ class IndexerFactory {
     }
 
     /**
-     * Sets the block bach size for retrieving events logs and transfers from the Thor API.
-     *
-     * The default value is `100` blocks.
-     *
-     * @param size The size of the block range.
-     */
-    fun blockBatchSize(size: Long) = apply { this.blockBatchSize = size }
-
-    /**
-     * Sets the limit for the number of event logs or transfers fetched per Thor API call.
-     *
-     * The default value is `1000` logs.
-     *
-     * @param limit The maximum number of logs to fetch per API call.
-     */
-    fun logFetchLimit(limit: Long) = apply { this.logFetchLimit = limit }
-
-    /**
      * By default, the full block object is not returned to the `process` function. This allows us
      * to sync faster by using log and vet transfer events only.
      *
@@ -301,4 +281,9 @@ class IndexerFactory {
      * and cannot be used when fast syncing via log events.
      */
     fun callDataClauses(clauses: List<Clause>) = apply { this.callDataClauses = clauses }
+
+    private companion object {
+        const val INITIAL_ADAPTIVE_BLOCK_RANGE = 100L
+        const val LOG_FETCH_PAGE_SIZE = 1000L
+    }
 }

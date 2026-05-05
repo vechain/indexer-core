@@ -55,20 +55,25 @@ These options are exposed through `IndexerFactory` and apply to `LogsIndexer` mo
 - `includeVetTransfers()` / `excludeVetTransfers()`
 - `eventCriteriaSet(criteria)`
 - `transferCriteriaSet(criteria)`
-- `blockBatchSize(size)`
-- `logFetchLimit(limit)`
 
-### `blockBatchSize(...)`
+### Adaptive block ranges
 
-Controls the size of the block range queried per log-sync batch.
+Log mode adapts the block range queried per batch automatically.
 
-Default: `100`
+The initial range is `100` blocks. After each successful batch, `LogsIndexer` uses the total number
+of raw event logs and transfer logs returned by Thor to choose the next range:
 
-### `logFetchLimit(...)`
+- empty batches increase the range quickly
+- sparse batches increase the range gradually
+- batches near the target log volume keep the range stable
+- dense batches shrink the range
 
-Controls the page size used for each Thor log request.
+The adaptive range is clamped between `1` and `1000` blocks.
 
-Default: `1000`
+### Internal pagination
+
+Thor log requests are still paginated internally. The page size defaults to `1000` logs per request.
+This does not control the searched block range.
 
 ### `eventCriteriaSet(...)`
 
@@ -125,13 +130,14 @@ val tokenIndexer =
 
 For each batch:
 
-1. the batch end block is computed from `currentBlock + blockBatchSize - 1`
+1. the batch end block is computed from the current adaptive block range
 2. matching event logs are fetched if ABI processing is configured
    - log requests include Thor index metadata when the node supports it
 3. matching transfer logs are fetched if VET transfers are enabled
    - transfer log requests include Thor index metadata when the node supports it
 4. decoded events are emitted via `IndexerProcessor.process(...)`
-5. the current block is advanced to `batchEndBlock + 1`
+5. the next adaptive block range is adjusted from the raw log count
+6. the current block is advanced to `batchEndBlock + 1`
 
 If a batch contains no logs, the block pointer still advances.
 

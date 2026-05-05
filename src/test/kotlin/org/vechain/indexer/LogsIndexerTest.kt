@@ -65,6 +65,10 @@ internal class TestableLogsIndexer(
         return super.calculateBatchEndBlock(toBlockNumber)
     }
 
+    fun publicAdjustBlockBatchSize(totalFetchedLogs: Int) {
+        super.adjustBlockBatchSize(totalFetchedLogs)
+    }
+
     fun publicHasNoLogs(eventLogs: List<EventLog>, transferLogs: List<TransferLog>): Boolean {
         return super.hasNoLogs(eventLogs, transferLogs)
     }
@@ -374,7 +378,7 @@ internal class LogsIndexerTest {
         }
 
         @Test
-        fun `should use blockBatchSize to determine batch end block`() = runBlocking {
+        fun `should use initial adaptive range to determine first batch end block`() = runBlocking {
             val indexerWithLargeBatch =
                 spyk(
                     TestableLogsIndexer(
@@ -404,13 +408,13 @@ internal class LogsIndexerTest {
         @Test
         fun `should not exceed toBlock when calculating batch end`() = runBlocking {
             every { eventProcessor.hasAbis() } returns false
-            coEvery { logClient.fetchTransfers(0L, 7L, 100L, null) } returns emptyList()
+            coEvery { logClient.fetchTransfers(0L, 6L, 100L, null) } returns emptyList()
 
             indexer.publicSetCurrentBlockNumber(0L)
             indexer.publicSync(BlockIdentifier(7L, "0x7"))
 
-            coVerify(exactly = 1) { logClient.fetchTransfers(0L, 7L, 100L, null) }
-            expect { that(indexer.getCurrentBlockNumber()).isEqualTo(8L) }
+            coVerify(exactly = 1) { logClient.fetchTransfers(0L, 6L, 100L, null) }
+            expect { that(indexer.getCurrentBlockNumber()).isEqualTo(7L) }
         }
 
         @Test
@@ -463,16 +467,14 @@ internal class LogsIndexerTest {
         fun `should process multiple batches`() = runBlocking {
             every { eventProcessor.hasAbis() } returns false
             coEvery { logClient.fetchTransfers(0L, 9L, 100L, null) } returns emptyList()
-            coEvery { logClient.fetchTransfers(10L, 19L, 100L, null) } returns emptyList()
-            coEvery { logClient.fetchTransfers(20L, 26L, 100L, null) } returns emptyList()
+            coEvery { logClient.fetchTransfers(10L, 25L, 100L, null) } returns emptyList()
 
             indexer.publicSetCurrentBlockNumber(0L)
             indexer.publicSync(BlockIdentifier(26L, "0x26"))
 
             coVerify(exactly = 1) { logClient.fetchTransfers(0L, 9L, 100L, null) }
-            coVerify(exactly = 1) { logClient.fetchTransfers(10L, 19L, 100L, null) }
-            coVerify(exactly = 1) { logClient.fetchTransfers(20L, 26L, 100L, null) }
-            expect { that(indexer.getCurrentBlockNumber()).isEqualTo(27L) }
+            coVerify(exactly = 1) { logClient.fetchTransfers(10L, 25L, 100L, null) }
+            expect { that(indexer.getCurrentBlockNumber()).isEqualTo(26L) }
         }
     }
 
@@ -508,7 +510,91 @@ internal class LogsIndexerTest {
 
             indexer.publicSetCurrentBlockNumber(50L)
             val result2 = indexer.publicCalculateBatchEndBlock(55L)
-            expect { that(result2).isEqualTo(55L) } // min(59, 55) = 55
+            expect { that(result2).isEqualTo(54L) } // min(59, 54) = 54
+        }
+
+        @Test
+        fun `adjustBlockBatchSize should double after empty batch`() {
+            indexer.publicSetCurrentBlockNumber(0L)
+
+            indexer.publicAdjustBlockBatchSize(0)
+
+            expect { that(indexer.publicCalculateBatchEndBlock(100L)).isEqualTo(19L) }
+        }
+
+        @Test
+        fun `adjustBlockBatchSize should increase after sparse batch`() {
+            indexer.publicSetCurrentBlockNumber(0L)
+
+            indexer.publicAdjustBlockBatchSize(1)
+
+            expect { that(indexer.publicCalculateBatchEndBlock(100L)).isEqualTo(14L) }
+        }
+
+        @Test
+        fun `adjustBlockBatchSize should keep range stable near target`() {
+            indexer.publicSetCurrentBlockNumber(0L)
+
+            indexer.publicAdjustBlockBatchSize(750)
+
+            expect { that(indexer.publicCalculateBatchEndBlock(100L)).isEqualTo(9L) }
+        }
+
+        @Test
+        fun `adjustBlockBatchSize should shrink after dense batch`() {
+            indexer.publicSetCurrentBlockNumber(0L)
+
+            indexer.publicAdjustBlockBatchSize(2000)
+
+            expect { that(indexer.publicCalculateBatchEndBlock(100L)).isEqualTo(4L) }
+        }
+
+        @Test
+        fun `adjustBlockBatchSize should not drop below one block`() {
+            val oneBlockIndexer =
+                TestableLogsIndexer(
+                    name = "TestLogsIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    startBlock = 0L,
+                    syncLoggerInterval = 1L,
+                    excludeVetTransfers = false,
+                    blockBatchSize = 1L,
+                    logFetchLimit = 100L,
+                    eventCriteriaSet = null,
+                    transferCriteriaSet = null,
+                    eventProcessor = eventProcessor,
+                    mockLogClient = logClient,
+                )
+
+            oneBlockIndexer.publicSetCurrentBlockNumber(0L)
+            oneBlockIndexer.publicAdjustBlockBatchSize(2000)
+
+            expect { that(oneBlockIndexer.publicCalculateBatchEndBlock(100L)).isEqualTo(0L) }
+        }
+
+        @Test
+        fun `adjustBlockBatchSize should not exceed one thousand blocks`() {
+            val largeBatchIndexer =
+                TestableLogsIndexer(
+                    name = "TestLogsIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    startBlock = 0L,
+                    syncLoggerInterval = 1L,
+                    excludeVetTransfers = false,
+                    blockBatchSize = 800L,
+                    logFetchLimit = 100L,
+                    eventCriteriaSet = null,
+                    transferCriteriaSet = null,
+                    eventProcessor = eventProcessor,
+                    mockLogClient = logClient,
+                )
+
+            largeBatchIndexer.publicSetCurrentBlockNumber(0L)
+            largeBatchIndexer.publicAdjustBlockBatchSize(0)
+
+            expect { that(largeBatchIndexer.publicCalculateBatchEndBlock(2_000L)).isEqualTo(999L) }
         }
 
         @Test
