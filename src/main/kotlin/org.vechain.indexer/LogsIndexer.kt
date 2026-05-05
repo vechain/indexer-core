@@ -60,6 +60,13 @@ open class LogsIndexer(
 
         if (getCurrentBlockNumber() < finalizedBlock.number) {
             sync(BlockIdentifier(finalizedBlock.number, finalizedBlock.id))
+            // sync() processes blocks up to (finalizedBlock.number - 1); the next block to be
+            // processed by the live BlockIndexer flow is finalizedBlock itself. Seed previousBlock
+            // with finalizedBlock's parent so checkForReorg compares against the correct
+            // predecessor instead of misidentifying the upcoming finalizedBlock as a reorg.
+            setPreviousBlock(
+                BlockIdentifier(number = finalizedBlock.number - 1, id = finalizedBlock.parentID)
+            )
         }
 
         logger.info("Fast sync complete")
@@ -89,7 +96,6 @@ open class LogsIndexer(
             checkIfShuttingDown()
             processBatch(toBlock.number)
         }
-        setPreviousBlock(toBlock)
     }
 
     /**

@@ -167,18 +167,41 @@ internal class LogsIndexerTest {
             indexer.publicSetCurrentBlockNumber(50L)
             indexer.fastSync()
 
+            // sync() processes up to finalizedBlock.number - 1, so previousBlock must reflect
+            // the last processed block (finalizedBlock's parent) — not finalizedBlock itself.
             expect {
                 that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
                 that(indexer.getPreviousBlock())
-                    .isEqualTo(
-                        BlockIdentifier(
-                            number = 100L,
-                            id = "0x${100.toString(16).padStart(64, '0')}"
-                        )
-                    )
+                    .isEqualTo(BlockIdentifier(number = 99L, id = finalizedBlock.parentID))
                 that(indexer.getCurrentBlockNumber()).isEqualTo(100L)
             }
         }
+
+        @Test
+        fun `should not trigger false-positive REORG on first live block after fastSync`() =
+            runBlocking {
+                // Regression for the testnet-blue VetBalanceIndexer false-positive REORG at block
+                // 24798060. After fastSync to FINALIZED block F, the live BlockIndexer flow
+                // processes F itself; previousBlock must be F's parent so the reorg check passes.
+                val finalizedBlock = buildBlock(num = 100L)
+                coEvery { thorClient.getBlock(BlockRevision.Keyword.FINALIZED) } returns
+                    finalizedBlock
+                coEvery { processor.process(any()) } just Runs
+                every { eventProcessor.processEvents(any<Block>()) } returns emptyList()
+
+                indexer.publicSetCurrentBlockNumber(50L)
+                indexer.fastSync()
+
+                // The live block at height 100 has parentID matching finalizedBlock.parentID.
+                val liveBlock = buildBlock(num = 100L, parentId = finalizedBlock.parentID)
+                indexer.processBlock(liveBlock)
+
+                expect {
+                    that(indexer.getCurrentBlockNumber()).isEqualTo(101L)
+                    that(indexer.getPreviousBlock())
+                        .isEqualTo(BlockIdentifier(number = 100L, id = liveBlock.id))
+                }
+            }
 
         @Test
         fun `should skip sync when current block is ahead of finalized block`() = runBlocking {
