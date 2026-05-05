@@ -27,7 +27,12 @@ class LogClient(
                 thorClient.getEventLogs(
                     EventLogsRequest(
                         range = LogsRange(from = fromBlock, to = toBlock, unit = "block"),
-                        options = LogsOptions(offset = offset, limit = logFetchLimit),
+                        options =
+                            LogsOptions(
+                                offset = offset,
+                                limit = logFetchLimit,
+                                includeIndexes = true,
+                            ),
                         criteriaSet = eventCriteriaSet,
                         order = "asc",
                     ),
@@ -56,7 +61,12 @@ class LogClient(
                 thorClient.getVetTransfers(
                     TransferLogsRequest(
                         range = LogsRange(from = fromBlock, to = toBlock, unit = "block"),
-                        options = LogsOptions(offset = offset, limit = logFetchLimit),
+                        options =
+                            LogsOptions(
+                                offset = offset,
+                                limit = logFetchLimit,
+                                includeIndexes = true,
+                            ),
                         order = "asc",
                         criteriaSet = transferCriteriaSet,
                     ),

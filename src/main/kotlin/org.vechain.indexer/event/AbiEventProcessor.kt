@@ -8,6 +8,7 @@ import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.model.generic.RawEvent
 import org.vechain.indexer.event.utils.EventUtils
 import org.vechain.indexer.event.utils.EventUtils.generateEventId
+import org.vechain.indexer.event.utils.IndexedEventOrder
 import org.vechain.indexer.thor.model.*
 import org.vechain.indexer.utils.DataUtils
 
@@ -33,18 +34,38 @@ open class AbiEventProcessor(
 
     override fun processEvents(block: Block): List<IndexedEvent> {
         val events = mutableListOf<IndexedEvent>()
+        var eventLogIndex = 0L
+        var transferLogIndex = 0L
 
-        block.transactions.forEach { tx ->
+        block.transactions.forEachIndexed { txIndex, tx ->
             tx.outputs.forEachIndexed { outputIndex, output ->
                 output.events.forEachIndexed { eventIndex, event ->
+                    val logIndex = eventLogIndex++
                     if (EventUtils.isEventValid(event, eventAbis, contractAddresses)) {
-                        decodeEvent(event, tx, block, outputIndex, eventIndex)?.let {
-                            events.add(it)
-                        }
+                        decodeEvent(
+                                event = event,
+                                tx = tx,
+                                block = block,
+                                outputIndex = outputIndex,
+                                eventIndex = eventIndex,
+                                txIndex = txIndex,
+                                logIndex = logIndex,
+                            )
+                            ?.let { events.add(it) }
                     }
                 }
                 if (includeVetTransfers) {
-                    events.addAll(extractVetTransfers(output, tx, block, outputIndex))
+                    events.addAll(
+                        extractVetTransfers(
+                            output = output,
+                            tx = tx,
+                            block = block,
+                            outputIndex = outputIndex,
+                            txIndex = txIndex,
+                            firstLogIndex = transferLogIndex,
+                        )
+                    )
+                    transferLogIndex += output.transfers.size
                 }
             }
         }
@@ -58,7 +79,7 @@ open class AbiEventProcessor(
         val abiEvents = decodeLogEvents(eventLogs)
         val vetTransfers =
             if (includeVetTransfers) decodeLogTransfers(transferLogs) else emptyList()
-        return abiEvents + vetTransfers
+        return IndexedEventOrder.sortChronologically(abiEvents + vetTransfers)
     }
 
     /** Decodes a single transaction event into an IndexedEvent. */
@@ -68,6 +89,8 @@ open class AbiEventProcessor(
         block: Block,
         outputIndex: Int,
         eventIndex: Int,
+        txIndex: Int? = null,
+        logIndex: Long? = null,
     ): IndexedEvent? {
         val matchingAbi = EventUtils.findMatchingAbi(event.topics, eventAbis)
         return matchingAbi?.let { abi ->
@@ -89,6 +112,8 @@ open class AbiEventProcessor(
                     eventType = parameters.getEventType(),
                     clauseIndex = outputIndex.toLong(),
                     signature = event.topics[0],
+                    txIndex = txIndex?.toLong(),
+                    logIndex = logIndex,
                 )
             } catch (_: IllegalArgumentException) {
                 logger.warn(
@@ -133,6 +158,8 @@ open class AbiEventProcessor(
                     eventType = parameters.getEventType(),
                     clauseIndex = log.meta.clauseIndex.toLong(),
                     signature = log.topics[0],
+                    txIndex = log.meta.txIndex,
+                    logIndex = log.meta.logIndex,
                 )
             } catch (_: Exception) {
                 logger.warn(
@@ -174,6 +201,8 @@ open class AbiEventProcessor(
                     params = parameters,
                     eventType = "VET_TRANSFER",
                     clauseIndex = log.meta.clauseIndex.toLong(),
+                    txIndex = log.meta.txIndex,
+                    logIndex = log.meta.logIndex,
                 )
             } catch (ex: Exception) {
                 logger.warn("Failed to process VET transfer: ${log.sender} -> ${log.recipient}", ex)
@@ -188,6 +217,8 @@ open class AbiEventProcessor(
         tx: Transaction,
         block: Block,
         outputIndex: Int,
+        txIndex: Int? = null,
+        firstLogIndex: Long = 0L,
     ): List<IndexedEvent> =
         output.transfers.mapIndexedNotNull { transferIndex, transfer ->
             try {
@@ -214,6 +245,8 @@ open class AbiEventProcessor(
                         params = parameters,
                         eventType = "VET_TRANSFER",
                         clauseIndex = outputIndex.toLong(),
+                        txIndex = txIndex?.toLong(),
+                        logIndex = firstLogIndex + transferIndex,
                     )
                 indexedEvent
             } catch (ex: Exception) {

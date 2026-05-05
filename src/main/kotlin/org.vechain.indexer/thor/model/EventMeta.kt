@@ -7,4 +7,6 @@ data class EventMeta(
     val txID: String,
     val txOrigin: String,
     val clauseIndex: Int,
+    val txIndex: Long? = null,
+    val logIndex: Long? = null,
 )

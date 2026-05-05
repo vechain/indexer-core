@@ -110,8 +110,8 @@ class EventProcessorTest {
     fun `processEvents(logs) returns abi events when business processor is null`() {
         val eventLogs = listOf(mockk<EventLog>())
         val transferLogs = listOf(mockk<TransferLog>())
-        val contractEvents = listOf(mockk<IndexedEvent>())
-        val vetTransfers = listOf(mockk<IndexedEvent>())
+        val contractEvents = listOf(IndexedEventFixture.create(id = "contract-event"))
+        val vetTransfers = listOf(IndexedEventFixture.create(id = "vet-transfer"))
         val allEvents = contractEvents + vetTransfers
 
         every { abiEventProcessor.processEvents(eventLogs, transferLogs) } returns
@@ -201,6 +201,32 @@ class EventProcessorTest {
         val result = processor.processEvents(block)
 
         expectThat(result).isEqualTo(listOf(abiEvent, businessEvent))
+    }
+
+    @Test
+    fun `processEvents returns mixed events in chronological order when indexes are available`() {
+        val laterAbiEvent =
+            IndexedEventFixture.create(
+                id = "abi-event",
+                txId = "tx2",
+                txIndex = 2,
+                clauseIndex = 0,
+            )
+        val earlierBusinessEvent =
+            IndexedEventFixture.create(
+                id = "business-event",
+                txId = "tx1",
+                txIndex = 1,
+                clauseIndex = 0,
+            )
+        val block = mockk<Block>()
+
+        every { abiEventProcessor.processEvents(block) } returns listOf(laterAbiEvent)
+        every { businessEventProcessor.processEvents(block) } returns listOf(earlierBusinessEvent)
+
+        val result = eventProcessor.processEvents(block)
+
+        expectThat(result).isEqualTo(listOf(earlierBusinessEvent, laterAbiEvent))
     }
 
     @Test
