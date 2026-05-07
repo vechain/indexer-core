@@ -1121,7 +1121,7 @@ internal class BlockIndexerTest {
 
                 val message = indexer.publicBuildLogMessage()
 
-                expectThat(message).isEqualTo("(SYNCING) Processing Block  100")
+                expectThat(message).isEqualTo("(SYNCING) Processing 1 Block @ 100")
             }
         }
     }
