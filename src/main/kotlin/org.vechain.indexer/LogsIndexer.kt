@@ -288,7 +288,7 @@ open class LogsIndexer(
 
     private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long, status: Status) {
         val message =
-            "($status) Processing ${batchEndBlock - currentBlockNumber} Blocks @ $currentBlockNumber"
+            "($status) Processing ${batchEndBlock - currentBlockNumber + 1} Blocks @ $currentBlockNumber"
         if (shouldLogDebug()) {
             logger.debug(message)
         } else if (shouldLogInfo()) {

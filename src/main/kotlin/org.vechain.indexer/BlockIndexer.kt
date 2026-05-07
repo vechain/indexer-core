@@ -317,7 +317,7 @@ open class BlockIndexer(
      * @return The formatted log message.
      */
     protected open fun buildLogMessage(): String {
-        return "($status) Processing Block  $currentBlockNumber"
+        return "($status) Processing 1 Block @ $currentBlockNumber"
     }
 
     internal fun checkForReorg(block: Block) {
