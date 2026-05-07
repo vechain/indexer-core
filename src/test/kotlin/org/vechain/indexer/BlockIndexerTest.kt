@@ -584,6 +584,32 @@ internal class BlockIndexerTest {
 
             expectThat(errorMessage).isEqualTo("Indexer is shut down")
         }
+
+        @Test
+        fun `markSkipped bumps timeLastProcessed without advancing cursor`() {
+            val indexer =
+                TestableBlockIndexer(
+                    name = "TestBlockIndexer",
+                    thorClient = thorClient,
+                    processor = processor,
+                    startBlock = 0L,
+                    eventProcessor = null,
+                    syncLoggerInterval = 1L,
+                    inspectionClauses = null,
+                    dependsOn = null,
+                )
+
+            indexer.publicSetCurrentBlockNumber(42L)
+            val previousTime = LocalDateTime.now(ZoneOffset.UTC).minusMinutes(5)
+            indexer.timeLastProcessed = previousTime
+
+            indexer.markSkipped()
+
+            expect {
+                that(indexer.timeLastProcessed).isGreaterThan(previousTime)
+                that(indexer.getCurrentBlockNumber()).isEqualTo(42L)
+            }
+        }
     }
 
     @Nested
