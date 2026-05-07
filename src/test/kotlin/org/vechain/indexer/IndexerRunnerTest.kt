@@ -246,6 +246,23 @@ internal class IndexerRunnerTest {
             coVerify(exactly = 1) { slowIndexer.initialise() }
             coVerify(exactly = 1) { (slowIndexer as FastSyncableIndexer).fastSync() }
         }
+
+        @Test
+        fun `deadline-bound initialiseAndSync should not start fast sync after deadline`() =
+            runTest {
+                val testTimeSource = TestTimeSource()
+                val indexer =
+                    createMockIndexer(
+                        name = "indexer1",
+                        initializeBlock = { testTimeSource += 200.milliseconds },
+                    )
+
+                val runner = IndexerRunner(testTimeSource)
+                runner.initialiseAndSyncFor(listOf(indexer), 100.milliseconds)
+
+                coVerify(exactly = 1) { indexer.initialise() }
+                coVerify(exactly = 0) { (indexer as FastSyncableIndexer).fastSync() }
+            }
     }
 
     @Nested
@@ -674,7 +691,9 @@ internal class IndexerRunnerTest {
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
-            val job = launch { runner.run(listOf(indexer), 1, thorClient, 500_000L, 15.minutes) }
+            val job = launch {
+                runner.run(listOf(indexer), 1, thorClient, 500_000L, 15.minutes, 1.minutes)
+            }
 
             delay(300)
             job.cancelAndJoin()
@@ -691,7 +710,7 @@ internal class IndexerRunnerTest {
             val runner = IndexerRunner()
 
             assertThrows<IllegalArgumentException> {
-                runTest { runner.run(emptyList(), 1, thorClient, 500_000L, 15.minutes) }
+                runTest { runner.run(emptyList(), 1, thorClient, 500_000L, 15.minutes, 1.minutes) }
             }
         }
 
@@ -795,7 +814,9 @@ internal class IndexerRunnerTest {
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
             val runner = IndexerRunner()
-            val job = launch { runner.run(listOf(indexer), 1, thorClient, 500_000L, 15.minutes) }
+            val job = launch {
+                runner.run(listOf(indexer), 1, thorClient, 500_000L, 15.minutes, 1.minutes)
+            }
 
             delay(500) // Let it process, throw reorg, and restart
             job.cancelAndJoin()
@@ -841,7 +862,14 @@ internal class IndexerRunnerTest {
 
             val runner = IndexerRunner()
             val job = launch {
-                runner.run(listOf(indexer1, indexer2), 1, thorClient, 500_000L, 15.minutes)
+                runner.run(
+                    listOf(indexer1, indexer2),
+                    1,
+                    thorClient,
+                    500_000L,
+                    15.minutes,
+                    1.minutes
+                )
             }
 
             delay(500) // Let it process, throw reorg, and restart
@@ -1002,6 +1030,7 @@ internal class IndexerRunnerTest {
         @Test
         fun `mixed indexers - fast-syncable get fastSync, non-fast-syncable get initialise only`() =
             runTest {
+                val testTimeSource = TestTimeSource()
                 val thorClient = mockk<ThorClient>()
 
                 val fastSyncable = createMockIndexer("fast")
@@ -1010,18 +1039,20 @@ internal class IndexerRunnerTest {
                 coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                     {
                         delay(100)
+                        testTimeSource += 100.milliseconds
                         buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
                     }
 
-                val runner = IndexerRunner()
+                val runner = IndexerRunner(testTimeSource)
                 val job = launch {
                     runner.run(
                         listOf(fastSyncable, nonFastSyncable),
                         1,
                         thorClient,
                         500_000L,
-                        // Short reshuffle so fast-syncable rejoins the steady-state run promptly
-                        200.milliseconds,
+                        reshuffleInterval = 15.minutes,
+                        // Short catch-up slices so the fast-syncable rejoins promptly.
+                        catchUpInterval = 200.milliseconds,
                     )
                 }
 
@@ -1058,7 +1089,14 @@ internal class IndexerRunnerTest {
 
             val runner = IndexerRunner()
             val job = launch {
-                runner.run(listOf(indexer1, indexer2), 1, thorClient, 500_000L, 15.minutes)
+                runner.run(
+                    listOf(indexer1, indexer2),
+                    1,
+                    thorClient,
+                    500_000L,
+                    15.minutes,
+                    1.minutes
+                )
             }
 
             delay(500)
@@ -1104,6 +1142,7 @@ internal class IndexerRunnerTest {
                     thorClient,
                     500_000L,
                     15.minutes,
+                    1.minutes
                 )
             }
 
@@ -1115,15 +1154,75 @@ internal class IndexerRunnerTest {
         }
 
         @Test
+        fun `catch-up interval waits for in-flight sync block to finish`() = runTest {
+            val thorClient = mockk<ThorClient>()
+            var firstBlockCompleted = false
+            var firstBlockCancelled = false
+            var processAttempts = 0
+
+            val nonFastSyncable =
+                createMockNonFastSyncableIndexer(
+                    name = "plain",
+                    processBlock = {
+                        processAttempts++
+                        if (processAttempts == 1) {
+                            try {
+                                delay(300)
+                                firstBlockCompleted = true
+                            } catch (e: CancellationException) {
+                                firstBlockCancelled = true
+                                throw e
+                            }
+                        } else {
+                            delay(60_000)
+                        }
+                    },
+                )
+
+            val fastSyncable =
+                createMockIndexer(
+                    name = "fast",
+                    fastSyncBlock = { delay(150) },
+                )
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
+                }
+
+            val runner = IndexerRunner()
+            val job = launch {
+                runner.run(
+                    listOf(fastSyncable, nonFastSyncable),
+                    1,
+                    thorClient,
+                    500_000L,
+                    reshuffleInterval = 15.minutes,
+                    catchUpInterval = 50.milliseconds,
+                )
+            }
+
+            delay(400)
+            expectThat(firstBlockCompleted).isTrue()
+            expectThat(firstBlockCancelled).isFalse()
+
+            job.cancelAndJoin()
+        }
+
+        @Test
         fun `non-fast-syncable depending on fast-syncable waits for fast sync to complete`() =
             runTest {
+                val testTimeSource = TestTimeSource()
                 val thorClient = mockk<ThorClient>()
                 val nfsIndependentProcessedDuringFastSync = mutableListOf<Long>()
 
                 val fastSyncable =
                     createMockIndexer(
                         name = "fast",
-                        fastSyncBlock = { delay(300) },
+                        fastSyncBlock = {
+                            delay(300)
+                            testTimeSource += 300.milliseconds
+                        },
                     )
 
                 // Independent non-fast-syncable: should run during fast sync
@@ -1145,20 +1244,22 @@ internal class IndexerRunnerTest {
                 coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                     {
                         delay(50)
+                        testTimeSource += 50.milliseconds
                         buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
                     }
 
-                val runner = IndexerRunner()
+                val runner = IndexerRunner(testTimeSource)
                 val job = launch {
                     runner.run(
                         listOf(fastSyncable, nfsIndependent, nfsDependent),
                         1,
                         thorClient,
                         500_000L,
-                        // Reshuffle longer than the 300ms fast sync so it can complete in one
-                        // iteration; short enough for the dependent to get initialised before
+                        reshuffleInterval = 15.minutes,
+                        // Catch-up slice is longer than the 300ms fast sync so it can complete in
+                        // one iteration; short enough for the dependent to get initialised before
                         // the test cancels.
-                        350.milliseconds,
+                        catchUpInterval = 350.milliseconds,
                     )
                 }
 
@@ -1175,12 +1276,16 @@ internal class IndexerRunnerTest {
 
         @Test
         fun `transitive dependency on fast-syncable waits for fast sync to complete`() = runTest {
+            val testTimeSource = TestTimeSource()
             val thorClient = mockk<ThorClient>()
 
             val fastSyncable =
                 createMockIndexer(
                     name = "fast",
-                    fastSyncBlock = { delay(300) },
+                    fastSyncBlock = {
+                        delay(300)
+                        testTimeSource += 300.milliseconds
+                    },
                 )
 
             // Middle: non-fast-syncable, depends on fast-syncable
@@ -1200,19 +1305,21 @@ internal class IndexerRunnerTest {
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
                     delay(50)
+                    testTimeSource += 50.milliseconds
                     buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
                 }
 
-            val runner = IndexerRunner()
+            val runner = IndexerRunner(testTimeSource)
             val job = launch {
                 runner.run(
                     listOf(fastSyncable, nfsMiddle, nfsLeaf),
                     1,
                     thorClient,
                     500_000L,
-                    // Reshuffle longer than the 300ms fast sync, short enough for dependents to
-                    // be reclassified within the test window
-                    350.milliseconds,
+                    reshuffleInterval = 15.minutes,
+                    // Catch-up slice is longer than the 300ms fast sync, short enough for
+                    // dependents to be reclassified within the test window.
+                    catchUpInterval = 350.milliseconds,
                 )
             }
 
@@ -1273,6 +1380,7 @@ internal class IndexerRunnerTest {
                     thorClient,
                     500_000L,
                     15.minutes,
+                    1.minutes
                 )
             }
 
@@ -1399,6 +1507,35 @@ internal class IndexerRunnerTest {
             // Each cycle: 500ms deadline / 200ms per fetch = ~2-3 fetches per group per cycle
             expectThat(fetchedBlocks.size).isGreaterThan(4)
         }
+
+        @Test
+        fun `bounded single group returns after deadline without cancelling active block`() =
+            runTest {
+                val testTimeSource = TestTimeSource()
+                val thorClient = mockk<ThorClient>()
+                val indexer =
+                    createMockNonFastSyncableIndexer(
+                        name = "indexer1",
+                        currentBlock = 0L,
+                        processBlock = { testTimeSource += 200.milliseconds },
+                    )
+
+                coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                    {
+                        buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
+                    }
+
+                val runner = IndexerRunner(testTimeSource)
+                runner.runWithProximityGroupsFor(
+                    listOf(indexer),
+                    thorClient,
+                    1,
+                    1_000_000L,
+                    100.milliseconds,
+                )
+
+                coVerify(atLeast = 1) { indexer.processBlock(any()) }
+            }
 
         @Test
         fun `ReorgException propagates through proximity groups`() = runTest {
@@ -1815,7 +1952,9 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            val job = launch { runner.run(listOf(indexer), 1, thorClient, 500_000L, 5.minutes) }
+            val job = launch {
+                runner.run(listOf(indexer), 1, thorClient, 500_000L, 5.minutes, 1.minutes)
+            }
 
             delay(1_000)
             job.cancelAndJoin()

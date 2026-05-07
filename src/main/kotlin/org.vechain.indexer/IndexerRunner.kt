@@ -12,7 +12,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.ReorgException
@@ -38,7 +37,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             indexers: List<Indexer>,
             blockBatchSize: Int = 1,
             proximityThreshold: Long = 500_000L,
-            reshuffleInterval: Duration = 5.minutes,
+            reshuffleInterval: Duration = 1.minutes,
+            catchUpInterval: Duration = 1.minutes,
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -51,6 +51,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                     thorClient = thorClient,
                     proximityThreshold = proximityThreshold,
                     reshuffleInterval = reshuffleInterval,
+                    catchUpInterval = catchUpInterval,
                 )
             }
         }
@@ -62,6 +63,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         thorClient: ThorClient,
         proximityThreshold: Long,
         reshuffleInterval: Duration,
+        catchUpInterval: Duration,
     ): Unit = coroutineScope {
         require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -74,7 +76,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                     thorClient,
                     batchSize,
                     proximityThreshold,
-                    reshuffleInterval,
+                    catchUpInterval,
                 )
                 runWithProximityGroups(
                     indexers,
@@ -98,7 +100,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
      *     - **group 2**: indexers ready for the regular sync loop.
      *     - **group 3**: non-fast-syncable indexers blocked behind a fast-syncing dependency.
      * 3. Returns once groups 1 and 3 are empty (steady state).
-     * 4. Otherwise runs group 1's fast sync alongside group 2's sync, capped at [reshuffleInterval]
+     * 4. Otherwise runs group 1's fast sync alongside group 2's sync, capped at [catchUpInterval]
      *    so newly-eligible indexers join on the next pass.
      */
     private suspend fun catchUp(
@@ -106,7 +108,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         thorClient: ThorClient,
         batchSize: Int,
         proximityThreshold: Long,
-        reshuffleInterval: Duration,
+        catchUpInterval: Duration,
     ) {
         while (true) {
             initialiseUnblockedIndexers(indexers)
@@ -119,26 +121,25 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 return
             }
 
-            withTimeoutOrNull(reshuffleInterval) {
-                coroutineScope {
-                    if (group1.isNotEmpty()) {
-                        launch { initialiseAndSync(group1) }
-                    }
-                    if (group2.isNotEmpty()) {
-                        launch {
-                            runWithProximityGroups(
-                                group2,
-                                thorClient,
-                                batchSize,
-                                proximityThreshold,
-                                reshuffleInterval,
-                            )
-                        }
+            coroutineScope {
+                if (group1.isNotEmpty()) {
+                    launch { initialiseAndSyncFor(group1, catchUpInterval) }
+                }
+                if (group2.isNotEmpty()) {
+                    launch {
+                        runWithProximityGroupsFor(
+                            group2,
+                            thorClient,
+                            batchSize,
+                            proximityThreshold,
+                            catchUpInterval,
+                        )
                     }
                 }
             }
-            // Recovery for both groups happens at the top of their respective entry points —
-            // initialiseAndSync re-runs initialise, and runWithProximityGroups does the same.
+            // Recovery for both groups happens at the top of their respective entry points.
+            // The deadline only stops new work from being started; in-flight work finishes before
+            // this loop reclassifies the indexers.
         }
     }
 
@@ -210,9 +211,25 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
      * @param indexers The list of indexers to initialise and fast sync.
      */
     suspend fun initialiseAndSync(indexers: List<FastSyncableIndexer>) {
+        initialiseAndSync(indexers, deadlineMark = null)
+    }
+
+    internal suspend fun initialiseAndSyncFor(
+        indexers: List<FastSyncableIndexer>,
+        duration: Duration,
+    ) {
+        val deadlineMark = timeSource.markNow() + duration
+        initialiseAndSync(indexers, deadlineMark)
+    }
+
+    private suspend fun initialiseAndSync(
+        indexers: List<FastSyncableIndexer>,
+        deadlineMark: TimeMark?,
+    ) {
         logger.info("Initialising and syncing indexers...")
         coroutineScope {
-            val tasks = indexers.map { indexer -> async { initialiseAndSync(indexer) } }
+            val tasks =
+                indexers.map { indexer -> async { initialiseAndSync(indexer, deadlineMark) } }
             tasks.awaitAll()
         }
     }
@@ -222,11 +239,24 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
      *
      * @param indexer The indexer to initialise and fast sync.
      */
-    private suspend fun initialiseAndSync(indexer: FastSyncableIndexer) {
+    private suspend fun initialiseAndSync(
+        indexer: FastSyncableIndexer,
+        deadlineMark: TimeMark?,
+    ) {
         logger.info("Initialising and syncing indexer ${indexer.name}...")
         retryOnFailure {
+            if (deadlineMark?.hasNotPassedNow() == false) return@retryOnFailure
             indexer.initialise()
-            indexer.fastSync()
+            if (indexer is LogsIndexer) {
+                if (deadlineMark != null) {
+                    indexer.fastSyncUntil(deadlineMark)
+                } else {
+                    indexer.fastSync()
+                }
+            } else {
+                if (deadlineMark?.hasNotPassedNow() == false) return@retryOnFailure
+                indexer.fastSync()
+            }
         }
     }
 
@@ -238,9 +268,9 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         reshuffleInterval: Duration,
     ) {
         // Reread state from the processor on every entry. This recovers from mid-block
-        // cancellation (catchUp's reshuffle timeout) and from stale in-memory state after a reorg
-        // restart (handleReorg rolls back the processor but leaves currentBlockNumber and
-        // previousBlock untouched).
+        // cancellation (for example, a reorg cancelling sibling catch-up work) and from stale
+        // in-memory state after a reorg restart (handleReorg rolls back the processor but leaves
+        // currentBlockNumber and previousBlock untouched).
         initialise(indexers)
         while (true) {
             if (logger.isDebugEnabled) {
@@ -249,7 +279,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             val groups = proximityGroups(indexers, proximityThreshold)
             logProximityGroups(groups, indexers.size, proximityThreshold)
             if (groups.size <= 1) {
-                // Steady state — single group, no deadline
+                // Steady state: once all indexers are close enough, there is no need to exit for
+                // regrouping.
                 runIndexers(indexers, thorClient, batchSize)
                 return
             }
@@ -260,6 +291,30 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 }
             }
             // All groups completed naturally when deadline passed; loop to reshuffle
+        }
+    }
+
+    internal suspend fun runWithProximityGroupsFor(
+        indexers: List<Indexer>,
+        thorClient: ThorClient,
+        batchSize: Int,
+        proximityThreshold: Long,
+        duration: Duration,
+    ) {
+        val deadlineMark = timeSource.markNow() + duration
+        initialise(indexers)
+        if (deadlineMark.hasNotPassedNow()) {
+            if (logger.isDebugEnabled) {
+                logger.debug("Evaluating proximity groups for ${indexers.size} indexers")
+            }
+            val groups = proximityGroups(indexers, proximityThreshold)
+            logProximityGroups(groups, indexers.size, proximityThreshold)
+            val groupsToRun = if (groups.size <= 1) listOf(indexers) else groups
+            coroutineScope {
+                groupsToRun.forEach { group ->
+                    launch { runIndexers(group, thorClient, batchSize, deadlineMark) }
+                }
+            }
         }
     }
 
@@ -363,13 +418,14 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         group2: List<Indexer>,
         group3: List<Indexer>,
     ) {
-        if (logger.isDebugEnabled) {
-            logger.debug(
-                "Catch-up groups: fastSyncPending=${group1.map { it.name }}, " +
-                    "syncReady=${group2.map { it.name }}, " +
-                    "blocked=${group3.map { it.name }}"
-            )
+        val total = group1.size + group2.size + group3.size
+        val groupSummary = buildString {
+            appendLine("Catch-up groups: $total indexers")
+            appendLine("  fastSyncPending (${group1.size}): ${group1.map { it.name }}")
+            appendLine("  syncReady (${group2.size}): ${group2.map { it.name }}")
+            appendLine("  blocked (${group3.size}): ${group3.map { it.name }}")
         }
+        logger.info(groupSummary.trimEnd())
     }
 
     private fun logExecutionGroups(executionGroups: List<List<Indexer>>) {
