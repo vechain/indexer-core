@@ -11,11 +11,13 @@ import org.vechain.indexer.fixtures.BlockFixtures
 import org.vechain.indexer.fixtures.IndexedEventFixture
 import org.vechain.indexer.fixtures.TransferLogFixtures
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.EventCriteria
 import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.TransferLog
 import strikt.api.expectThat
 import strikt.assertions.containsExactly
 import strikt.assertions.containsExactlyInAnyOrder
+import strikt.assertions.hasSize
 import strikt.assertions.isEmpty
 import strikt.assertions.isEqualTo
 import strikt.assertions.isNotEmpty
@@ -269,6 +271,40 @@ class EventProcessorTest {
 
         expectThat(result).isNotEmpty()
         expectThat(result.map { it.eventType }.distinct()).containsExactly("VET_TRANSFER")
+    }
+
+    @Test
+    fun `deriveEventCriteria unions and dedupes criteria from both processors`() {
+        val abiCriteria =
+            listOf(
+                EventCriteria(address = "0xaaa", topic0 = "0xsig1"),
+                EventCriteria(address = "0xbbb", topic0 = "0xsig1"),
+            )
+        val businessCriteria =
+            listOf(
+                EventCriteria(address = "0xaaa", topic0 = "0xsig1"), // duplicate
+                EventCriteria(address = "0xccc", topic0 = "0xsig2"),
+            )
+
+        every { abiEventProcessor.buildEventCriteria() } returns abiCriteria
+        every { businessEventProcessor.buildEventCriteria() } returns businessCriteria
+
+        val result = eventProcessor.deriveEventCriteria()
+
+        expectThat(result)
+            .hasSize(3)
+            .containsExactlyInAnyOrder(
+                EventCriteria(address = "0xaaa", topic0 = "0xsig1"),
+                EventCriteria(address = "0xbbb", topic0 = "0xsig1"),
+                EventCriteria(address = "0xccc", topic0 = "0xsig2"),
+            )
+    }
+
+    @Test
+    fun `deriveEventCriteria returns empty list when no processors are configured`() {
+        val processor = createTestProcessor(abi = null, business = null)
+
+        expectThat(processor.deriveEventCriteria()).isEmpty()
     }
 
     @Test

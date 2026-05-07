@@ -3,6 +3,7 @@ package org.vechain.indexer.event
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.utils.IndexedEventOrder
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.EventCriteria
 import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.TransferLog
 
@@ -73,6 +74,19 @@ protected constructor(
 
     /** Returns whether any business event requires VET transfer logs. */
     fun needsVetTransfers(): Boolean = businessEventProcessor?.needsVetTransfers == true
+
+    /**
+     * Derives a Thor event-log `criteriaSet` covering every (contract, event) pair that this
+     * processor can decode. Used by [org.vechain.indexer.IndexerFactory] to push ABI filtering
+     * server-side when the consumer has not supplied an explicit criteria set.
+     *
+     * Returns an empty list when no event ABIs are loaded — equivalent to "no filter".
+     */
+    fun deriveEventCriteria(): List<EventCriteria> {
+        val abiCriteria = abiEventProcessor?.buildEventCriteria() ?: emptyList()
+        val businessCriteria = businessEventProcessor?.buildEventCriteria() ?: emptyList()
+        return (abiCriteria + businessCriteria).distinct()
+    }
 
     /**
      * @param block The block containing events to process.

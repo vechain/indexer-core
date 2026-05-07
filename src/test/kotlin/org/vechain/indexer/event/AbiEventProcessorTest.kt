@@ -14,6 +14,7 @@ import org.vechain.indexer.fixtures.ContractAddresses.VTHO_CONTRACT
 import org.vechain.indexer.fixtures.EventLogFixtures.LOGS_B3TR_ACTION
 import org.vechain.indexer.thor.model.*
 import strikt.api.expectThat
+import strikt.assertions.containsExactlyInAnyOrder
 import strikt.assertions.isEmpty
 import strikt.assertions.isEqualTo
 import strikt.assertions.isNotEmpty
@@ -372,8 +373,63 @@ class AbiEventProcessorTest {
         }
     }
 
+    @Nested
+    inner class BuildEventCriteria {
+
+        @Test
+        fun `returns cartesian product of contracts and topic0s when both are configured`() {
+            val processor =
+                TestableAbiEventProcessor(
+                    basePath = "test-abis/stargate",
+                    eventNames = listOf("Transfer", "BaseVTHORewardsClaimed"),
+                    contractAddresses = listOf(STARGATE_NFT_CONTRACT, VTHO_CONTRACT),
+                    includeVetTransfers = false
+                )
+
+            val criteria = processor.buildEventCriteria()
+
+            expectThat(criteria.size).isEqualTo(4)
+            expectThat(criteria.map { it.address }.distinct())
+                .containsExactlyInAnyOrder(STARGATE_NFT_CONTRACT, VTHO_CONTRACT)
+            expectThat(criteria.all { it.topic0?.startsWith("0x") == true }).isEqualTo(true)
+            expectThat(criteria.map { it.topic0 }.distinct().size).isEqualTo(2)
+        }
+
+        @Test
+        fun `returns topic0-only criteria when no contracts are configured`() {
+            val processor =
+                TestableAbiEventProcessor(
+                    basePath = "test-abis/stargate",
+                    eventNames = listOf("Transfer"),
+                    contractAddresses = emptyList(),
+                    includeVetTransfers = false
+                )
+
+            val criteria = processor.buildEventCriteria()
+
+            expectThat(criteria.size).isEqualTo(1)
+            expectThat(criteria[0].address).isNull()
+            expectThat(criteria[0].topic0).isNotNull().and {
+                get { startsWith("0x") }.isEqualTo(true)
+            }
+        }
+
+        @Test
+        fun `returns empty list when no event ABIs are loaded`() {
+            val processor =
+                TestableAbiEventProcessor(
+                    basePath = null,
+                    eventNames = emptyList(),
+                    contractAddresses = listOf(STARGATE_NFT_CONTRACT),
+                    includeVetTransfers = false
+                )
+
+            expectThat(processor.buildEventCriteria()).isEmpty()
+        }
+    }
+
     private class TestableAbiEventProcessor(
-        basePath: String,
+        basePath: String?,
         eventNames: List<String>,
         contractAddresses: List<String>,
         includeVetTransfers: Boolean
