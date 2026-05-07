@@ -118,6 +118,10 @@ internal class TestableBlockIndexer(
         return super.shouldLogInfo()
     }
 
+    fun publicSetLastInfoLogTime(value: LocalDateTime) {
+        super.setLastInfoLogTime(value)
+    }
+
     fun publicBuildLogMessage(): String {
         return super.buildLogMessage()
     }
@@ -1056,7 +1060,7 @@ internal class BlockIndexerTest {
             }
 
             @Test
-            fun `should return true when block number matches sync logger interval`() {
+            fun `should return true when sync logger interval has elapsed since last info log`() {
                 val indexer =
                     TestableBlockIndexer(
                         name = "TestBlockIndexer",
@@ -1064,19 +1068,19 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        syncLoggerInterval = 100L,
+                        syncLoggerInterval = 10L,
                         inspectionClauses = null,
                         dependsOn = null,
                     )
 
                 indexer.publicSetStatus(Status.SYNCING)
-                indexer.publicSetCurrentBlockNumber(200L)
+                indexer.publicSetLastInfoLogTime(LocalDateTime.now(ZoneOffset.UTC).minusSeconds(60))
 
                 expectThat(indexer.publicShouldLogInfo()).isEqualTo(true)
             }
 
             @Test
-            fun `should return false when neither condition is met`() {
+            fun `should return false when sync logger interval has not elapsed`() {
                 val indexer =
                     TestableBlockIndexer(
                         name = "TestBlockIndexer",
@@ -1084,13 +1088,13 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        syncLoggerInterval = 100L,
+                        syncLoggerInterval = 60L,
                         inspectionClauses = null,
                         dependsOn = null,
                     )
 
                 indexer.publicSetStatus(Status.SYNCING)
-                indexer.publicSetCurrentBlockNumber(99L)
+                indexer.publicSetLastInfoLogTime(LocalDateTime.now(ZoneOffset.UTC))
 
                 expectThat(indexer.publicShouldLogInfo()).isEqualTo(false)
             }

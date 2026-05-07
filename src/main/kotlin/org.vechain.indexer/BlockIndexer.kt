@@ -58,6 +58,12 @@ open class BlockIndexer(
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
         internal set
 
+    private var lastInfoLogTime: LocalDateTime = LocalDateTime.MIN
+
+    protected fun setLastInfoLogTime(value: LocalDateTime) {
+        lastInfoLogTime = value
+    }
+
     /** Initialises the indexer processing */
     override fun initialise() {
         val lastSyncedBlockNumber = determineStartingBlock()
@@ -261,10 +267,20 @@ open class BlockIndexer(
     /**
      * Determines whether info logging should be enabled.
      *
+     * Always logs when [Status.FULLY_SYNCED]; otherwise throttles to at most one info log per
+     * [syncLoggerInterval] seconds. The throttle timestamp is updated as a side effect when this
+     * method returns true on the throttled path.
+     *
      * @return true if info logging should occur, false otherwise.
      */
     protected open fun shouldLogInfo(): Boolean {
-        return status == Status.FULLY_SYNCED || currentBlockNumber % syncLoggerInterval == 0L
+        if (status == Status.FULLY_SYNCED) return true
+        val now = LocalDateTime.now(ZoneOffset.UTC)
+        if (Duration.between(lastInfoLogTime, now).toSeconds() >= syncLoggerInterval) {
+            lastInfoLogTime = now
+            return true
+        }
+        return false
     }
 
     /**
