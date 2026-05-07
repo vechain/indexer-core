@@ -94,12 +94,15 @@ open class DefaultThorClient(
                 }
                 return block
             } catch (e: BlockNotFoundException) {
-                logger.info(
-                    "Block {} not yet available, waiting {}ms (attempt {})",
-                    revision.value,
-                    TIP_POLL_DELAY_MS,
-                    attempts
-                )
+                // Retries are expected so only log if the retries exceed 3
+                if (attempts > 3) {
+                    logger.info(
+                        "Block {} not yet available, waiting {}ms (attempt {})",
+                        revision.value,
+                        TIP_POLL_DELAY_MS,
+                        attempts
+                    )
+                }
                 delay(TIP_POLL_DELAY_MS)
             } catch (e: CancellationException) {
                 throw e
