@@ -24,9 +24,15 @@ import org.vechain.indexer.BlockTestBuilder.Companion.buildBlock
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.BlockIdentifier
 import org.vechain.indexer.thor.model.BlockRevision
 import strikt.api.expectThat
+import strikt.assertions.contains
+import strikt.assertions.containsExactly
+import strikt.assertions.containsExactlyInAnyOrder
+import strikt.assertions.isEmpty
 import strikt.assertions.isEqualTo
+import strikt.assertions.isFalse
 import strikt.assertions.isGreaterThan
 import strikt.assertions.isGreaterThanOrEqualTo
 import strikt.assertions.isTrue
@@ -34,35 +40,40 @@ import strikt.assertions.isTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class IndexerRunnerTest {
 
+    private class MockState(initialBlock: Long) {
+        var blockNumber: Long = initialBlock
+        var status: Status = Status.NOT_INITIALISED
+    }
+
     private fun <T : Indexer> configureMockIndexer(
         mock: T,
-        currentBlock: Long,
+        state: MockState,
         dependsOn: Indexer?,
+        isFastSyncable: Boolean,
         initializeBlock: (suspend () -> Unit)?,
         processBlock: (suspend (Block) -> Unit)?,
     ): T {
-        var currentBlockNumber = currentBlock
-
         every { mock.name } returns mock.toString()
         every { mock.dependsOn } returns dependsOn
-        every { mock.getCurrentBlockNumber() } answers { currentBlockNumber }
+        every { mock.getCurrentBlockNumber() } answers { state.blockNumber }
         every { mock.getInspectionClauses() } returns null
+        every { mock.getStatus() } answers { state.status }
 
-        if (initializeBlock != null) {
-            coEvery { mock.initialise() } coAnswers { initializeBlock() }
-        } else {
-            coEvery { mock.initialise() } just Runs
-        }
+        coEvery { mock.initialise() } coAnswers
+            {
+                initializeBlock?.invoke()
+                state.status =
+                    if (isFastSyncable && state.status == Status.NOT_INITIALISED)
+                        Status.READY_TO_FAST_SYNC
+                    else Status.READY_TO_SYNC
+            }
 
-        if (processBlock != null) {
-            coEvery { mock.processBlock(any()) } coAnswers
-                {
-                    processBlock(firstArg())
-                    currentBlockNumber++
-                }
-        } else {
-            coEvery { mock.processBlock(any()) } answers { currentBlockNumber++ }
-        }
+        coEvery { mock.processBlock(any()) } coAnswers
+            {
+                processBlock?.invoke(firstArg())
+                state.status = Status.SYNCING
+                state.blockNumber++
+            }
 
         return mock
     }
@@ -77,13 +88,15 @@ internal class IndexerRunnerTest {
     ): FastSyncableIndexer {
         val mock = mockk<FastSyncableIndexer>(relaxed = true)
         every { mock.name } returns name
-        configureMockIndexer(mock, currentBlock, dependsOn, initializeBlock, processBlock)
+        val state = MockState(currentBlock)
+        configureMockIndexer(mock, state, dependsOn, true, initializeBlock, processBlock)
 
-        if (fastSyncBlock != null) {
-            coEvery { mock.fastSync() } coAnswers { fastSyncBlock() }
-        } else {
-            coEvery { mock.fastSync() } just Runs
-        }
+        coEvery { mock.fastSync() } coAnswers
+            {
+                state.status = Status.FAST_SYNCING
+                fastSyncBlock?.invoke()
+                state.status = Status.READY_TO_SYNC
+            }
 
         return mock
     }
@@ -97,7 +110,28 @@ internal class IndexerRunnerTest {
     ): Indexer {
         val mock = mockk<Indexer>(relaxed = true)
         every { mock.name } returns name
-        return configureMockIndexer(mock, currentBlock, dependsOn, initializeBlock, processBlock)
+        val state = MockState(currentBlock)
+        return configureMockIndexer(mock, state, dependsOn, false, initializeBlock, processBlock)
+    }
+
+    /**
+     * Builds a stub indexer with a fixed status and dependsOn for testing the runner's pure
+     * predicates (status-driven classification). Use [createMockIndexer] /
+     * [createMockNonFastSyncableIndexer] when behaviour like initialise / processBlock matters.
+     */
+    private fun stubIndexer(
+        name: String = "stub",
+        status: Status = Status.NOT_INITIALISED,
+        dependsOn: Indexer? = null,
+        fastSyncable: Boolean = false,
+    ): Indexer {
+        val mock =
+            if (fastSyncable) mockk<FastSyncableIndexer>(relaxed = true)
+            else mockk<Indexer>(relaxed = true)
+        every { mock.name } returns name
+        every { mock.getStatus() } returns status
+        every { mock.dependsOn } returns dependsOn
+        return mock
     }
 
     @Nested
@@ -665,18 +699,8 @@ internal class IndexerRunnerTest {
         fun `launch should create and run indexer orchestrator`() = runTest {
             val thorClient = mockk<ThorClient>()
             val block0 = buildBlock(num = 0L)
-            var currentBlockNum = 0L
 
-            val indexer =
-                mockk<FastSyncableIndexer>(relaxed = true) {
-                    every { name } returns "indexer1"
-                    every { dependsOn } returns null
-                    every { getCurrentBlockNumber() } answers { currentBlockNum }
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } just Runs
-                    coEvery { fastSync() } just Runs
-                    coEvery { processBlock(any()) } coAnswers { currentBlockNum++ }
-                }
+            val indexer = createMockIndexer("indexer1")
 
             coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
@@ -697,7 +721,7 @@ internal class IndexerRunnerTest {
             job.cancelAndJoin()
 
             coVerify(atLeast = 1) { indexer.initialise() }
-            coVerify(atLeast = 1) { (indexer as FastSyncableIndexer).fastSync() }
+            coVerify(atLeast = 1) { indexer.fastSync() }
         }
     }
 
@@ -746,34 +770,27 @@ internal class IndexerRunnerTest {
         }
 
         @Test
-        fun `run method should restart initialization when ReorgException occurs`() = runTest {
+        fun `run method should restart processing when ReorgException occurs`() = runTest {
             val thorClient = mockk<ThorClient>()
             val block0 = buildBlock(num = 0L)
             var initCount = 0
             var syncCount = 0
             var processAttempts = 0
-            var currentBlockNum = 0L
 
             val indexer =
-                mockk<FastSyncableIndexer>(relaxed = true) {
-                    every { name } returns "indexer1"
-                    every { dependsOn } returns null
-                    every { getCurrentBlockNumber() } answers { currentBlockNum }
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } coAnswers { initCount++ }
-                    coEvery { fastSync() } coAnswers { syncCount++ }
-                    coEvery { processBlock(any()) } coAnswers
-                        {
-                            processAttempts++
-                            if (processAttempts == 1) {
-                                throw org.vechain.indexer.exception.ReorgException(
-                                    "Reorg at block 0"
-                                )
-                            }
-                            // After reorg, delay to allow cancellation
-                            delay(5000)
+                createMockIndexer(
+                    name = "indexer1",
+                    initializeBlock = { initCount++ },
+                    fastSyncBlock = { syncCount++ },
+                    processBlock = {
+                        processAttempts++
+                        if (processAttempts == 1) {
+                            throw ReorgException("Reorg at block 0")
                         }
-                }
+                        // After reorg, delay to allow cancellation
+                        delay(5000)
+                    },
+                )
 
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
@@ -783,12 +800,14 @@ internal class IndexerRunnerTest {
             delay(500) // Let it process, throw reorg, and restart
             job.cancelAndJoin()
 
-            // Should have initialized at least twice (once initially, once after reorg)
+            // runWithProximityGroups re-initialises every entry to recover stale in-memory state
+            // after a reorg, so the indexer is initialised again on restart.
             expectThat(initCount).isGreaterThanOrEqualTo(2)
-            // Should have synced at least twice
-            expectThat(syncCount).isGreaterThanOrEqualTo(2)
-            // Should have attempted processing at least once
-            expectThat(processAttempts).isGreaterThanOrEqualTo(1)
+            // Fast sync is one-shot per process — restart does not re-fast-sync once the indexer
+            // is past READY_TO_FAST_SYNC.
+            expectThat(syncCount).isEqualTo(1)
+            // Reorg restart causes processBlock to be called again on the same block
+            expectThat(processAttempts).isGreaterThanOrEqualTo(2)
         }
 
         @Test
@@ -798,37 +817,25 @@ internal class IndexerRunnerTest {
             var indexer1InitCount = 0
             var indexer2InitCount = 0
             var processAttempts = 0
-            var currentBlockNum1 = 0L
-            var currentBlockNum2 = 0L
 
             val indexer1 =
-                mockk<FastSyncableIndexer>(relaxed = true) {
-                    every { name } returns "indexer1"
-                    every { dependsOn } returns null
-                    every { getCurrentBlockNumber() } answers { currentBlockNum1 }
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } coAnswers { indexer1InitCount++ }
-                    coEvery { fastSync() } just Runs
-                    coEvery { processBlock(any()) } coAnswers
-                        {
-                            processAttempts++
-                            if (processAttempts == 1) {
-                                throw ReorgException("Reorg detected")
-                            }
-                            delay(5000)
+                createMockIndexer(
+                    name = "indexer1",
+                    initializeBlock = { indexer1InitCount++ },
+                    processBlock = {
+                        processAttempts++
+                        if (processAttempts == 1) {
+                            throw ReorgException("Reorg detected")
                         }
-                }
+                        delay(5000)
+                    },
+                )
 
             val indexer2 =
-                mockk<FastSyncableIndexer>(relaxed = true) {
-                    every { name } returns "indexer2"
-                    every { dependsOn } returns null
-                    every { getCurrentBlockNumber() } answers { currentBlockNum2 }
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } coAnswers { indexer2InitCount++ }
-                    coEvery { fastSync() } just Runs
-                    coEvery { processBlock(any()) } just Runs
-                }
+                createMockIndexer(
+                    name = "indexer2",
+                    initializeBlock = { indexer2InitCount++ },
+                )
 
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
 
@@ -840,9 +847,12 @@ internal class IndexerRunnerTest {
             delay(500) // Let it process, throw reorg, and restart
             job.cancelAndJoin()
 
-            // Both indexers should be reinitialized after reorg
+            // Both indexers are re-initialised on the reorg restart (runWithProximityGroups
+            // re-reads processor state on entry to recover from stale in-memory block pointers).
             expectThat(indexer1InitCount).isGreaterThanOrEqualTo(2)
             expectThat(indexer2InitCount).isGreaterThanOrEqualTo(2)
+            // After reorg, processBlock is called again on the same block
+            coVerify(atLeast = 2) { indexer1.processBlock(any()) }
         }
     }
 
@@ -993,30 +1003,9 @@ internal class IndexerRunnerTest {
         fun `mixed indexers - fast-syncable get fastSync, non-fast-syncable get initialise only`() =
             runTest {
                 val thorClient = mockk<ThorClient>()
-                val block0 = buildBlock(num = 0L)
-                var fsBlockNum = 0L
-                var nfsBlockNum = 0L
 
-                val fastSyncable =
-                    mockk<FastSyncableIndexer>(relaxed = true) {
-                        every { name } returns "fast"
-                        every { dependsOn } returns null
-                        every { getCurrentBlockNumber() } answers { fsBlockNum }
-                        every { getInspectionClauses() } returns null
-                        coEvery { initialise() } just Runs
-                        coEvery { fastSync() } just Runs
-                        coEvery { processBlock(any()) } coAnswers { fsBlockNum++ }
-                    }
-
-                val nonFastSyncable =
-                    mockk<Indexer>(relaxed = true) {
-                        every { name } returns "plain"
-                        every { dependsOn } returns null
-                        every { getCurrentBlockNumber() } answers { nfsBlockNum }
-                        every { getInspectionClauses() } returns null
-                        coEvery { initialise() } just Runs
-                        coEvery { processBlock(any()) } coAnswers { nfsBlockNum++ }
-                    }
+                val fastSyncable = createMockIndexer("fast")
+                val nonFastSyncable = createMockNonFastSyncableIndexer("plain")
 
                 coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                     {
@@ -1031,7 +1020,8 @@ internal class IndexerRunnerTest {
                         1,
                         thorClient,
                         500_000L,
-                        15.minutes,
+                        // Short reshuffle so fast-syncable rejoins the steady-state run promptly
+                        200.milliseconds,
                     )
                 }
 
@@ -1086,37 +1076,19 @@ internal class IndexerRunnerTest {
         @Test
         fun `non-fast-syncable indexers process blocks during fast sync phase`() = runTest {
             val thorClient = mockk<ThorClient>()
-            var nfsBlockNum = 0L
-            var fsBlockNum = 0L
             val nfsProcessedDuringFastSync = mutableListOf<Long>()
 
             val nonFastSyncable =
-                mockk<Indexer>(relaxed = true) {
-                    every { name } returns "plain"
-                    every { dependsOn } returns null
-                    every { getCurrentBlockNumber() } answers { nfsBlockNum }
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } just Runs
-                    coEvery { processBlock(any()) } coAnswers
-                        {
-                            nfsProcessedDuringFastSync.add(firstArg<Block>().number)
-                            nfsBlockNum++
-                        }
-                }
+                createMockNonFastSyncableIndexer(
+                    name = "plain",
+                    processBlock = { block -> nfsProcessedDuringFastSync.add(block.number) },
+                )
 
             val fastSyncable =
-                mockk<FastSyncableIndexer>(relaxed = true) {
-                    every { name } returns "fast"
-                    every { dependsOn } returns null
-                    every { getCurrentBlockNumber() } answers { fsBlockNum }
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } just Runs
-                    coEvery { fastSync() } coAnswers
-                        {
-                            delay(300) // Simulate slow fast sync
-                        }
-                    coEvery { processBlock(any()) } coAnswers { fsBlockNum++ }
-                }
+                createMockIndexer(
+                    name = "fast",
+                    fastSyncBlock = { delay(300) }, // Simulate slow fast sync
+                )
 
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
@@ -1143,50 +1115,32 @@ internal class IndexerRunnerTest {
         }
 
         @Test
-        fun `non-fast-syncable depending on fast-syncable is excluded from intermediate run`() =
+        fun `non-fast-syncable depending on fast-syncable waits for fast sync to complete`() =
             runTest {
                 val thorClient = mockk<ThorClient>()
-                var fsBlockNum = 0L
-                var nfsIndependentBlockNum = 0L
-                var nfsDependentBlockNum = 0L
                 val nfsIndependentProcessedDuringFastSync = mutableListOf<Long>()
 
                 val fastSyncable =
-                    mockk<FastSyncableIndexer>(relaxed = true) {
-                        every { name } returns "fast"
-                        every { dependsOn } returns null
-                        every { getCurrentBlockNumber() } answers { fsBlockNum }
-                        every { getInspectionClauses() } returns null
-                        coEvery { initialise() } just Runs
-                        coEvery { fastSync() } coAnswers { delay(300) }
-                        coEvery { processBlock(any()) } coAnswers { fsBlockNum++ }
-                    }
+                    createMockIndexer(
+                        name = "fast",
+                        fastSyncBlock = { delay(300) },
+                    )
 
                 // Independent non-fast-syncable: should run during fast sync
                 val nfsIndependent =
-                    mockk<Indexer>(relaxed = true) {
-                        every { name } returns "plain-independent"
-                        every { dependsOn } returns null
-                        every { getCurrentBlockNumber() } answers { nfsIndependentBlockNum }
-                        every { getInspectionClauses() } returns null
-                        coEvery { initialise() } just Runs
-                        coEvery { processBlock(any()) } coAnswers
-                            {
-                                nfsIndependentProcessedDuringFastSync.add(firstArg<Block>().number)
-                                nfsIndependentBlockNum++
-                            }
-                    }
+                    createMockNonFastSyncableIndexer(
+                        name = "plain-independent",
+                        processBlock = { block ->
+                            nfsIndependentProcessedDuringFastSync.add(block.number)
+                        },
+                    )
 
                 // Dependent non-fast-syncable: depends on fast-syncable, should be excluded
                 val nfsDependent =
-                    mockk<Indexer>(relaxed = true) {
-                        every { name } returns "plain-dependent"
-                        every { dependsOn } returns fastSyncable
-                        every { getCurrentBlockNumber() } answers { nfsDependentBlockNum }
-                        every { getInspectionClauses() } returns null
-                        coEvery { initialise() } just Runs
-                        coEvery { processBlock(any()) } coAnswers { nfsDependentBlockNum++ }
-                    }
+                    createMockNonFastSyncableIndexer(
+                        name = "plain-dependent",
+                        dependsOn = fastSyncable,
+                    )
 
                 coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                     {
@@ -1201,11 +1155,14 @@ internal class IndexerRunnerTest {
                         1,
                         thorClient,
                         500_000L,
-                        15.minutes,
+                        // Reshuffle longer than the 300ms fast sync so it can complete in one
+                        // iteration; short enough for the dependent to get initialised before
+                        // the test cancels.
+                        350.milliseconds,
                     )
                 }
 
-                delay(600)
+                delay(700)
                 job.cancelAndJoin()
 
                 // Independent non-fast-syncable should have processed blocks during fast sync
@@ -1217,44 +1174,28 @@ internal class IndexerRunnerTest {
             }
 
         @Test
-        fun `transitive dependency on fast-syncable is excluded from intermediate run`() = runTest {
+        fun `transitive dependency on fast-syncable waits for fast sync to complete`() = runTest {
             val thorClient = mockk<ThorClient>()
-            var fsBlockNum = 0L
-            var nfsMiddleBlockNum = 0L
-            var nfsLeafBlockNum = 0L
 
             val fastSyncable =
-                mockk<FastSyncableIndexer>(relaxed = true) {
-                    every { name } returns "fast"
-                    every { dependsOn } returns null
-                    every { getCurrentBlockNumber() } answers { fsBlockNum }
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } just Runs
-                    coEvery { fastSync() } coAnswers { delay(300) }
-                    coEvery { processBlock(any()) } coAnswers { fsBlockNum++ }
-                }
+                createMockIndexer(
+                    name = "fast",
+                    fastSyncBlock = { delay(300) },
+                )
 
             // Middle: non-fast-syncable, depends on fast-syncable
             val nfsMiddle =
-                mockk<Indexer>(relaxed = true) {
-                    every { name } returns "middle"
-                    every { dependsOn } returns fastSyncable
-                    every { getCurrentBlockNumber() } answers { nfsMiddleBlockNum }
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } just Runs
-                    coEvery { processBlock(any()) } coAnswers { nfsMiddleBlockNum++ }
-                }
+                createMockNonFastSyncableIndexer(
+                    name = "middle",
+                    dependsOn = fastSyncable,
+                )
 
             // Leaf: non-fast-syncable, depends on middle (transitive dep on fast-syncable)
             val nfsLeaf =
-                mockk<Indexer>(relaxed = true) {
-                    every { name } returns "leaf"
-                    every { dependsOn } returns nfsMiddle
-                    every { getCurrentBlockNumber() } answers { nfsLeafBlockNum }
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } just Runs
-                    coEvery { processBlock(any()) } coAnswers { nfsLeafBlockNum++ }
-                }
+                createMockNonFastSyncableIndexer(
+                    name = "leaf",
+                    dependsOn = nfsMiddle,
+                )
 
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
@@ -1269,11 +1210,13 @@ internal class IndexerRunnerTest {
                     1,
                     thorClient,
                     500_000L,
-                    15.minutes,
+                    // Reshuffle longer than the 300ms fast sync, short enough for dependents to
+                    // be reclassified within the test window
+                    350.milliseconds,
                 )
             }
 
-            delay(600)
+            delay(700)
             job.cancelAndJoin()
 
             // Both non-fast-syncable should eventually get processBlock in the main run
@@ -1282,46 +1225,39 @@ internal class IndexerRunnerTest {
         }
 
         @Test
-        fun `ReorgException during intermediate run restarts everything`() = runTest {
+        fun `ReorgException during fast sync triggers a re-fast-sync on restart`() = runTest {
+            // When a reorg fires while the fast indexer is mid-fast-sync, the indexer's status is
+            // FAST_SYNCING when the loop restarts. The runner re-classifies it back into the
+            // fast-sync group, so initialise() and fastSync() are called again. By contrast a
+            // non-fast indexer that has already moved past NOT_INITIALISED is not re-initialised.
             val thorClient = mockk<ThorClient>()
-            var nfsBlockNum = 0L
-            var fsBlockNum = 0L
             var nfsInitCount = 0
             var fsInitCount = 0
             var fsSyncCount = 0
             var nfsProcessAttempts = 0
 
             val nonFastSyncable =
-                mockk<Indexer>(relaxed = true) {
-                    every { name } returns "plain"
-                    every { dependsOn } returns null
-                    every { getCurrentBlockNumber() } answers { nfsBlockNum }
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } coAnswers { nfsInitCount++ }
-                    coEvery { processBlock(any()) } coAnswers
-                        {
-                            nfsProcessAttempts++
-                            if (nfsProcessAttempts == 1) {
-                                throw ReorgException("Reorg during intermediate run")
-                            }
-                            nfsBlockNum++
+                createMockNonFastSyncableIndexer(
+                    name = "plain",
+                    initializeBlock = { nfsInitCount++ },
+                    processBlock = {
+                        nfsProcessAttempts++
+                        if (nfsProcessAttempts == 1) {
+                            throw ReorgException("Reorg during fast sync")
                         }
-                }
+                    },
+                )
 
             val fastSyncable =
-                mockk<FastSyncableIndexer>(relaxed = true) {
-                    every { name } returns "fast"
-                    every { dependsOn } returns null
-                    every { getCurrentBlockNumber() } answers { fsBlockNum }
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } coAnswers { fsInitCount++ }
-                    coEvery { fastSync() } coAnswers
-                        {
-                            fsSyncCount++
-                            delay(200) // Slow enough for intermediate run to process
-                        }
-                    coEvery { processBlock(any()) } coAnswers { delay(5000) }
-                }
+                createMockIndexer(
+                    name = "fast",
+                    initializeBlock = { fsInitCount++ },
+                    fastSyncBlock = {
+                        fsSyncCount++
+                        delay(200) // Slow enough for the non-fast indexer to throw first
+                    },
+                    processBlock = { delay(5000) },
+                )
 
             coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
                 {
@@ -1343,8 +1279,10 @@ internal class IndexerRunnerTest {
             delay(800)
             job.cancelAndJoin()
 
-            // Both should be re-initialised after reorg
+            // Non-fast indexer is re-initialised by runWithProximityGroups to recover stale state
             expectThat(nfsInitCount).isGreaterThanOrEqualTo(2)
+            // Fast indexer was mid-fast-sync when the reorg fired, so it re-enters the fast-sync
+            // group on restart and is initialised + fast-synced again
             expectThat(fsInitCount).isGreaterThanOrEqualTo(2)
             expectThat(fsSyncCount).isGreaterThanOrEqualTo(2)
         }
@@ -1506,6 +1444,386 @@ internal class IndexerRunnerTest {
                     5.minutes,
                 )
             }
+        }
+    }
+
+    @Nested
+    inner class HasFastSyncingAncestor {
+
+        private val runner = IndexerRunner()
+
+        @Test
+        fun `returns false when indexer has no dependsOn`() {
+            val indexer = stubIndexer("solo", dependsOn = null)
+            with(runner) { expectThat(indexer.hasFastSyncingAncestor()).isFalse() }
+        }
+
+        @Test
+        fun `returns false when ancestor chain has no fast-syncable indexer`() {
+            val grand = stubIndexer("grand", status = Status.SYNCING, dependsOn = null)
+            val parent = stubIndexer("parent", status = Status.SYNCING, dependsOn = grand)
+            val child = stubIndexer("child", status = Status.NOT_INITIALISED, dependsOn = parent)
+            with(runner) { expectThat(child.hasFastSyncingAncestor()).isFalse() }
+        }
+
+        @Test
+        fun `returns true when direct ancestor is fast-syncable and NOT_INITIALISED`() {
+            val ancestor =
+                stubIndexer(
+                    "fast",
+                    status = Status.NOT_INITIALISED,
+                    fastSyncable = true,
+                )
+            val child = stubIndexer("child", dependsOn = ancestor)
+            with(runner) { expectThat(child.hasFastSyncingAncestor()).isTrue() }
+        }
+
+        @Test
+        fun `returns true when direct ancestor is fast-syncable and READY_TO_FAST_SYNC`() {
+            val ancestor =
+                stubIndexer(
+                    "fast",
+                    status = Status.READY_TO_FAST_SYNC,
+                    fastSyncable = true,
+                )
+            val child = stubIndexer("child", dependsOn = ancestor)
+            with(runner) { expectThat(child.hasFastSyncingAncestor()).isTrue() }
+        }
+
+        @Test
+        fun `returns true when direct ancestor is fast-syncable and FAST_SYNCING`() {
+            val ancestor = stubIndexer("fast", status = Status.FAST_SYNCING, fastSyncable = true)
+            val child = stubIndexer("child", dependsOn = ancestor)
+            with(runner) { expectThat(child.hasFastSyncingAncestor()).isTrue() }
+        }
+
+        @Test
+        fun `returns false when fast-syncable ancestor has finished fast sync`() {
+            val finishedStatuses = listOf(Status.READY_TO_SYNC, Status.SYNCING, Status.FULLY_SYNCED)
+            for (status in finishedStatuses) {
+                val ancestor = stubIndexer("fast-$status", status = status, fastSyncable = true)
+                val child = stubIndexer("child", dependsOn = ancestor)
+                with(runner) {
+                    expectThat(child.hasFastSyncingAncestor())
+                        .describedAs("status=$status")
+                        .isFalse()
+                }
+            }
+        }
+
+        @Test
+        fun `returns true when transitive ancestor is fast-syncable and pending`() {
+            val grand =
+                stubIndexer(
+                    "grand-fast",
+                    status = Status.FAST_SYNCING,
+                    fastSyncable = true,
+                )
+            val parent = stubIndexer("parent", status = Status.SYNCING, dependsOn = grand)
+            val child = stubIndexer("child", dependsOn = parent)
+            with(runner) { expectThat(child.hasFastSyncingAncestor()).isTrue() }
+        }
+    }
+
+    @Nested
+    inner class CanBeInitialisedNow {
+
+        private val runner = IndexerRunner()
+
+        @Test
+        fun `returns false when indexer is fast-syncable`() {
+            val indexer = stubIndexer("fast", status = Status.NOT_INITIALISED, fastSyncable = true)
+            with(runner) { expectThat(indexer.canBeInitialisedNow()).isFalse() }
+        }
+
+        @Test
+        fun `returns false when status is not NOT_INITIALISED`() {
+            val statuses =
+                listOf(
+                    Status.READY_TO_SYNC,
+                    Status.SYNCING,
+                    Status.FULLY_SYNCED,
+                    Status.SHUT_DOWN,
+                )
+            for (status in statuses) {
+                val indexer = stubIndexer("nfs-$status", status = status)
+                with(runner) {
+                    expectThat(indexer.canBeInitialisedNow())
+                        .describedAs("status=$status")
+                        .isFalse()
+                }
+            }
+        }
+
+        @Test
+        fun `returns false when blocked by a fast-syncing ancestor`() {
+            val ancestor = stubIndexer("fast", status = Status.FAST_SYNCING, fastSyncable = true)
+            val indexer =
+                stubIndexer("blocked", status = Status.NOT_INITIALISED, dependsOn = ancestor)
+            with(runner) { expectThat(indexer.canBeInitialisedNow()).isFalse() }
+        }
+
+        @Test
+        fun `returns true when non-fast NOT_INITIALISED with no fast-syncing ancestor`() {
+            val indexer = stubIndexer("ready", status = Status.NOT_INITIALISED)
+            with(runner) { expectThat(indexer.canBeInitialisedNow()).isTrue() }
+        }
+
+        @Test
+        fun `returns true when ancestor is fast-syncable but already finished`() {
+            val ancestor = stubIndexer("fast", status = Status.READY_TO_SYNC, fastSyncable = true)
+            val indexer =
+                stubIndexer("ready", status = Status.NOT_INITIALISED, dependsOn = ancestor)
+            with(runner) { expectThat(indexer.canBeInitialisedNow()).isTrue() }
+        }
+    }
+
+    @Nested
+    inner class InitialiseUnblockedIndexers {
+
+        @Test
+        fun `initialises only eligible indexers`() = runTest {
+            val ancestor = stubIndexer("fast", status = Status.FAST_SYNCING, fastSyncable = true)
+            val eligible = stubIndexer("nfs-ready", status = Status.NOT_INITIALISED)
+            val blocked =
+                stubIndexer(
+                    "nfs-blocked",
+                    status = Status.NOT_INITIALISED,
+                    dependsOn = ancestor,
+                )
+            val alreadyInitialised = stubIndexer("nfs-running", status = Status.SYNCING)
+            val fastNotInitialised =
+                stubIndexer(
+                    "fast-fresh",
+                    status = Status.NOT_INITIALISED,
+                    fastSyncable = true,
+                )
+
+            val runner = IndexerRunner()
+            runner.initialiseUnblockedIndexers(
+                listOf(ancestor, eligible, blocked, alreadyInitialised, fastNotInitialised)
+            )
+
+            coVerify(exactly = 1) { eligible.initialise() }
+            coVerify(exactly = 0) { ancestor.initialise() }
+            coVerify(exactly = 0) { blocked.initialise() }
+            coVerify(exactly = 0) { alreadyInitialised.initialise() }
+            coVerify(exactly = 0) { fastNotInitialised.initialise() }
+        }
+
+        @Test
+        fun `is a no-op when no indexer is eligible`() = runTest {
+            val ancestor =
+                stubIndexer("fast", status = Status.READY_TO_FAST_SYNC, fastSyncable = true)
+            val blocked =
+                stubIndexer(
+                    "blocked",
+                    status = Status.NOT_INITIALISED,
+                    dependsOn = ancestor,
+                )
+
+            val runner = IndexerRunner()
+            runner.initialiseUnblockedIndexers(listOf(ancestor, blocked))
+
+            coVerify(exactly = 0) { ancestor.initialise() }
+            coVerify(exactly = 0) { blocked.initialise() }
+        }
+
+        @Test
+        fun `initialises a transitive dependent once its fast-syncable ancestor has finished`() =
+            runTest {
+                val ancestor =
+                    stubIndexer(
+                        "fast-done",
+                        status = Status.READY_TO_SYNC,
+                        fastSyncable = true,
+                    )
+                val middle =
+                    stubIndexer(
+                        "middle",
+                        status = Status.NOT_INITIALISED,
+                        dependsOn = ancestor,
+                    )
+                val leaf = stubIndexer("leaf", status = Status.NOT_INITIALISED, dependsOn = middle)
+
+                val runner = IndexerRunner()
+                runner.initialiseUnblockedIndexers(listOf(ancestor, middle, leaf))
+
+                coVerify(exactly = 1) { middle.initialise() }
+                coVerify(exactly = 1) { leaf.initialise() }
+            }
+    }
+
+    @Nested
+    inner class Classify {
+
+        private val runner = IndexerRunner()
+
+        @Test
+        fun `returns three empty groups for empty input`() {
+            val (group1, group2, group3) = runner.classify(emptyList())
+            expectThat(group1).isEmpty()
+            expectThat(group2).isEmpty()
+            expectThat(group3).isEmpty()
+        }
+
+        @Test
+        fun `places fast-syncable indexers in group 1 for every pending status`() {
+            val pendingStatuses =
+                listOf(
+                    Status.NOT_INITIALISED,
+                    Status.READY_TO_FAST_SYNC,
+                    Status.FAST_SYNCING,
+                )
+            for (status in pendingStatuses) {
+                val indexer = stubIndexer("fast-$status", status = status, fastSyncable = true)
+                val (group1, group2, group3) = runner.classify(listOf(indexer))
+                expectThat(group1).describedAs("status=$status group1").containsExactly(indexer)
+                expectThat(group2).describedAs("status=$status group2").isEmpty()
+                expectThat(group3).describedAs("status=$status group3").isEmpty()
+            }
+        }
+
+        @Test
+        fun `places sync-ready indexers in group 2`() {
+            val syncReadyStatuses =
+                listOf(Status.READY_TO_SYNC, Status.SYNCING, Status.FULLY_SYNCED)
+            for (status in syncReadyStatuses) {
+                val nfs = stubIndexer("nfs-$status", status = status)
+                val fast = stubIndexer("fast-$status", status = status, fastSyncable = true)
+                val (group1, group2, group3) = runner.classify(listOf(nfs, fast))
+                expectThat(group1).describedAs("status=$status group1").isEmpty()
+                expectThat(group2)
+                    .describedAs("status=$status group2")
+                    .containsExactlyInAnyOrder(nfs, fast)
+                expectThat(group3).describedAs("status=$status group3").isEmpty()
+            }
+        }
+
+        @Test
+        fun `places non-fast-syncable NOT_INITIALISED in group 3`() {
+            val indexer = stubIndexer("blocked", status = Status.NOT_INITIALISED)
+            val (group1, group2, group3) = runner.classify(listOf(indexer))
+            expectThat(group1).isEmpty()
+            expectThat(group2).isEmpty()
+            expectThat(group3).containsExactly(indexer)
+        }
+
+        @Test
+        fun `excludes SHUT_DOWN indexers from every group`() {
+            val nfs = stubIndexer("nfs-down", status = Status.SHUT_DOWN)
+            val fast = stubIndexer("fast-down", status = Status.SHUT_DOWN, fastSyncable = true)
+            val (group1, group2, group3) = runner.classify(listOf(nfs, fast))
+            expectThat(group1).isEmpty()
+            expectThat(group2).isEmpty()
+            expectThat(group3).isEmpty()
+        }
+
+        @Test
+        fun `splits a mixed indexer set across all three groups`() {
+            val fastPending =
+                stubIndexer("fast-pending", status = Status.FAST_SYNCING, fastSyncable = true)
+            val nfsRunning = stubIndexer("nfs-running", status = Status.SYNCING)
+            val nfsBlocked = stubIndexer("nfs-blocked", status = Status.NOT_INITIALISED)
+            val shutDown = stubIndexer("shut", status = Status.SHUT_DOWN)
+
+            val (group1, group2, group3) =
+                runner.classify(listOf(fastPending, nfsRunning, nfsBlocked, shutDown))
+
+            expectThat(group1).containsExactly(fastPending)
+            expectThat(group2).containsExactly(nfsRunning)
+            expectThat(group3).containsExactly(nfsBlocked)
+        }
+    }
+
+    @Nested
+    inner class ReorgRecovery {
+
+        /**
+         * Drives a real [BlockIndexer] through a reorg detected at block 2 and asserts the runner
+         * recovers in-memory state on restart. Without [IndexerRunner.runWithProximityGroups]
+         * re-initialising on entry, the indexer keeps a stale `previousBlock` from the old chain
+         * after [BlockIndexer.handleReorg] rolls the processor back, and every retry of block 2
+         * triggers reorg detection again — an infinite loop.
+         */
+        @Test
+        fun `runWithProximityGroups recovers a real BlockIndexer after a reorg`() = runTest {
+            val thorClient = mockk<ThorClient>(relaxed = true)
+            val syncedByNumber = mutableMapOf<Long, BlockIdentifier>()
+            val processedBlockIds = mutableListOf<String>()
+            val processor =
+                mockk<IndexerProcessor>(relaxed = true) {
+                    every { getLastSyncedBlock() } answers
+                        {
+                            syncedByNumber.maxByOrNull { it.key }?.value
+                        }
+                    coEvery { process(any()) } coAnswers
+                        {
+                            val result = firstArg<IndexingResult>() as IndexingResult.BlockResult
+                            syncedByNumber[result.block.number] =
+                                BlockIdentifier(result.block.number, result.block.id)
+                            processedBlockIds.add(result.block.id)
+                        }
+                    every { rollback(any<Long>()) } answers
+                        {
+                            val from = firstArg<Long>()
+                            syncedByNumber.keys
+                                .filter { it >= from }
+                                .toList()
+                                .forEach { syncedByNumber.remove(it) }
+                        }
+                }
+
+            val indexer =
+                BlockIndexer(
+                    name = "real",
+                    thorClient = thorClient,
+                    processor = processor,
+                    startBlock = 0L,
+                    syncLoggerInterval = Long.MAX_VALUE,
+                    eventProcessor = null,
+                    inspectionClauses = null,
+                    dependsOn = null,
+                )
+
+            // Block 0 is a shared ancestor; old and new chains diverge at block 1. Block 2's
+            // parentID points to the new-chain block 1, so when the indexer (already past
+            // block 1 of the old chain) sees block 2, checkForReorg fires.
+            val block0 = buildBlock(num = 0L)
+            val block1Old = buildBlock(num = 1L, parentId = block0.id)
+            val block1New = buildBlock(num = 1L, parentId = block0.id).copy(id = "0xnew_1")
+            val block2New = buildBlock(num = 2L, parentId = "0xnew_1").copy(id = "0xnew_2")
+
+            // Switch chains the first time block 2 is requested. Subsequent block 1 requests
+            // serve the new chain so post-recovery the indexer reaches a consistent state.
+            var reorgServed = false
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    when (val num = (firstArg<BlockRevision>() as BlockRevision.Number).number) {
+                        0L -> block0
+                        1L -> if (reorgServed) block1New else block1Old
+                        2L -> {
+                            reorgServed = true
+                            block2New
+                        }
+                        else -> {
+                            // Block production beyond block 2 hasn't happened yet — block forever.
+                            delay(60_000)
+                            buildBlock(num = num)
+                        }
+                    }
+                }
+
+            val runner = IndexerRunner()
+            val job = launch { runner.run(listOf(indexer), 1, thorClient, 500_000L, 5.minutes) }
+
+            delay(1_000)
+            job.cancelAndJoin()
+
+            // Without recovery, block1New is never processed because the indexer keeps detecting
+            // reorgs at block 2 and never advances. Recovery resets the in-memory previousBlock,
+            // letting the new-chain block 1 process cleanly.
+            expectThat(processedBlockIds).contains(block1New.id)
         }
     }
 }

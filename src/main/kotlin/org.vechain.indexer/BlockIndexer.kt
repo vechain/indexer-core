@@ -96,7 +96,7 @@ open class BlockIndexer(
     protected open fun initializeState(blockNumber: Long) {
         currentBlockNumber = blockNumber
         previousBlock = calculatePreviousBlock(blockNumber)
-        status = Status.INITIALISED
+        status = Status.READY_TO_SYNC
     }
 
     /**
@@ -170,7 +170,7 @@ open class BlockIndexer(
      */
     protected open fun validateProcessingState() {
         checkIfShuttingDown()
-        ensureStatus(status, setOf(Status.INITIALISED, Status.SYNCING, Status.FULLY_SYNCED))
+        ensureStatus(status, setOf(Status.READY_TO_SYNC, Status.SYNCING, Status.FULLY_SYNCED))
     }
 
     /**

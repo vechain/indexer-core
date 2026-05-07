@@ -169,8 +169,8 @@ internal class BlockIndexerTest {
             verify(exactly = 2) { processor.getLastSyncedBlock() }
 
             expect {
-                // Verify the status is INITIALISED
-                that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
+                // Verify the status is READY_TO_SYNC
+                that(indexer.getStatus()).isEqualTo(Status.READY_TO_SYNC)
                 // previousBlock should equal the second last synced block returned
                 that(indexer.getPreviousBlock())
                     .isEqualTo(BlockIdentifier(number = 99L, id = "0x99"))
@@ -189,8 +189,8 @@ internal class BlockIndexerTest {
             verify(exactly = 0) { processor.rollback(any()) }
 
             expect {
-                // Verify the status is INITIALISED
-                that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
+                // Verify the status is READY_TO_SYNC
+                that(indexer.getStatus()).isEqualTo(Status.READY_TO_SYNC)
                 // getLastSyncedBlock should be called once
                 // previousBlock should equal null when no last synced block found
                 that(indexer.getPreviousBlock()).isEqualTo(null)
@@ -229,8 +229,8 @@ internal class BlockIndexerTest {
             indexer.initialise()
 
             expect {
-                // Verify the status is INITIALISED
-                that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
+                // Verify the status is READY_TO_SYNC
+                that(indexer.getStatus()).isEqualTo(Status.READY_TO_SYNC)
                 // previousBlock should equal null when last synced block number doesn't match
                 // current block number - 1
                 that(indexer.getPreviousBlock()).isEqualTo(null)
@@ -505,7 +505,7 @@ internal class BlockIndexerTest {
                     dependsOn = null,
                 )
 
-            indexer.publicSetStatus(Status.INITIALISED)
+            indexer.publicSetStatus(Status.READY_TO_SYNC)
             indexer.publicSetCurrentBlockNumber(1L)
             val block = buildBlock(num = 0L)
 
@@ -527,7 +527,7 @@ internal class BlockIndexerTest {
                 )
 
             val block = buildBlock(num = 0L)
-            indexer.publicSetStatus(Status.INITIALISED)
+            indexer.publicSetStatus(Status.READY_TO_SYNC)
             indexer.publicSetCurrentBlockNumber(block.number)
             val previousTime = indexer.timeLastProcessed
 
@@ -701,7 +701,7 @@ internal class BlockIndexerTest {
         @Nested
         inner class ValidateProcessingState {
             @Test
-            fun `should not throw when status is INITIALISED`() {
+            fun `should not throw when status is READY_TO_SYNC`() {
                 val indexer =
                     TestableBlockIndexer(
                         name = "TestBlockIndexer",
@@ -714,7 +714,7 @@ internal class BlockIndexerTest {
                         dependsOn = null,
                     )
 
-                indexer.publicSetStatus(Status.INITIALISED)
+                indexer.publicSetStatus(Status.READY_TO_SYNC)
 
                 // Should not throw
                 indexer.publicValidateProcessingState()

@@ -8,11 +8,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.ReorgException
@@ -27,13 +27,18 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     companion object {
+        private val FAST_SYNC_PENDING_STATUSES =
+            setOf(Status.NOT_INITIALISED, Status.READY_TO_FAST_SYNC, Status.FAST_SYNCING)
+        private val SYNC_READY_STATUSES =
+            setOf(Status.READY_TO_SYNC, Status.SYNCING, Status.FULLY_SYNCED)
+
         fun launch(
             scope: CoroutineScope,
             thorClient: ThorClient,
             indexers: List<Indexer>,
             blockBatchSize: Int = 1,
             proximityThreshold: Long = 500_000L,
-            reshuffleInterval: Duration = 15.minutes,
+            reshuffleInterval: Duration = 5.minutes,
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -62,22 +67,15 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
 
         logger.info("Starting ${indexers.size} Indexer ${indexers.map { it.name }}")
 
-        val fastSyncable = indexers.filterIsInstance<FastSyncableIndexer>()
-        val nonFastSyncable = indexers.filter { it !is FastSyncableIndexer }
-
         while (isActive) {
             try {
-                initialiseAndSyncWithIntermediateRun(
-                    fastSyncable,
-                    nonFastSyncable,
+                catchUp(
+                    indexers,
                     thorClient,
                     batchSize,
                     proximityThreshold,
                     reshuffleInterval,
                 )
-                // Re-initialise non-fast-syncable indexers to recover from potential
-                // mid-block cancellation during the intermediate run
-                initialise(nonFastSyncable)
                 runWithProximityGroups(
                     indexers,
                     thorClient,
@@ -93,48 +91,102 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     }
 
     /**
-     * Initialises and fast syncs fast-syncable indexers while running non-fast-syncable indexers in
-     * parallel. The intermediate run of non-fast-syncable indexers is cancelled once fast sync
-     * completes.
+     * Drives indexers toward the steady state in which all are sync-ready. Each iteration:
+     * 1. Initialises non-fast-syncable indexers whose fast-syncable ancestors have all finished.
+     * 2. Classifies indexers into three groups by status:
+     *     - **group 1**: fast-syncable indexers still pending fast sync.
+     *     - **group 2**: indexers ready for the regular sync loop.
+     *     - **group 3**: non-fast-syncable indexers blocked behind a fast-syncing dependency.
+     * 3. Returns once groups 1 and 3 are empty (steady state).
+     * 4. Otherwise runs group 1's fast sync alongside group 2's sync, capped at [reshuffleInterval]
+     *    so newly-eligible indexers join on the next pass.
      */
-    private suspend fun initialiseAndSyncWithIntermediateRun(
-        fastSyncable: List<FastSyncableIndexer>,
-        nonFastSyncable: List<Indexer>,
+    private suspend fun catchUp(
+        indexers: List<Indexer>,
         thorClient: ThorClient,
         batchSize: Int,
         proximityThreshold: Long,
         reshuffleInterval: Duration,
     ) {
-        if (fastSyncable.isEmpty()) {
-            initialise(nonFastSyncable)
-            return
-        }
+        while (true) {
+            initialiseUnblockedIndexers(indexers)
 
-        // Filter out non-fast-syncable indexers that transitively depend on a fast-syncable
-        // indexer, as that dependency won't be in the intermediate run
-        val fastSyncableSet = fastSyncable.toSet()
-        val independentNonFast = nonFastSyncable.filter { !it.dependsOnAny(fastSyncableSet) }
+            val (group1, group2, group3) = classify(indexers)
+            logCatchUpGroups(group1, group2, group3)
 
-        logIntermediateRunSplit(fastSyncable, nonFastSyncable, independentNonFast)
+            if (group1.isEmpty() && group3.isEmpty()) {
+                logger.info("All ${indexers.size} indexers caught up — entering steady-state run")
+                return
+            }
 
-        coroutineScope {
-            val nonFastJob: Job? =
-                if (independentNonFast.isNotEmpty()) {
-                    initialise(independentNonFast)
-                    launch {
-                        runWithProximityGroups(
-                            independentNonFast,
-                            thorClient,
-                            batchSize,
-                            proximityThreshold,
-                            reshuffleInterval,
-                        )
+            withTimeoutOrNull(reshuffleInterval) {
+                coroutineScope {
+                    if (group1.isNotEmpty()) {
+                        launch { initialiseAndSync(group1) }
                     }
-                } else null
-
-            initialiseAndSync(fastSyncable)
-            nonFastJob?.cancelAndJoin()
+                    if (group2.isNotEmpty()) {
+                        launch {
+                            runWithProximityGroups(
+                                group2,
+                                thorClient,
+                                batchSize,
+                                proximityThreshold,
+                                reshuffleInterval,
+                            )
+                        }
+                    }
+                }
+            }
+            // Recovery for both groups happens at the top of their respective entry points —
+            // initialiseAndSync re-runs initialise, and runWithProximityGroups does the same.
         }
+    }
+
+    /**
+     * Initialises any non-fast-syncable indexer whose fast-syncable ancestors have all completed
+     * fast sync. Indexers still blocked by an in-flight fast sync are left untouched and will be
+     * reconsidered on the next [catchUp] iteration.
+     */
+    internal suspend fun initialiseUnblockedIndexers(indexers: List<Indexer>) {
+        val toInit = indexers.filter { it.canBeInitialisedNow() }
+        if (toInit.isNotEmpty()) initialise(toInit)
+    }
+
+    internal fun Indexer.canBeInitialisedNow(): Boolean =
+        this !is FastSyncableIndexer &&
+            getStatus() == Status.NOT_INITIALISED &&
+            !hasFastSyncingAncestor()
+
+    internal fun Indexer.hasFastSyncingAncestor(): Boolean {
+        var current = dependsOn
+        while (current != null) {
+            if (
+                current is FastSyncableIndexer && current.getStatus() in FAST_SYNC_PENDING_STATUSES
+            ) {
+                return true
+            }
+            current = current.dependsOn
+        }
+        return false
+    }
+
+    internal fun classify(
+        indexers: List<Indexer>
+    ): Triple<List<FastSyncableIndexer>, List<Indexer>, List<Indexer>> {
+        val group1 = mutableListOf<FastSyncableIndexer>()
+        val group2 = mutableListOf<Indexer>()
+        val group3 = mutableListOf<Indexer>()
+        for (indexer in indexers) {
+            val status = indexer.getStatus()
+            when {
+                indexer is FastSyncableIndexer && status in FAST_SYNC_PENDING_STATUSES ->
+                    group1.add(indexer)
+                status in SYNC_READY_STATUSES -> group2.add(indexer)
+                status == Status.NOT_INITIALISED -> group3.add(indexer)
+            // SHUT_DOWN: skip
+            }
+        }
+        return Triple(group1, group2, group3)
     }
 
     /**
@@ -185,6 +237,11 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         proximityThreshold: Long,
         reshuffleInterval: Duration,
     ) {
+        // Reread state from the processor on every entry. This recovers from mid-block
+        // cancellation (catchUp's reshuffle timeout) and from stale in-memory state after a reorg
+        // restart (handleReorg rolls back the processor but leaves currentBlockNumber and
+        // previousBlock untouched).
+        initialise(indexers)
         while (true) {
             if (logger.isDebugEnabled) {
                 logger.debug("Evaluating proximity groups for ${indexers.size} indexers")
@@ -300,27 +357,17 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         }
     }
 
-    private fun Indexer.dependsOnAny(targets: Set<Indexer>): Boolean {
-        var current = this.dependsOn
-        while (current != null) {
-            if (current in targets) return true
-            current = current.dependsOn
-        }
-        return false
-    }
-
     // Logging functions
-    private fun logIntermediateRunSplit(
-        fastSyncable: List<Indexer>,
-        nonFastSyncable: List<Indexer>,
-        independentNonFast: List<Indexer>,
+    private fun logCatchUpGroups(
+        group1: List<Indexer>,
+        group2: List<Indexer>,
+        group3: List<Indexer>,
     ) {
         if (logger.isDebugEnabled) {
-            val excluded = nonFastSyncable - independentNonFast.toSet()
             logger.debug(
-                "Intermediate run split: fastSync=${fastSyncable.map { it.name }}, " +
-                    "independent=${independentNonFast.map { it.name }}, " +
-                    "excluded=${excluded.map { it.name }}"
+                "Catch-up groups: fastSyncPending=${group1.map { it.name }}, " +
+                    "syncReady=${group2.map { it.name }}, " +
+                    "blocked=${group3.map { it.name }}"
             )
         }
     }

@@ -51,6 +51,17 @@ open class LogsIndexer(
 
     protected open val logClient = LogClient(thorClient)
 
+    override fun initializeState(blockNumber: Long) {
+        // RTFS is reachable only from NOT_INITIALISED. Subsequent initialisations (e.g., after a
+        // reorg restart) move the indexer directly to READY_TO_SYNC — fast sync is one-shot per
+        // process lifetime.
+        val firstInit = getStatus() == Status.NOT_INITIALISED
+        super.initializeState(blockNumber)
+        if (firstInit) {
+            setStatus(Status.READY_TO_FAST_SYNC)
+        }
+    }
+
     override suspend fun fastSync() {
 
         setStatus(Status.FAST_SYNCING)
@@ -71,7 +82,7 @@ open class LogsIndexer(
 
         logger.info("Fast sync complete")
 
-        setStatus(Status.INITIALISED)
+        setStatus(Status.READY_TO_SYNC)
     }
 
     /**

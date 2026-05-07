@@ -11,11 +11,18 @@ enum class Status {
     /** Indexer has not been initialised */
     NOT_INITIALISED,
 
-    /** Indexer has been initialised but not started */
-    INITIALISED,
+    /**
+     * Fast-syncable indexer is initialised and awaiting a fast sync. Reachable only by
+     * transitioning from [NOT_INITIALISED]; an indexer that has already fast-synced cannot return
+     * here within the lifetime of the process.
+     */
+    READY_TO_FAST_SYNC,
 
     /** Indexer is performing a fast sync to catch up to the best block */
     FAST_SYNCING,
+
+    /** Indexer is initialised and ready to enter the regular sync loop */
+    READY_TO_SYNC,
 
     /** Indexer is syncing */
     SYNCING,
