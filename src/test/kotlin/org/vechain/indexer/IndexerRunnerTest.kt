@@ -12,6 +12,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TestTimeSource
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -27,7 +28,6 @@ import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
 import org.vechain.indexer.thor.model.BlockRevision
-import org.vechain.indexer.thor.model.InspectionResult
 import strikt.api.expectThat
 import strikt.assertions.contains
 import strikt.assertions.containsExactly
@@ -386,9 +386,17 @@ internal class IndexerRunnerTest {
             // Skipping must keep liveness fresh so the health reporter doesn't flag head-synced
             // indexers as DOWN while the fetcher is gated by a slower indexer in the same group.
             val thorClient = mockk<ThorClient>()
-            // Slow indexer at block 0 — pulls fetcher's startBlock down to 0.
-            val slowIndexer = createMockIndexer("slow", currentBlock = 0L)
-            // Already-ahead indexer at block 10 — must take the skip branch on blocks 0..9.
+            // Slow indexer pegged at block 0 — its processBlock suspends indefinitely so the
+            // fetcher stays at startBlock=0 and the skipped indexer keeps taking the skip branch.
+            val gate = CompletableDeferred<Unit>()
+            val slowIndexer = mockk<Indexer>(relaxed = true)
+            every { slowIndexer.name } returns "slow"
+            every { slowIndexer.dependsOn } returns null
+            every { slowIndexer.getCurrentBlockNumber() } returns 0L
+            every { slowIndexer.getStatus() } returns Status.SYNCING
+            every { slowIndexer.getInspectionClauses() } returns null
+            coEvery { slowIndexer.processBlock(any()) } coAnswers { gate.await() }
+
             val skippedIndexer = mockk<BlockIndexer>(relaxed = true)
             every { skippedIndexer.name } returns "skipped"
             every { skippedIndexer.dependsOn } returns null
@@ -402,16 +410,15 @@ internal class IndexerRunnerTest {
                 }
 
             val runner = IndexerRunner()
-            val job =
-                launch { runner.runIndexers(listOf(slowIndexer, skippedIndexer), thorClient, 1) }
+            val job = launch {
+                runner.runIndexers(listOf(slowIndexer, skippedIndexer), thorClient, 1)
+            }
 
             delay(100)
             job.cancelAndJoin()
 
             verify(atLeast = 1) { skippedIndexer.markSkipped() }
-            coVerify(exactly = 0) {
-                skippedIndexer.processBlock(match { it.number < 10L }, any<List<InspectionResult>>())
-            }
+            coVerify(exactly = 0) { skippedIndexer.processBlock(match { it.number < 10L }) }
         }
 
         @Test
