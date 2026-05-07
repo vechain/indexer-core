@@ -4,6 +4,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -16,6 +17,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.ReorgException
 import org.vechain.indexer.thor.client.ThorClient
+import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.utils.ClauseIndexMapping
 import org.vechain.indexer.utils.ClauseUtils.buildClauseListWithMapping
 import org.vechain.indexer.utils.IndexerOrderUtils.proximityGroups
@@ -374,11 +376,13 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 try {
                     val startBlock = executionGroups.flatten().minOf { it.getCurrentBlockNumber() }
                     val fetcher = BlockFetcher(thorClient, allClauses)
+                    val initialTimestampSeconds = seedTimestampForStart(thorClient, startBlock)
 
                     fetcher.prefetchBlocksInOrder(
                         startBlock = startBlock,
                         maxBatchSize = batchSize,
                         deadlineMark = deadlineMark,
+                        initialTimestampSeconds = initialTimestampSeconds,
                     ) { preparedBlock ->
                         groupChannels.forEach { channel -> channel.send(preparedBlock) }
                     }
@@ -435,6 +439,25 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                     "Indexer ${indexer.name} is behind the current block ${block.number}"
                 )
             }
+        }
+    }
+
+    // Seeds the prefetcher's lastBlockTimestamp from the block immediately preceding startBlock.
+    // calculateWindowSize uses lastBlockTimestamp to shrink the prefetch window near the tip; on
+    // every re-entry into runIndexers (e.g., catchUp/reshuffle ticks) the BlockFetcher is fresh,
+    // so without seeding the first iteration always fans out maxBatchSize parallel fetches.
+    //
+    // The seed is an optimisation, not a correctness requirement: on failure we return null and
+    // the prefetcher falls back to its previous behaviour of starting with full parallelism.
+    private suspend fun seedTimestampForStart(thorClient: ThorClient, startBlock: Long): Long? {
+        if (startBlock <= 0) return null
+        return try {
+            thorClient.getBlock(BlockRevision.Number(startBlock - 1)).timestamp
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.warn("Failed to seed prefetch timestamp for block ${startBlock - 1}", e)
+            null
         }
     }
 
