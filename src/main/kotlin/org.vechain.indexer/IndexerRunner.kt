@@ -455,15 +455,17 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     }
 
     private fun logExecutionGroups(executionGroups: List<List<Indexer>>) {
-        val groupSummary = buildString {
-            appendLine(
-                "Execution groups: ${executionGroups.size} groups, ${executionGroups.flatten().size} indexers"
-            )
-            executionGroups.forEachIndexed { i, g ->
-                appendLine("  Group ${i + 1} (${g.size} indexers): ${g.map { it.name }}")
+        if (logger.isDebugEnabled) {
+            val groupSummary = buildString {
+                appendLine(
+                    "Execution groups: ${executionGroups.size} groups, ${executionGroups.flatten().size} indexers"
+                )
+                executionGroups.forEachIndexed { i, g ->
+                    appendLine("  Group ${i + 1} (${g.size} indexers): ${g.map { it.name }}")
+                }
             }
+            logger.debug(groupSummary.trimEnd())
         }
-        logger.info(groupSummary.trimEnd())
     }
 
     private fun logProximityGroups(

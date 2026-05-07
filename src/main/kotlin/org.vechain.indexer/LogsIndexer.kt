@@ -144,7 +144,7 @@ open class LogsIndexer(
      */
     protected open suspend fun processBatch(toBlockNumber: Long) {
         val batchEndBlock = calculateBatchEndBlock(toBlockNumber)
-        logSyncStatus(getCurrentBlockNumber(), batchEndBlock, getStatus())
+        logSyncStatus(getCurrentBlockNumber(), batchEndBlock)
 
         val eventLogs = fetchEventLogsIfNeeded(batchEndBlock)
         val transferLogs = fetchTransferLogsIfNeeded(batchEndBlock)
@@ -286,9 +286,10 @@ open class LogsIndexer(
         timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
     }
 
-    private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long, status: Status) {
+    private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long) {
         val message =
-            "($status) Processing ${batchEndBlock - currentBlockNumber + 1} Blocks @ $currentBlockNumber"
+            "Processing %4d Blocks @ %,11d"
+                .format(batchEndBlock - currentBlockNumber + 1, currentBlockNumber)
         if (shouldLogDebug()) {
             logger.debug(message)
         } else if (shouldLogInfo()) {
