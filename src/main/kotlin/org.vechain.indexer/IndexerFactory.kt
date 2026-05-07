@@ -136,9 +136,13 @@ class IndexerFactory {
     /**
      * Used to tune how often the indexer will log its progress when syncing.
      *
-     * The default value is `1000` blocks
+     * Acts as a throttle: while the indexer is catching up, info-level progress logs are emitted at
+     * most once per `interval` seconds. Live-tip processing (status `FULLY_SYNCED`) is not
+     * throttled. Debug-level logging, when enabled, is unaffected.
      *
-     * @param interval The interval in `blocks` for logging progress.
+     * The default value is `1000` seconds.
+     *
+     * @param interval The minimum interval in `seconds` between info-level progress logs.
      */
     fun syncLoggerInterval(interval: Long) = apply {
         require(interval > 0) { "syncLoggerInterval must be > 0" }

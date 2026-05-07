@@ -183,8 +183,13 @@ IndexerRunner.launch(
     blockBatchSize = 1,
     proximityThreshold = 500_000L,
     reshuffleInterval = 15.minutes,
+    catchUpInterval = 1.minutes,
 )
 ```
+
+`reshuffleInterval` controls steady-state proximity regrouping while indexers are far apart.
+`catchUpInterval` controls how long catch-up work runs before the runner safely reclassifies
+fast-syncing, sync-ready, and blocked indexers.
 
 ## When to Use Which Mode
 

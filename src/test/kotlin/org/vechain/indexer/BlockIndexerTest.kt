@@ -118,6 +118,10 @@ internal class TestableBlockIndexer(
         return super.shouldLogInfo()
     }
 
+    fun publicSetLastInfoLogTime(value: LocalDateTime) {
+        super.setLastInfoLogTime(value)
+    }
+
     fun publicBuildLogMessage(): String {
         return super.buildLogMessage()
     }
@@ -169,8 +173,8 @@ internal class BlockIndexerTest {
             verify(exactly = 2) { processor.getLastSyncedBlock() }
 
             expect {
-                // Verify the status is INITIALISED
-                that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
+                // Verify the status is READY_TO_SYNC
+                that(indexer.getStatus()).isEqualTo(Status.READY_TO_SYNC)
                 // previousBlock should equal the second last synced block returned
                 that(indexer.getPreviousBlock())
                     .isEqualTo(BlockIdentifier(number = 99L, id = "0x99"))
@@ -189,8 +193,8 @@ internal class BlockIndexerTest {
             verify(exactly = 0) { processor.rollback(any()) }
 
             expect {
-                // Verify the status is INITIALISED
-                that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
+                // Verify the status is READY_TO_SYNC
+                that(indexer.getStatus()).isEqualTo(Status.READY_TO_SYNC)
                 // getLastSyncedBlock should be called once
                 // previousBlock should equal null when no last synced block found
                 that(indexer.getPreviousBlock()).isEqualTo(null)
@@ -229,8 +233,8 @@ internal class BlockIndexerTest {
             indexer.initialise()
 
             expect {
-                // Verify the status is INITIALISED
-                that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
+                // Verify the status is READY_TO_SYNC
+                that(indexer.getStatus()).isEqualTo(Status.READY_TO_SYNC)
                 // previousBlock should equal null when last synced block number doesn't match
                 // current block number - 1
                 that(indexer.getPreviousBlock()).isEqualTo(null)
@@ -505,7 +509,7 @@ internal class BlockIndexerTest {
                     dependsOn = null,
                 )
 
-            indexer.publicSetStatus(Status.INITIALISED)
+            indexer.publicSetStatus(Status.READY_TO_SYNC)
             indexer.publicSetCurrentBlockNumber(1L)
             val block = buildBlock(num = 0L)
 
@@ -527,7 +531,7 @@ internal class BlockIndexerTest {
                 )
 
             val block = buildBlock(num = 0L)
-            indexer.publicSetStatus(Status.INITIALISED)
+            indexer.publicSetStatus(Status.READY_TO_SYNC)
             indexer.publicSetCurrentBlockNumber(block.number)
             val previousTime = indexer.timeLastProcessed
 
@@ -701,7 +705,7 @@ internal class BlockIndexerTest {
         @Nested
         inner class ValidateProcessingState {
             @Test
-            fun `should not throw when status is INITIALISED`() {
+            fun `should not throw when status is READY_TO_SYNC`() {
                 val indexer =
                     TestableBlockIndexer(
                         name = "TestBlockIndexer",
@@ -714,7 +718,7 @@ internal class BlockIndexerTest {
                         dependsOn = null,
                     )
 
-                indexer.publicSetStatus(Status.INITIALISED)
+                indexer.publicSetStatus(Status.READY_TO_SYNC)
 
                 // Should not throw
                 indexer.publicValidateProcessingState()
@@ -1056,7 +1060,7 @@ internal class BlockIndexerTest {
             }
 
             @Test
-            fun `should return true when block number matches sync logger interval`() {
+            fun `should return true when sync logger interval has elapsed since last info log`() {
                 val indexer =
                     TestableBlockIndexer(
                         name = "TestBlockIndexer",
@@ -1064,19 +1068,19 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        syncLoggerInterval = 100L,
+                        syncLoggerInterval = 10L,
                         inspectionClauses = null,
                         dependsOn = null,
                     )
 
                 indexer.publicSetStatus(Status.SYNCING)
-                indexer.publicSetCurrentBlockNumber(200L)
+                indexer.publicSetLastInfoLogTime(LocalDateTime.now(ZoneOffset.UTC).minusSeconds(60))
 
                 expectThat(indexer.publicShouldLogInfo()).isEqualTo(true)
             }
 
             @Test
-            fun `should return false when neither condition is met`() {
+            fun `should return false when sync logger interval has not elapsed`() {
                 val indexer =
                     TestableBlockIndexer(
                         name = "TestBlockIndexer",
@@ -1084,13 +1088,13 @@ internal class BlockIndexerTest {
                         processor = processor,
                         startBlock = 0L,
                         eventProcessor = null,
-                        syncLoggerInterval = 100L,
+                        syncLoggerInterval = 60L,
                         inspectionClauses = null,
                         dependsOn = null,
                     )
 
                 indexer.publicSetStatus(Status.SYNCING)
-                indexer.publicSetCurrentBlockNumber(99L)
+                indexer.publicSetLastInfoLogTime(LocalDateTime.now(ZoneOffset.UTC))
 
                 expectThat(indexer.publicShouldLogInfo()).isEqualTo(false)
             }
@@ -1117,7 +1121,7 @@ internal class BlockIndexerTest {
 
                 val message = indexer.publicBuildLogMessage()
 
-                expectThat(message).isEqualTo("(SYNCING) Processing Block  100")
+                expectThat(message).isEqualTo("Processing    1 Blocks @         100")
             }
         }
     }

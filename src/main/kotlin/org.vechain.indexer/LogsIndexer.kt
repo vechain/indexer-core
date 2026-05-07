@@ -2,6 +2,7 @@ package org.vechain.indexer
 
 import java.time.LocalDateTime
 import java.time.ZoneOffset
+import kotlin.time.TimeMark
 import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.thor.client.LogClient
 import org.vechain.indexer.thor.client.ThorClient
@@ -51,27 +52,60 @@ open class LogsIndexer(
 
     protected open val logClient = LogClient(thorClient)
 
-    override suspend fun fastSync() {
+    override fun initializeState(blockNumber: Long) {
+        // RTFS is reachable only from NOT_INITIALISED. Subsequent initialisations (e.g., after a
+        // reorg restart) move the indexer directly to READY_TO_SYNC — fast sync is one-shot per
+        // process lifetime.
+        val firstInit = getStatus() == Status.NOT_INITIALISED
+        super.initializeState(blockNumber)
+        if (firstInit) {
+            setStatus(Status.READY_TO_FAST_SYNC)
+        }
+    }
 
+    override suspend fun fastSync() {
+        runFastSync(deadlineMark = null)
+    }
+
+    internal suspend fun fastSyncUntil(deadlineMark: TimeMark) {
+        runFastSync(deadlineMark)
+    }
+
+    private suspend fun runFastSync(deadlineMark: TimeMark?) {
         setStatus(Status.FAST_SYNCING)
         logger.info("Starting fast sync from block ${getCurrentBlockNumber()}")
 
+        if (deadlineMark?.hasNotPassedNow() == false) {
+            logger.info("Fast sync paused at block ${getCurrentBlockNumber()}")
+            return
+        }
+
         val finalizedBlock = thorClient.getBlock(BlockRevision.Keyword.FINALIZED)
+        var completed = true
 
         if (getCurrentBlockNumber() < finalizedBlock.number) {
-            sync(BlockIdentifier(finalizedBlock.number, finalizedBlock.id))
+            completed =
+                sync(BlockIdentifier(finalizedBlock.number, finalizedBlock.id), deadlineMark)
             // sync() processes blocks up to (finalizedBlock.number - 1); the next block to be
             // processed by the live BlockIndexer flow is finalizedBlock itself. Seed previousBlock
             // with finalizedBlock's parent so checkForReorg compares against the correct
             // predecessor instead of misidentifying the upcoming finalizedBlock as a reorg.
-            setPreviousBlock(
-                BlockIdentifier(number = finalizedBlock.number - 1, id = finalizedBlock.parentID)
-            )
+            if (completed) {
+                setPreviousBlock(
+                    BlockIdentifier(
+                        number = finalizedBlock.number - 1,
+                        id = finalizedBlock.parentID
+                    )
+                )
+            }
         }
 
-        logger.info("Fast sync complete")
-
-        setStatus(Status.INITIALISED)
+        if (completed) {
+            logger.info("Fast sync complete")
+            setStatus(Status.READY_TO_SYNC)
+        } else {
+            logger.info("Fast sync paused at block ${getCurrentBlockNumber()}")
+        }
     }
 
     /**
@@ -91,11 +125,16 @@ open class LogsIndexer(
      *
      * Note: This method is internal to allow for testing via TestableLogsIndexer.
      */
-    internal suspend fun sync(toBlock: BlockIdentifier) {
+    internal suspend fun sync(
+        toBlock: BlockIdentifier,
+        deadlineMark: TimeMark? = null,
+    ): Boolean {
         while (getCurrentBlockNumber() < toBlock.number) {
+            if (deadlineMark?.hasNotPassedNow() == false) return false
             checkIfShuttingDown()
             processBatch(toBlock.number)
         }
+        return true
     }
 
     /**
@@ -105,7 +144,7 @@ open class LogsIndexer(
      */
     protected open suspend fun processBatch(toBlockNumber: Long) {
         val batchEndBlock = calculateBatchEndBlock(toBlockNumber)
-        logSyncStatus(getCurrentBlockNumber(), batchEndBlock, getStatus())
+        logSyncStatus(getCurrentBlockNumber(), batchEndBlock)
 
         val eventLogs = fetchEventLogsIfNeeded(batchEndBlock)
         val transferLogs = fetchTransferLogsIfNeeded(batchEndBlock)
@@ -247,8 +286,15 @@ open class LogsIndexer(
         timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
     }
 
-    private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long, status: Status) {
-        logger.info("($status) Processing Blocks $currentBlockNumber - $batchEndBlock")
+    private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long) {
+        val message =
+            "Processing %4d Blocks @ %,11d"
+                .format(batchEndBlock - currentBlockNumber + 1, currentBlockNumber)
+        if (shouldLogDebug()) {
+            logger.debug(message)
+        } else if (shouldLogInfo()) {
+            logger.info(message)
+        }
     }
 
     companion object {
