@@ -180,27 +180,24 @@ internal class IndexerRunnerTest {
         fun `should retry on fastSync failure`() = runTest {
             var syncAttempts = 0
             val indexer =
-                mockk<FastSyncableIndexer>(relaxed = true) {
-                    every { name } returns "indexer1"
-                    every { dependsOn } returns null
-                    every { getCurrentBlockNumber() } returns 0L
-                    every { getInspectionClauses() } returns null
-                    coEvery { initialise() } just Runs
-                    coEvery { fastSync() } coAnswers
-                        {
-                            syncAttempts++
-                            if (syncAttempts < 2) {
-                                throw RuntimeException("Sync failed")
-                            }
+                createMockIndexer(
+                    name = "indexer1",
+                    fastSyncBlock = {
+                        syncAttempts++
+                        if (syncAttempts < 2) {
+                            throw RuntimeException("Sync failed")
                         }
-                }
+                    },
+                )
 
             val runner = IndexerRunner()
             runner.initialiseAndSync(listOf(indexer))
 
             expectThat(syncAttempts).isEqualTo(2)
-            // Both initialise and fastSync are wrapped in retryUntilSuccess, so both retry
-            coVerify(exactly = 2) { indexer.initialise() }
+            // initialise() runs once on the first attempt; on retry the indexer is no longer
+            // NOT_INITIALISED so the runner refreshes state instead of re-initialising.
+            coVerify(exactly = 1) { indexer.initialise() }
+            coVerify(exactly = 1) { indexer.refreshState() }
             coVerify(exactly = 2) { (indexer as FastSyncableIndexer).fastSync() }
         }
 
@@ -821,9 +818,11 @@ internal class IndexerRunnerTest {
             delay(500) // Let it process, throw reorg, and restart
             job.cancelAndJoin()
 
-            // runWithProximityGroups re-initialises every entry to recover stale in-memory state
-            // after a reorg, so the indexer is initialised again on restart.
-            expectThat(initCount).isGreaterThanOrEqualTo(2)
+            // After a reorg restart, runWithProximityGroups refreshes in-memory state via
+            // refreshState() rather than re-running initialise() — the processor was already
+            // rolled back by handleReorg, so a second rollback would be harmful.
+            expectThat(initCount).isEqualTo(1)
+            coVerify(atLeast = 1) { indexer.refreshState() }
             // Fast sync is one-shot per process — restart does not re-fast-sync once the indexer
             // is past READY_TO_FAST_SYNC.
             expectThat(syncCount).isEqualTo(1)
@@ -875,10 +874,12 @@ internal class IndexerRunnerTest {
             delay(500) // Let it process, throw reorg, and restart
             job.cancelAndJoin()
 
-            // Both indexers are re-initialised on the reorg restart (runWithProximityGroups
-            // re-reads processor state on entry to recover from stale in-memory block pointers).
-            expectThat(indexer1InitCount).isGreaterThanOrEqualTo(2)
-            expectThat(indexer2InitCount).isGreaterThanOrEqualTo(2)
+            // After reorg, runWithProximityGroups refreshes in-memory state via refreshState()
+            // rather than re-initialising — handleReorg already performed the rollback.
+            expectThat(indexer1InitCount).isEqualTo(1)
+            expectThat(indexer2InitCount).isEqualTo(1)
+            coVerify(atLeast = 1) { indexer1.refreshState() }
+            coVerify(atLeast = 1) { indexer2.refreshState() }
             // After reorg, processBlock is called again on the same block
             coVerify(atLeast = 2) { indexer1.processBlock(any()) }
         }
@@ -1335,8 +1336,9 @@ internal class IndexerRunnerTest {
         fun `ReorgException during fast sync triggers a re-fast-sync on restart`() = runTest {
             // When a reorg fires while the fast indexer is mid-fast-sync, the indexer's status is
             // FAST_SYNCING when the loop restarts. The runner re-classifies it back into the
-            // fast-sync group, so initialise() and fastSync() are called again. By contrast a
-            // non-fast indexer that has already moved past NOT_INITIALISED is not re-initialised.
+            // fast-sync group and calls fastSync() again. initialise() is NOT called a second
+            // time — handleReorg already rolled back, so the runner only refreshes in-memory
+            // state via refreshState() to avoid a redundant rollback.
             val thorClient = mockk<ThorClient>()
             var nfsInitCount = 0
             var fsInitCount = 0
@@ -1387,11 +1389,14 @@ internal class IndexerRunnerTest {
             delay(800)
             job.cancelAndJoin()
 
-            // Non-fast indexer is re-initialised by runWithProximityGroups to recover stale state
-            expectThat(nfsInitCount).isGreaterThanOrEqualTo(2)
+            // Non-fast indexer is refreshed (not re-initialised) by runWithProximityGroups
+            expectThat(nfsInitCount).isEqualTo(1)
+            coVerify(atLeast = 1) { nonFastSyncable.refreshState() }
             // Fast indexer was mid-fast-sync when the reorg fired, so it re-enters the fast-sync
-            // group on restart and is initialised + fast-synced again
-            expectThat(fsInitCount).isGreaterThanOrEqualTo(2)
+            // group on restart and is fast-synced again. But initialise() is not re-run — the
+            // runner refreshes state instead, since handleReorg already rolled back.
+            expectThat(fsInitCount).isEqualTo(1)
+            coVerify(atLeast = 1) { fastSyncable.refreshState() }
             expectThat(fsSyncCount).isGreaterThanOrEqualTo(2)
         }
     }

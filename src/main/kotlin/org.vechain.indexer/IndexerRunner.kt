@@ -37,8 +37,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             indexers: List<Indexer>,
             blockBatchSize: Int = 1,
             proximityThreshold: Long = 500_000L,
-            reshuffleInterval: Duration = 1.minutes,
-            catchUpInterval: Duration = 1.minutes,
+            reshuffleInterval: Duration = 10.minutes,
+            catchUpInterval: Duration = 5.minutes,
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
@@ -237,6 +237,10 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     /**
      * Initialises and fast syncs a single indexer with retry logic.
      *
+     * Only calls [Indexer.initialise] (which performs a rollback) when the indexer has not yet been
+     * initialised. On subsequent re-entry — for example after a deadline expiry or a reorg restart
+     * — calls [Indexer.refreshState] instead so we don't roll back already-persisted progress.
+     *
      * @param indexer The indexer to initialise and fast sync.
      */
     private suspend fun initialiseAndSync(
@@ -246,7 +250,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         logger.info("Initialising and syncing indexer ${indexer.name}...")
         retryOnFailure {
             if (deadlineMark?.hasNotPassedNow() == false) return@retryOnFailure
-            indexer.initialise()
+            ensureReady(indexer)
             if (indexer is LogsIndexer) {
                 if (deadlineMark != null) {
                     indexer.fastSyncUntil(deadlineMark)
@@ -260,6 +264,27 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         }
     }
 
+    private fun ensureReady(indexer: Indexer) {
+        if (indexer.getStatus() == Status.NOT_INITIALISED) {
+            indexer.initialise()
+        } else {
+            indexer.refreshState()
+        }
+    }
+
+    /**
+     * Refreshes in-memory state for already-initialised indexers without rolling back. Falls back
+     * to a full [Indexer.initialise] for any indexer still in [Status.NOT_INITIALISED].
+     */
+    suspend fun refreshState(indexers: List<Indexer>) {
+        if (indexers.isEmpty()) return
+        coroutineScope {
+            val tasks =
+                indexers.map { indexer -> async { retryOnFailure { ensureReady(indexer) } } }
+            tasks.awaitAll()
+        }
+    }
+
     suspend fun runWithProximityGroups(
         indexers: List<Indexer>,
         thorClient: ThorClient,
@@ -267,11 +292,12 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         proximityThreshold: Long,
         reshuffleInterval: Duration,
     ) {
-        // Reread state from the processor on every entry. This recovers from mid-block
-        // cancellation (for example, a reorg cancelling sibling catch-up work) and from stale
-        // in-memory state after a reorg restart (handleReorg rolls back the processor but leaves
-        // currentBlockNumber and previousBlock untouched).
-        initialise(indexers)
+        // Refresh in-memory state on every entry. This recovers from mid-block cancellation (for
+        // example, a reorg cancelling sibling catch-up work) and from stale in-memory state after
+        // a reorg restart (handleReorg rolls back the processor but leaves currentBlockNumber and
+        // previousBlock untouched). Refresh — not initialise — because already-initialised
+        // indexers must not roll back persisted progress on re-entry.
+        refreshState(indexers)
         while (true) {
             if (logger.isDebugEnabled) {
                 logger.debug("Evaluating proximity groups for ${indexers.size} indexers")
@@ -302,7 +328,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         duration: Duration,
     ) {
         val deadlineMark = timeSource.markNow() + duration
-        initialise(indexers)
+        refreshState(indexers)
         if (deadlineMark.hasNotPassedNow()) {
             if (logger.isDebugEnabled) {
                 logger.debug("Evaluating proximity groups for ${indexers.size} indexers")

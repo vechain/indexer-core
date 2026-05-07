@@ -57,6 +57,13 @@ interface Indexer : IndexerProcessor {
     // Initialise the indexer
     fun initialise()
 
+    /**
+     * Refresh in-memory state from the processor without rolling back. Used by the runner to
+     * recover from mid-block cancellation or post-reorg restart, where the persisted state is
+     * authoritative but the in-memory `currentBlockNumber` / `previousBlock` may be stale.
+     */
+    fun refreshState()
+
     // Process a block. The onReset callback should be called if the indexer needs to reset its
     // state
     suspend fun processBlock(block: Block)

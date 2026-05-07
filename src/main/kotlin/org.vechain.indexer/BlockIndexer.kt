@@ -73,6 +73,34 @@ open class BlockIndexer(
     }
 
     /**
+     * Refreshes in-memory state from the processor without rolling back. Used to recover from
+     * mid-block cancellation, where the processor's transaction committed but `currentBlockNumber`
+     * had not yet been bumped — re-reading [getLastSyncedBlock] catches the in-memory cursor up to
+     * persisted state.
+     *
+     * Only ever advances `currentBlockNumber`; never rolls it back. Some processors do not save a
+     * record on every block (round-aware processors, periodic-rollup processors), so
+     * [getLastSyncedBlock] can legitimately lag the in-memory cursor. Rewinding to `lastSynced + 1`
+     * in that case would re-process already-processed blocks against stale in-memory state (e.g. a
+     * `roundId` counter) and produce out-of-order errors.
+     *
+     * Reorg recovery does NOT depend on this method: [handleReorg] resets `currentBlockNumber` and
+     * `previousBlock` itself after rolling back the processor.
+     */
+    override fun refreshState() {
+        if (status == Status.NOT_INITIALISED) {
+            initialise()
+            return
+        }
+        val lastSynced = getLastSyncedBlock() ?: return
+        val nextFromPersisted = lastSynced.number + 1
+        if (nextFromPersisted > currentBlockNumber) {
+            currentBlockNumber = nextFromPersisted
+            previousBlock = lastSynced
+        }
+    }
+
+    /**
      * Determines the starting block number for initialization.
      *
      * @return The last synced block number if available, otherwise the configured start block.
@@ -320,6 +348,11 @@ open class BlockIndexer(
     /**
      * Handles a detected chain reorganization.
      *
+     * Rolls back persisted state and resets in-memory `currentBlockNumber` / `previousBlock` to
+     * track the new persisted cursor. Without this reset the runner would retry processing the
+     * reorg-detected block against a stale `previousBlock`, re-trigger the reorg check, deepen the
+     * rollback by one more block, and loop without making progress.
+     *
      * @param block The block where the reorg was detected.
      * @throws ReorgException always, after logging and rolling back.
      */
@@ -327,6 +360,14 @@ open class BlockIndexer(
         val message = buildReorgMessage(block)
         logger.error(message)
         rollback(currentBlockNumber - 1)
+        val lastSynced = getLastSyncedBlock()
+        if (lastSynced != null) {
+            currentBlockNumber = lastSynced.number + 1
+            previousBlock = lastSynced
+        } else {
+            currentBlockNumber = startBlock
+            previousBlock = null
+        }
         throw ReorgException(message)
     }
 
