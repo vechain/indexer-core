@@ -308,6 +308,63 @@ class EventProcessorTest {
     }
 
     @Test
+    fun `deriveEventCriteria falls back to topic0-only when cartesian exceeds Thor cap`() {
+        // 6 contracts × 4 events = 24 criteria — exceeds Thor's cap of 10.
+        val contracts = (1..6).map { "0x${it}" }
+        val topic0s = (1..4).map { "0xsig${it}" }
+        val cartesian =
+            contracts.flatMap { addr ->
+                topic0s.map { sig -> EventCriteria(address = addr, topic0 = sig) }
+            }
+
+        every { abiEventProcessor.buildEventCriteria() } returns cartesian
+        every { businessEventProcessor.buildEventCriteria() } returns emptyList()
+
+        val result = eventProcessor.deriveEventCriteria()
+
+        expectThat(result)
+            .hasSize(4)
+            .containsExactlyInAnyOrder(topic0s.map { EventCriteria(topic0 = it) })
+    }
+
+    @Test
+    fun `deriveEventCriteria falls back to address-only when topic0s exceed Thor cap`() {
+        // 2 contracts × 11 events = 22 criteria — both cartesian and topic0-only exceed 10,
+        // but addresses (2) fit.
+        val contracts = (1..2).map { "0x${it}" }
+        val topic0s = (1..11).map { "0xsig${it}" }
+        val cartesian =
+            contracts.flatMap { addr ->
+                topic0s.map { sig -> EventCriteria(address = addr, topic0 = sig) }
+            }
+
+        every { abiEventProcessor.buildEventCriteria() } returns cartesian
+        every { businessEventProcessor.buildEventCriteria() } returns emptyList()
+
+        val result = eventProcessor.deriveEventCriteria()
+
+        expectThat(result)
+            .hasSize(2)
+            .containsExactlyInAnyOrder(contracts.map { EventCriteria(address = it) })
+    }
+
+    @Test
+    fun `deriveEventCriteria falls back to no filter when both axes exceed Thor cap`() {
+        // 11 contracts × 11 events — neither axis fits.
+        val contracts = (1..11).map { "0x${it}" }
+        val topic0s = (1..11).map { "0xsig${it}" }
+        val cartesian =
+            contracts.flatMap { addr ->
+                topic0s.map { sig -> EventCriteria(address = addr, topic0 = sig) }
+            }
+
+        every { abiEventProcessor.buildEventCriteria() } returns cartesian
+        every { businessEventProcessor.buildEventCriteria() } returns emptyList()
+
+        expectThat(eventProcessor.deriveEventCriteria()).isEmpty()
+    }
+
+    @Test
     fun `create returns empty list when transfer-only requested but includeVetTransfers is false`() {
         val processor =
             CombinedEventProcessor.create(

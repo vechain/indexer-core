@@ -1,5 +1,6 @@
 package org.vechain.indexer.event
 
+import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.model.generic.IndexedEvent
 import org.vechain.indexer.event.utils.IndexedEventOrder
 import org.vechain.indexer.thor.model.Block
@@ -14,6 +15,11 @@ protected constructor(
 ) {
 
     companion object {
+        /** Thor's hard cap on `criteriaSet` length for `/logs/event` requests. */
+        const val MAX_CRITERIA = 10
+
+        private val logger = LoggerFactory.getLogger(CombinedEventProcessor::class.java)
+
         fun create(
             abiBasePath: String?,
             abiEventNames: List<String>,
@@ -80,12 +86,48 @@ protected constructor(
      * processor can decode. Used by [org.vechain.indexer.IndexerFactory] to push ABI filtering
      * server-side when the consumer has not supplied an explicit criteria set.
      *
-     * Returns an empty list when no event ABIs are loaded — equivalent to "no filter".
+     * Thor caps `criteriaSet` at [MAX_CRITERIA] entries. When the full cartesian product exceeds
+     * that, this method falls back progressively: topic0-only criteria (drop the address axis),
+     * then address-only criteria (drop topic0s), then an empty list (no filter). Returns an empty
+     * list when no event ABIs are loaded.
      */
     fun deriveEventCriteria(): List<EventCriteria> {
         val abiCriteria = abiEventProcessor?.buildEventCriteria() ?: emptyList()
         val businessCriteria = businessEventProcessor?.buildEventCriteria() ?: emptyList()
-        return (abiCriteria + businessCriteria).distinct()
+        val full = (abiCriteria + businessCriteria).distinct()
+        if (full.size <= MAX_CRITERIA) return full
+
+        val topic0Only = full.mapNotNull { it.topic0 }.distinct().map { EventCriteria(topic0 = it) }
+        if (topic0Only.size <= MAX_CRITERIA) {
+            logger.info(
+                "Cartesian criteria set ({}) exceeds Thor's cap of {}; using {} topic0-only criteria",
+                full.size,
+                MAX_CRITERIA,
+                topic0Only.size,
+            )
+            return topic0Only
+        }
+
+        val addressOnly =
+            full.mapNotNull { it.address }.distinct().map { EventCriteria(address = it) }
+        if (addressOnly.isNotEmpty() && addressOnly.size <= MAX_CRITERIA) {
+            logger.info(
+                "Cartesian criteria set ({}) exceeds Thor's cap of {}; using {} address-only criteria",
+                full.size,
+                MAX_CRITERIA,
+                addressOnly.size,
+            )
+            return addressOnly
+        }
+
+        logger.warn(
+            "Cannot fit derived criteria under Thor's cap of {} (cartesian: {}, topic0-only: {}, address-only: {}); falling back to no filter",
+            MAX_CRITERIA,
+            full.size,
+            topic0Only.size,
+            addressOnly.size,
+        )
+        return emptyList()
     }
 
     /**
