@@ -58,6 +58,16 @@ open class BlockIndexer(
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
         internal set
 
+    /**
+     * Bumps [timeLastProcessed] without advancing the cursor. Called by the runner when this
+     * indexer is already past the block being distributed, so health reporters that key off
+     * [timeLastProcessed] don't flag it as stalled while it idles waiting for the slowest indexer
+     * in its proximity group to catch up.
+     */
+    internal fun markSkipped() {
+        timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
+    }
+
     private var lastInfoLogTime: LocalDateTime = LocalDateTime.MIN
 
     protected fun setLastInfoLogTime(value: LocalDateTime) {
