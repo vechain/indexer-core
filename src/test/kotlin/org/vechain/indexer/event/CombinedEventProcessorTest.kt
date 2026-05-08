@@ -11,11 +11,13 @@ import org.vechain.indexer.fixtures.BlockFixtures
 import org.vechain.indexer.fixtures.IndexedEventFixture
 import org.vechain.indexer.fixtures.TransferLogFixtures
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.EventCriteria
 import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.TransferLog
 import strikt.api.expectThat
 import strikt.assertions.containsExactly
 import strikt.assertions.containsExactlyInAnyOrder
+import strikt.assertions.hasSize
 import strikt.assertions.isEmpty
 import strikt.assertions.isEqualTo
 import strikt.assertions.isNotEmpty
@@ -269,6 +271,97 @@ class EventProcessorTest {
 
         expectThat(result).isNotEmpty()
         expectThat(result.map { it.eventType }.distinct()).containsExactly("VET_TRANSFER")
+    }
+
+    @Test
+    fun `deriveEventCriteria unions and dedupes criteria from both processors`() {
+        val abiCriteria =
+            listOf(
+                EventCriteria(address = "0xaaa", topic0 = "0xsig1"),
+                EventCriteria(address = "0xbbb", topic0 = "0xsig1"),
+            )
+        val businessCriteria =
+            listOf(
+                EventCriteria(address = "0xaaa", topic0 = "0xsig1"), // duplicate
+                EventCriteria(address = "0xccc", topic0 = "0xsig2"),
+            )
+
+        every { abiEventProcessor.buildEventCriteria() } returns abiCriteria
+        every { businessEventProcessor.buildEventCriteria() } returns businessCriteria
+
+        val result = eventProcessor.deriveEventCriteria()
+
+        expectThat(result)
+            .hasSize(3)
+            .containsExactlyInAnyOrder(
+                EventCriteria(address = "0xaaa", topic0 = "0xsig1"),
+                EventCriteria(address = "0xbbb", topic0 = "0xsig1"),
+                EventCriteria(address = "0xccc", topic0 = "0xsig2"),
+            )
+    }
+
+    @Test
+    fun `deriveEventCriteria returns empty list when no processors are configured`() {
+        val processor = createTestProcessor(abi = null, business = null)
+
+        expectThat(processor.deriveEventCriteria()).isEmpty()
+    }
+
+    @Test
+    fun `deriveEventCriteria falls back to topic0-only when cartesian exceeds Thor cap`() {
+        // 6 contracts × 4 events = 24 criteria — exceeds Thor's cap of 10.
+        val contracts = (1..6).map { "0x${it}" }
+        val topic0s = (1..4).map { "0xsig${it}" }
+        val cartesian =
+            contracts.flatMap { addr ->
+                topic0s.map { sig -> EventCriteria(address = addr, topic0 = sig) }
+            }
+
+        every { abiEventProcessor.buildEventCriteria() } returns cartesian
+        every { businessEventProcessor.buildEventCriteria() } returns emptyList()
+
+        val result = eventProcessor.deriveEventCriteria()
+
+        expectThat(result)
+            .hasSize(4)
+            .containsExactlyInAnyOrder(topic0s.map { EventCriteria(topic0 = it) })
+    }
+
+    @Test
+    fun `deriveEventCriteria falls back to address-only when topic0s exceed Thor cap`() {
+        // 2 contracts × 11 events = 22 criteria — both cartesian and topic0-only exceed 10,
+        // but addresses (2) fit.
+        val contracts = (1..2).map { "0x${it}" }
+        val topic0s = (1..11).map { "0xsig${it}" }
+        val cartesian =
+            contracts.flatMap { addr ->
+                topic0s.map { sig -> EventCriteria(address = addr, topic0 = sig) }
+            }
+
+        every { abiEventProcessor.buildEventCriteria() } returns cartesian
+        every { businessEventProcessor.buildEventCriteria() } returns emptyList()
+
+        val result = eventProcessor.deriveEventCriteria()
+
+        expectThat(result)
+            .hasSize(2)
+            .containsExactlyInAnyOrder(contracts.map { EventCriteria(address = it) })
+    }
+
+    @Test
+    fun `deriveEventCriteria falls back to no filter when both axes exceed Thor cap`() {
+        // 11 contracts × 11 events — neither axis fits.
+        val contracts = (1..11).map { "0x${it}" }
+        val topic0s = (1..11).map { "0xsig${it}" }
+        val cartesian =
+            contracts.flatMap { addr ->
+                topic0s.map { sig -> EventCriteria(address = addr, topic0 = sig) }
+            }
+
+        every { abiEventProcessor.buildEventCriteria() } returns cartesian
+        every { businessEventProcessor.buildEventCriteria() } returns emptyList()
+
+        expectThat(eventProcessor.deriveEventCriteria()).isEmpty()
     }
 
     @Test

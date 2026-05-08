@@ -337,9 +337,10 @@ open class DefaultThorClientTest {
         val endpoint = "${baseUrl}/logs/event"
         stubFuelPost(endpoint, null, HttpResult.Failure(IllegalStateException("boom")))
 
-        val exception = assertFailsWith<FuelError> { client.getEventLogs(sampleEventLogsRequest()) }
+        val exception =
+            assertFailsWith<RuntimeException> { client.getEventLogs(sampleEventLogsRequest()) }
 
-        expectThat(exception.message.orEmpty()).containsIgnoringCase("boom")
+        expectThat(exception.message.orEmpty()).containsIgnoringCase("/logs/event")
     }
 
     @Test
@@ -394,9 +395,11 @@ open class DefaultThorClientTest {
         stubFuelPost(endpoint, null, HttpResult.Failure(RuntimeException("failure")))
 
         val exception =
-            assertFailsWith<FuelError> { client.getVetTransfers(sampleTransferLogsRequest()) }
+            assertFailsWith<RuntimeException> {
+                client.getVetTransfers(sampleTransferLogsRequest())
+            }
 
-        expectThat(exception.message.orEmpty()).containsIgnoringCase("failure")
+        expectThat(exception.message.orEmpty()).containsIgnoringCase("/logs/transfer")
     }
 
     @Test

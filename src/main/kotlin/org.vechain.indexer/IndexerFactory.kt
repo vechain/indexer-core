@@ -77,7 +77,7 @@ class IndexerFactory {
                 excludeVetTransfers = !needsVetTransfers,
                 blockBatchSize = INITIAL_ADAPTIVE_BLOCK_RANGE,
                 logFetchLimit = LOG_FETCH_PAGE_SIZE,
-                eventCriteriaSet = eventCriteriaSet ?: emptyList(),
+                eventCriteriaSet = eventCriteriaSet ?: eventProcessor.deriveEventCriteria(),
                 transferCriteriaSet = transferCriteriaSet ?: emptyList(),
                 eventProcessor = eventProcessor,
             )
@@ -255,6 +255,10 @@ class IndexerFactory {
     /**
      * Optional criteria for filtering event logs. This can be used to optimise the call to the Thor
      * API to fetch only the relevant logs.
+     *
+     * If left unset, criteria are auto-derived from the configured ABIs and contract addresses
+     * (cartesian product of `abiContracts` × event topic0s, including business event ABIs). Pass an
+     * empty list to disable filtering entirely; pass a custom list to override the default.
      */
     fun eventCriteriaSet(criteria: List<EventCriteria>) = apply { this.eventCriteriaSet = criteria }
 

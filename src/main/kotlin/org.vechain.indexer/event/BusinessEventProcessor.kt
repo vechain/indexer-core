@@ -10,6 +10,7 @@ import org.vechain.indexer.event.utils.BusinessEventUtils.containsVetTransferEve
 import org.vechain.indexer.event.utils.BusinessEventUtils.extractAbiEventNames
 import org.vechain.indexer.event.utils.IndexedEventOrder
 import org.vechain.indexer.thor.model.Block
+import org.vechain.indexer.thor.model.EventCriteria
 import org.vechain.indexer.thor.model.EventLog
 import org.vechain.indexer.thor.model.TransferLog
 
@@ -43,6 +44,9 @@ open class BusinessEventProcessor(
             contractAddresses = businessEventContracts,
             includeVetTransfers = needsVetTransfers,
         )
+
+    /** Delegates to the inner [AbiEventProcessor] to derive Thor event-log criteria. */
+    fun buildEventCriteria(): List<EventCriteria> = abiEventProcessor.buildEventCriteria()
 
     override fun processEvents(block: Block): List<IndexedEvent> {
         val events = abiEventProcessor.processEvents(block)
