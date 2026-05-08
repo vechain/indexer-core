@@ -94,8 +94,8 @@ open class DefaultThorClient(
                 }
                 return block
             } catch (e: BlockNotFoundException) {
-                // Retries are expected so only log if the retries exceed 3
-                if (attempts > 3) {
+                // Retries are expected so only log if the retries exceed 5
+                if (attempts > 5) {
                     logger.info(
                         "Block {} not yet available, waiting {}ms (attempt {})",
                         revision.value,
