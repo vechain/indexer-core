@@ -44,12 +44,15 @@ internal class TestableLogsIndexer(
         startBlock = startBlock,
         syncLoggerInterval = syncLoggerInterval,
         excludeVetTransfers = excludeVetTransfers,
-        blockBatchSize = blockBatchSize,
         logFetchLimit = logFetchLimit,
         eventCriteriaSet = eventCriteriaSet,
         transferCriteriaSet = transferCriteriaSet,
         eventProcessor = eventProcessor,
     ) {
+
+    init {
+        setCurrentBlockBatchSize(blockBatchSize)
+    }
 
     override val logClient: LogClient
         get() = mockLogClient ?: super.logClient
