@@ -98,7 +98,7 @@ protected constructor(
         if (full.size <= MAX_CRITERIA) return full
 
         val topic0Only = full.mapNotNull { it.topic0 }.distinct().map { EventCriteria(topic0 = it) }
-        if (topic0Only.size <= MAX_CRITERIA) {
+        if (topic0Only.isNotEmpty() && topic0Only.size <= MAX_CRITERIA) {
             logger.info(
                 "Cartesian criteria set ({}) exceeds Thor's cap of {}; using {} topic0-only criteria",
                 full.size,
