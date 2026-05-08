@@ -24,7 +24,6 @@ open class LogsIndexer(
     startBlock: Long,
     syncLoggerInterval: Long,
     private val excludeVetTransfers: Boolean,
-    private val blockBatchSize: Long,
     private val logFetchLimit: Long,
     private var eventCriteriaSet: List<EventCriteria>?,
     private var transferCriteriaSet: List<TransferCriteria>?,
@@ -41,13 +40,17 @@ open class LogsIndexer(
         dependsOn = null,
     ),
     FastSyncableIndexer {
-    private var currentBlockBatchSize: Long = blockBatchSize
+    private var currentBlockBatchSize: Long = MIN_BLOCK_BATCH_SIZE
 
     init {
-        require(blockBatchSize in MIN_BLOCK_BATCH_SIZE..MAX_BLOCK_BATCH_SIZE) {
+        require(logFetchLimit >= 1) { "logFetchLimit must be >= 1" }
+    }
+
+    internal fun setCurrentBlockBatchSize(value: Long) {
+        require(value in MIN_BLOCK_BATCH_SIZE..MAX_BLOCK_BATCH_SIZE) {
             "blockBatchSize must be between $MIN_BLOCK_BATCH_SIZE and $MAX_BLOCK_BATCH_SIZE"
         }
-        require(logFetchLimit >= 1) { "logFetchLimit must be >= 1" }
+        currentBlockBatchSize = value
     }
 
     protected open val logClient = LogClient(thorClient)
@@ -287,12 +290,14 @@ open class LogsIndexer(
     }
 
     private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long) {
+        val debug = shouldLogDebug()
+        if (!debug && !shouldLogInfo()) return
         val message =
             "Processing %4d Blocks @ %,11d"
                 .format(batchEndBlock - currentBlockNumber + 1, currentBlockNumber)
-        if (shouldLogDebug()) {
+        if (debug) {
             logger.debug(message)
-        } else if (shouldLogInfo()) {
+        } else {
             logger.info(message)
         }
     }

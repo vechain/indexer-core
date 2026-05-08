@@ -75,7 +75,6 @@ class IndexerFactory {
                 startBlock = startBlock,
                 syncLoggerInterval = syncLoggerInterval,
                 excludeVetTransfers = !needsVetTransfers,
-                blockBatchSize = INITIAL_ADAPTIVE_BLOCK_RANGE,
                 logFetchLimit = LOG_FETCH_PAGE_SIZE,
                 eventCriteriaSet = eventCriteriaSet ?: eventProcessor.deriveEventCriteria(),
                 transferCriteriaSet = transferCriteriaSet ?: emptyList(),
@@ -291,7 +290,6 @@ class IndexerFactory {
     fun callDataClauses(clauses: List<Clause>) = apply { this.callDataClauses = clauses }
 
     private companion object {
-        const val INITIAL_ADAPTIVE_BLOCK_RANGE = 100L
         const val LOG_FETCH_PAGE_SIZE = 1000L
     }
 }
