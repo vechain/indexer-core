@@ -433,9 +433,11 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 // Bump liveness so the health reporter doesn't flag head-synced indexers as DOWN
                 // while the fetcher is gated by a slower indexer in the same proximity group.
                 if (indexer is BlockIndexer) indexer.markSkipped()
-                logger.debug(
-                    "Skipping block ${block.number} for ${indexer.name} (already at $currentNumber)"
-                )
+                if (logger.isDebugEnabled) {
+                    logger.debug(
+                        "Skipping block ${block.number} for ${indexer.name} (already at $currentNumber)"
+                    )
+                }
             }
             else -> {
                 throw IllegalStateException(

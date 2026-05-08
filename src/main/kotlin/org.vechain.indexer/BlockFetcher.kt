@@ -54,7 +54,9 @@ class BlockFetcher(
         while (isActive && (deadlineMark == null || deadlineMark.hasNotPassedNow())) {
             val currentBlock = nextBlockNumber
             val windowSize = calculateWindowSize(lastBlockTimestamp, maxBatchSize)
-            logger.debug("Block fetch window size: $windowSize")
+            if (logger.isDebugEnabled) {
+                logger.debug("Block fetch window size: $windowSize")
+            }
             // Launch prefetch for next batch of blocks in parallel
             val deferredBlocks =
                 (0 ..< windowSize).map { offset ->

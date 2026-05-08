@@ -287,12 +287,14 @@ open class LogsIndexer(
     }
 
     private fun logSyncStatus(currentBlockNumber: Long, batchEndBlock: Long) {
+        val debug = shouldLogDebug()
+        if (!debug && !shouldLogInfo()) return
         val message =
             "Processing %4d Blocks @ %,11d"
                 .format(batchEndBlock - currentBlockNumber + 1, currentBlockNumber)
-        if (shouldLogDebug()) {
+        if (debug) {
             logger.debug(message)
-        } else if (shouldLogInfo()) {
+        } else {
             logger.info(message)
         }
     }
