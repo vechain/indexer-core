@@ -93,18 +93,29 @@ internal class ClauseUtilsTest {
 
         @Test
         fun `deduplicates clauses and maps correctly`() {
-            val shared = clause("0xShared", "0xAAAA")
-            val unique = clause("0xUnique", "0xBBBB")
+            val identical1 = clause("0xIdentical", "0xAAAA")
+            val identical2 = clause("0xIdentical", "0xAAAA")
+            val identical3 = clause("0xIdentical", "0xAAAA")
+            val unique1 = clause("0xUnique1", "0xBBBB")
+            val unique2 = clause("0xUnique2", "0xCCCC")
 
-            val indexer1 = createMockIndexer("indexer1", listOf(shared))
-            val indexer2 = createMockIndexer("indexer2", listOf(shared, unique))
+            val indexer1 = createMockIndexer("indexer1", listOf(identical1))
+            val indexer2 = createMockIndexer("indexer2", listOf(identical2, unique1))
+            val indexer3 = createMockIndexer("indexer3", listOf(unique2, identical3))
 
             val (clauses, mapping) =
-                ClauseUtils.buildClauseListWithMapping(listOf(indexer1, indexer2))
+                ClauseUtils.buildClauseListWithMapping(listOf(indexer1, indexer2, indexer3))
 
-            expectThat(clauses).containsExactly(shared, unique)
+            expectThat(clauses).hasSize(3)
+            expectThat(clauses[0].to).isEqualTo("0xIdentical")
+            expectThat(clauses[0].data).isEqualTo("0xAAAA")
+            expectThat(clauses[1].to).isEqualTo("0xUnique1")
+            expectThat(clauses[1].data).isEqualTo("0xBBBB")
+            expectThat(clauses[2].to).isEqualTo("0xUnique2")
+            expectThat(clauses[2].data).isEqualTo("0xCCCC")
             expectThat(mapping[indexer1]).isEqualTo(listOf(0))
             expectThat(mapping[indexer2]).isEqualTo(listOf(0, 1))
+            expectThat(mapping[indexer3]).isEqualTo(listOf(2, 0))
         }
 
         @Test
@@ -192,9 +203,9 @@ internal class ClauseUtilsTest {
 
         @Test
         fun `large number of indexers and clauses`() {
-            val allClauses = (0 until 50).map { clause("0xAddr$it", "0x${it}") }
+            val allClauses = (0 ..< 50).map { clause("0xAddr$it", "0x$it") }
             val indexers =
-                (0 until 10).map { i ->
+                (0 ..< 10).map { i ->
                     val subset = allClauses.subList(i * 5, i * 5 + 5)
                     createMockIndexer("indexer$i", subset)
                 }
@@ -204,7 +215,7 @@ internal class ClauseUtilsTest {
             expectThat(clauses).hasSize(50)
             // Each indexer maps to 5 consecutive indices
             indexers.forEachIndexed { i, indexer ->
-                expectThat(mapping[indexer]).isEqualTo((i * 5 until i * 5 + 5).toList())
+                expectThat(mapping[indexer]).isEqualTo((i * 5 ..< i * 5 + 5).toList())
             }
         }
 
