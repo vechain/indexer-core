@@ -20,7 +20,7 @@ jacoco {
 
 group = "org.vechain"
 
-val projectVersion = System.getenv("PROJECT_VERSION") ?: "10.1.2"
+val projectVersion = System.getenv("PROJECT_VERSION") ?: "10.1.3"
 version = projectVersion
 
 val isSnapshot = version.toString().endsWith("SNAPSHOT")
@@ -125,8 +125,6 @@ tasks.withType<Test> {
             TestLogEvent.FAILED,
             TestLogEvent.PASSED,
             TestLogEvent.SKIPPED,
-            TestLogEvent.STANDARD_ERROR,
-            TestLogEvent.STANDARD_OUT,
         )
         exceptionFormat = TestExceptionFormat.FULL
         showCauses = true
