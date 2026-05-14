@@ -74,9 +74,7 @@ internal class IndexerFactoryTest {
         @Test
         fun `throws when explicit child startBlock is negative`() {
             val ex =
-                assertThrows<IllegalArgumentException> {
-                    baseFactory().startBlock(-5L).build()
-                }
+                assertThrows<IllegalArgumentException> { baseFactory().startBlock(-5L).build() }
             expectThat(ex.message!!).contains("startBlock must be >= 0")
             expectThat(ex.message!!).contains("-5")
         }
