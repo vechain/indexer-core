@@ -2197,4 +2197,191 @@ internal class IndexerRunnerTest {
             expectThat(processedBlockIds).contains(block1New.id)
         }
     }
+
+    @Nested
+    inner class BypassFastSyncForIndexersWithDependants {
+
+        @Test
+        fun `bypasses fast-syncable indexer that has a dependant`() = runTest {
+            val parent =
+                mockk<FastSyncableIndexer>(relaxed = true) {
+                    every { name } returns "parent"
+                    every { dependsOn } returns null
+                    every { getStatus() } returns Status.NOT_INITIALISED
+                }
+            val child =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "child"
+                    every { dependsOn } returns parent
+                    every { getStatus() } returns Status.NOT_INITIALISED
+                }
+
+            val runner = IndexerRunner()
+            runner.bypassFastSyncForIndexersWithDependants(listOf(parent, child))
+
+            coVerify(exactly = 1) { parent.initialise() }
+            verify(exactly = 1) { parent.bypassFastSync() }
+            coVerify(exactly = 0) { parent.fastSync() }
+        }
+
+        @Test
+        fun `does not touch a fast-syncable indexer with no dependants`() = runTest {
+            val standalone =
+                mockk<FastSyncableIndexer>(relaxed = true) {
+                    every { name } returns "standalone"
+                    every { dependsOn } returns null
+                    every { getStatus() } returns Status.NOT_INITIALISED
+                }
+
+            val runner = IndexerRunner()
+            runner.bypassFastSyncForIndexersWithDependants(listOf(standalone))
+
+            verify(exactly = 0) { standalone.bypassFastSync() }
+            coVerify(exactly = 0) { standalone.initialise() }
+        }
+
+        @Test
+        fun `skips initialise call when fast-syncable parent is already initialised`() = runTest {
+            val parent =
+                mockk<FastSyncableIndexer>(relaxed = true) {
+                    every { name } returns "parent"
+                    every { dependsOn } returns null
+                    every { getStatus() } returns Status.READY_TO_FAST_SYNC
+                }
+            val child =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "child"
+                    every { dependsOn } returns parent
+                }
+
+            val runner = IndexerRunner()
+            runner.bypassFastSyncForIndexersWithDependants(listOf(parent, child))
+
+            coVerify(exactly = 0) { parent.initialise() }
+            verify(exactly = 1) { parent.bypassFastSync() }
+        }
+
+        @Test
+        fun `bypasses transitive ancestors when a deeper descendant exists`() = runTest {
+            val grandparent =
+                mockk<FastSyncableIndexer>(relaxed = true) {
+                    every { name } returns "grandparent"
+                    every { dependsOn } returns null
+                    every { getStatus() } returns Status.NOT_INITIALISED
+                }
+            val parent =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "parent"
+                    every { dependsOn } returns grandparent
+                }
+            val child =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "child"
+                    every { dependsOn } returns parent
+                }
+
+            val runner = IndexerRunner()
+            runner.bypassFastSyncForIndexersWithDependants(listOf(grandparent, parent, child))
+
+            verify(exactly = 1) { grandparent.bypassFastSync() }
+        }
+    }
+
+    @Nested
+    inner class AlignComponents {
+
+        // Real BlockIndexer instances with mocked processors. Avoids mocking BlockIndexer itself
+        // (which triggers OOM during mock generation) while still exercising the actual
+        // alignToBlock / rollback path.
+        private fun blockIndexer(
+            name: String,
+            persistedBlock: Long,
+            dependsOn: Indexer? = null,
+        ): BlockIndexer {
+            val processor = mockk<IndexerProcessor>(relaxed = true)
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(persistedBlock, "0x$persistedBlock")
+            every { processor.rollback(any()) } just Runs
+            val indexer =
+                BlockIndexer(
+                    name = name,
+                    thorClient = mockk(relaxed = true),
+                    processor = processor,
+                    startBlock = 0L,
+                    syncLoggerInterval = 1L,
+                    eventProcessor = null,
+                    inspectionClauses = null,
+                    dependsOn = dependsOn,
+                )
+            indexer.initialise()
+            return indexer
+        }
+
+        @Test
+        fun `is a no-op when all indexers are aligned`() {
+            val a = blockIndexer("a", persistedBlock = 100L)
+            val b = blockIndexer("b", persistedBlock = 100L, dependsOn = a)
+            val processorA = (a as BlockIndexer)
+            val processorB = (b as BlockIndexer)
+
+            IndexerRunner().alignComponents(listOf(a, b))
+
+            expectThat(processorA.getCurrentBlockNumber()).isEqualTo(100L)
+            expectThat(processorB.getCurrentBlockNumber()).isEqualTo(100L)
+        }
+
+        @Test
+        fun `rolls the ahead indexer back to the component min`() {
+            val a = blockIndexer("a", persistedBlock = 3000L)
+            val b = blockIndexer("b", persistedBlock = 2500L, dependsOn = a)
+
+            // Simulate processor having only data <= 2499 after the alignment-driven rollback.
+            every { (a as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(2499L, "0x2499")
+
+            IndexerRunner().alignComponents(listOf(a, b))
+
+            expectThat(a.getCurrentBlockNumber()).isEqualTo(2500L)
+            expectThat(b.getCurrentBlockNumber()).isEqualTo(2500L)
+        }
+
+        @Test
+        fun `independent components are aligned independently`() {
+            // Component 1: a (3000) and b (2500) — a aligns to 2500.
+            val a = blockIndexer("a", persistedBlock = 3000L)
+            val b = blockIndexer("b", persistedBlock = 2500L, dependsOn = a)
+            every { (a as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(2499L, "0x2499")
+            // Component 2: c (5000) and d (4000) — c aligns to 4000.
+            val c = blockIndexer("c", persistedBlock = 5000L)
+            val d = blockIndexer("d", persistedBlock = 4000L, dependsOn = c)
+            every { (c as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(3999L, "0x3999")
+
+            IndexerRunner().alignComponents(listOf(a, b, c, d))
+
+            expectThat(a.getCurrentBlockNumber()).isEqualTo(2500L)
+            expectThat(b.getCurrentBlockNumber()).isEqualTo(2500L)
+            expectThat(c.getCurrentBlockNumber()).isEqualTo(4000L)
+            expectThat(d.getCurrentBlockNumber()).isEqualTo(4000L)
+        }
+
+        @Test
+        fun `skips indexers that are not yet initialised`() {
+            // Uninitialised indexers report currentBlockNumber = 0; including them would force a
+            // rollback to 0 for every persisted indexer.
+            val a = blockIndexer("a", persistedBlock = 3000L)
+            val uninit =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "uninit"
+                    every { dependsOn } returns a
+                    every { getStatus() } returns Status.NOT_INITIALISED
+                    every { getCurrentBlockNumber() } returns 0L
+                }
+
+            IndexerRunner().alignComponents(listOf(a, uninit))
+
+            expectThat(a.getCurrentBlockNumber()).isEqualTo(3000L)
+        }
+    }
 }

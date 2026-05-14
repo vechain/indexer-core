@@ -287,6 +287,35 @@ open class BlockIndexer(
 
     override suspend fun process(entry: IndexingResult) = processor.process(entry)
 
+    /**
+     * Rolls the indexer back to a target block so it lines up with the rest of its dependency
+     * component. Only ever moves backwards: an indexer with no persisted state already sits at
+     * [startBlock] and cannot have advanced past a sibling that did real work, so a target below
+     * the current cursor is treated as a misconfiguration.
+     *
+     * Mirrors [handleReorg]'s state reset but takes the target explicitly instead of inferring it
+     * from a detected reorg. The next [processBlock] will pick up at [currentBlockNumber] with
+     * [previousBlock] re-seeded from persistence so reorg detection still works on the next block.
+     */
+    internal fun alignToBlock(target: Long) {
+        if (target == currentBlockNumber) return
+        require(target < currentBlockNumber) {
+            "alignToBlock can only move backwards (current=$currentBlockNumber, target=$target)"
+        }
+        rollback(target)
+        val lastSynced = getLastSyncedBlock()
+        if (lastSynced != null) {
+            currentBlockNumber = lastSynced.number + 1
+            previousBlock = lastSynced
+        } else {
+            currentBlockNumber = startBlock
+            previousBlock = null
+        }
+        if (status == Status.FULLY_SYNCED) {
+            status = Status.SYNCING
+        }
+    }
+
     private fun logProcessingBlock() {
         if (shouldLogDebug()) {
             logger.debug(buildLogMessage())
