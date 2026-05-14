@@ -1,5 +1,6 @@
 package org.vechain.indexer
 
+import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.thor.client.DefaultThorClient
 import org.vechain.indexer.thor.client.ThorClient
@@ -9,10 +10,12 @@ import org.vechain.indexer.thor.model.TransferCriteria
 
 class IndexerFactory {
 
+    private val logger = LoggerFactory.getLogger(IndexerFactory::class.java)
+
     private var name: String? = null
     private var thorClient: ThorClient? = null
     private var processor: IndexerProcessor? = null
-    private var startBlock: Long = 0L
+    private var startBlock: Long? = null
     private var syncLoggerInterval: Long = 1_000L
     private var abiBasePath: String? = null
     private var abiEventNames: List<String> = emptyList()
@@ -39,6 +42,8 @@ class IndexerFactory {
             }
         }
 
+        val resolvedStartBlock = resolveStartBlock()
+
         val eventProcessor =
             CombinedEventProcessor.create(
                 abiBasePath = abiBasePath,
@@ -60,7 +65,7 @@ class IndexerFactory {
                 name = name!!,
                 thorClient = thorClient!!,
                 processor = processor!!,
-                startBlock = startBlock,
+                startBlock = resolvedStartBlock,
                 syncLoggerInterval = syncLoggerInterval,
                 eventProcessor = eventProcessor,
                 inspectionClauses = callDataClauses,
@@ -72,7 +77,7 @@ class IndexerFactory {
                 name = name!!,
                 thorClient = thorClient!!,
                 processor = processor!!,
-                startBlock = startBlock,
+                startBlock = resolvedStartBlock,
                 syncLoggerInterval = syncLoggerInterval,
                 excludeVetTransfers = !needsVetTransfers,
                 logFetchLimit = LOG_FETCH_PAGE_SIZE,
@@ -81,6 +86,44 @@ class IndexerFactory {
                 eventProcessor = eventProcessor,
             )
         }
+    }
+
+    // Reconciles the configured startBlock against any dependsOn parent's startBlock so that the
+    // dependency component shares a single start block. A child reading the parent's table during
+    // processBlock(N) requires the parent to be at exactly N — there is no way to satisfy that if
+    // the child starts before the parent. The mismatched-but-correctable case (child > parent) is
+    // pulled back with a warning rather than rejected so consumers can be deliberate about
+    // misalignment without it being silently accepted.
+    private fun resolveStartBlock(): Long {
+        val parentStart = dependsOn?.startBlock
+        val childStart = startBlock
+        val resolved =
+            when {
+                parentStart == null -> childStart ?: 0L
+                childStart == null -> parentStart
+                childStart < parentStart ->
+                    throw IllegalArgumentException(
+                        "Indexer '${name}' has startBlock $childStart but its parent " +
+                            "'${dependsOn!!.name}' starts at $parentStart. A dependent indexer " +
+                            "cannot start before its parent."
+                    )
+                childStart > parentStart -> {
+                    logger.warn(
+                        "Indexer '{}' configured startBlock {} is being overridden to {} to match " +
+                            "parent '{}'. Dependents must share their parent's start block.",
+                        name,
+                        childStart,
+                        parentStart,
+                        dependsOn!!.name,
+                    )
+                    parentStart
+                }
+                else -> childStart
+            }
+        require(resolved >= 0) {
+            "Indexer '${name}' has startBlock $resolved; startBlock must be >= 0."
+        }
+        return resolved
     }
 
     // Setters for configuration options

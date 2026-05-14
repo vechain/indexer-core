@@ -19,7 +19,7 @@ open class BlockIndexer(
     override val name: String,
     protected open val thorClient: ThorClient,
     private val processor: IndexerProcessor,
-    protected val startBlock: Long,
+    override val startBlock: Long,
     private val syncLoggerInterval: Long,
     protected val eventProcessor: CombinedEventProcessor?,
     private val inspectionClauses: List<Clause>?,
