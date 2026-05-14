@@ -39,18 +39,24 @@ class BlockFetcher(
         startBlock: Long,
         maxBatchSize: Int,
         deadlineMark: TimeMark? = null,
+        initialTimestampSeconds: Long? = null,
         onBlockPrepared: suspend (PreparedBlock) -> Unit,
     ) = coroutineScope {
         require(startBlock >= 0) { "startBlock must be >= 0" }
         require(maxBatchSize >= 1) { "maxBatchSize must be >= 1" }
 
         var nextBlockNumber = startBlock
-        var lastBlockTimestamp: Long? = null
+        // Seeded so the first iteration's window reflects head proximity. Without a seed, every
+        // re-entry would fan out maxBatchSize parallel fetches before lastBlockTimestamp catches
+        // up — defeating calculateWindowSize when the runner is restarted near the tip.
+        var lastBlockTimestamp: Long? = initialTimestampSeconds
 
         while (isActive && (deadlineMark == null || deadlineMark.hasNotPassedNow())) {
             val currentBlock = nextBlockNumber
             val windowSize = calculateWindowSize(lastBlockTimestamp, maxBatchSize)
-            logger.debug("Block fetch window size: $windowSize")
+            if (logger.isDebugEnabled) {
+                logger.debug("Block fetch window size: $windowSize")
+            }
             // Launch prefetch for next batch of blocks in parallel
             val deferredBlocks =
                 (0 ..< windowSize).map { offset ->

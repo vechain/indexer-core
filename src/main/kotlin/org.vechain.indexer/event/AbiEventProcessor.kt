@@ -32,6 +32,25 @@ open class AbiEventProcessor(
             emptyList()
         }
 
+    /**
+     * Derives Thor event-log criteria from the loaded ABIs and configured contract addresses.
+     *
+     * The result is the cartesian product of contract addresses × event topic0s — or topic0-only
+     * criteria if no contracts are configured. Returns an empty list when no event ABIs are loaded
+     * (caller should treat that as "no filter").
+     */
+    fun buildEventCriteria(): List<EventCriteria> {
+        val topic0s = eventAbis.mapNotNull { it.signature }.distinct().map { "0x$it" }
+        if (topic0s.isEmpty()) return emptyList()
+        return if (contractAddresses.isEmpty()) {
+            topic0s.map { EventCriteria(topic0 = it) }
+        } else {
+            contractAddresses.flatMap { address ->
+                topic0s.map { topic0 -> EventCriteria(address = address, topic0 = topic0) }
+            }
+        }
+    }
+
     override fun processEvents(block: Block): List<IndexedEvent> {
         val events = mutableListOf<IndexedEvent>()
         var eventLogIndex = 0L

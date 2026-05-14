@@ -11,11 +11,18 @@ enum class Status {
     /** Indexer has not been initialised */
     NOT_INITIALISED,
 
-    /** Indexer has been initialised but not started */
-    INITIALISED,
+    /**
+     * Fast-syncable indexer is initialised and awaiting a fast sync. Reachable only by
+     * transitioning from [NOT_INITIALISED]; an indexer that has already fast-synced cannot return
+     * here within the lifetime of the process.
+     */
+    READY_TO_FAST_SYNC,
 
     /** Indexer is performing a fast sync to catch up to the best block */
     FAST_SYNCING,
+
+    /** Indexer is initialised and ready to enter the regular sync loop */
+    READY_TO_SYNC,
 
     /** Indexer is syncing */
     SYNCING,
@@ -41,6 +48,11 @@ interface Indexer : IndexerProcessor {
     // The current status of the indexer
     fun getStatus(): Status
 
+    // The block at which this indexer begins processing. For indexers with a dependsOn parent,
+    // this is resolved by IndexerFactory to match the parent's startBlock so the whole dependency
+    // component runs in lockstep.
+    val startBlock: Long
+
     // The current block number being processed
     fun getCurrentBlockNumber(): Long
 
@@ -49,6 +61,13 @@ interface Indexer : IndexerProcessor {
 
     // Initialise the indexer
     fun initialise()
+
+    /**
+     * Refresh in-memory state from the processor without rolling back. Used by the runner to
+     * recover from mid-block cancellation or post-reorg restart, where the persisted state is
+     * authoritative but the in-memory `currentBlockNumber` / `previousBlock` may be stale.
+     */
+    fun refreshState()
 
     // Process a block. The onReset callback should be called if the indexer needs to reset its
     // state

@@ -19,7 +19,7 @@ open class BlockIndexer(
     override val name: String,
     protected open val thorClient: ThorClient,
     private val processor: IndexerProcessor,
-    protected val startBlock: Long,
+    override val startBlock: Long,
     private val syncLoggerInterval: Long,
     protected val eventProcessor: CombinedEventProcessor?,
     private val inspectionClauses: List<Clause>?,
@@ -58,12 +58,56 @@ open class BlockIndexer(
     var timeLastProcessed: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
         internal set
 
+    /**
+     * Bumps [timeLastProcessed] without advancing the cursor. Called by the runner when this
+     * indexer is already past the block being distributed, so health reporters that key off
+     * [timeLastProcessed] don't flag it as stalled while it idles waiting for the slowest indexer
+     * in its proximity group to catch up.
+     */
+    internal fun markSkipped() {
+        timeLastProcessed = LocalDateTime.now(ZoneOffset.UTC)
+    }
+
+    private var lastInfoLogTime: LocalDateTime = LocalDateTime.MIN
+
+    protected fun setLastInfoLogTime(value: LocalDateTime) {
+        lastInfoLogTime = value
+    }
+
     /** Initialises the indexer processing */
     override fun initialise() {
         val lastSyncedBlockNumber = determineStartingBlock()
         rollbackToSafeState(lastSyncedBlockNumber)
         initializeState(lastSyncedBlockNumber)
         logInitialization()
+    }
+
+    /**
+     * Refreshes in-memory state from the processor without rolling back. Used to recover from
+     * mid-block cancellation, where the processor's transaction committed but `currentBlockNumber`
+     * had not yet been bumped — re-reading [getLastSyncedBlock] catches the in-memory cursor up to
+     * persisted state.
+     *
+     * Only ever advances `currentBlockNumber`; never rolls it back. Some processors do not save a
+     * record on every block (round-aware processors, periodic-rollup processors), so
+     * [getLastSyncedBlock] can legitimately lag the in-memory cursor. Rewinding to `lastSynced + 1`
+     * in that case would re-process already-processed blocks against stale in-memory state (e.g. a
+     * `roundId` counter) and produce out-of-order errors.
+     *
+     * Reorg recovery does NOT depend on this method: [handleReorg] resets `currentBlockNumber` and
+     * `previousBlock` itself after rolling back the processor.
+     */
+    override fun refreshState() {
+        if (status == Status.NOT_INITIALISED) {
+            initialise()
+            return
+        }
+        val lastSynced = getLastSyncedBlock() ?: return
+        val nextFromPersisted = lastSynced.number + 1
+        if (nextFromPersisted > currentBlockNumber) {
+            currentBlockNumber = nextFromPersisted
+            previousBlock = lastSynced
+        }
     }
 
     /**
@@ -96,7 +140,7 @@ open class BlockIndexer(
     protected open fun initializeState(blockNumber: Long) {
         currentBlockNumber = blockNumber
         previousBlock = calculatePreviousBlock(blockNumber)
-        status = Status.INITIALISED
+        status = Status.READY_TO_SYNC
     }
 
     /**
@@ -170,7 +214,7 @@ open class BlockIndexer(
      */
     protected open fun validateProcessingState() {
         checkIfShuttingDown()
-        ensureStatus(status, setOf(Status.INITIALISED, Status.SYNCING, Status.FULLY_SYNCED))
+        ensureStatus(status, setOf(Status.READY_TO_SYNC, Status.SYNCING, Status.FULLY_SYNCED))
     }
 
     /**
@@ -261,10 +305,20 @@ open class BlockIndexer(
     /**
      * Determines whether info logging should be enabled.
      *
+     * Always logs when [Status.FULLY_SYNCED]; otherwise throttles to at most one info log per
+     * [syncLoggerInterval] seconds. The throttle timestamp is updated as a side effect when this
+     * method returns true on the throttled path.
+     *
      * @return true if info logging should occur, false otherwise.
      */
     protected open fun shouldLogInfo(): Boolean {
-        return status == Status.FULLY_SYNCED || currentBlockNumber % syncLoggerInterval == 0L
+        if (status == Status.FULLY_SYNCED) return true
+        val now = LocalDateTime.now(ZoneOffset.UTC)
+        if (Duration.between(lastInfoLogTime, now).toSeconds() >= syncLoggerInterval) {
+            lastInfoLogTime = now
+            return true
+        }
+        return false
     }
 
     /**
@@ -273,7 +327,7 @@ open class BlockIndexer(
      * @return The formatted log message.
      */
     protected open fun buildLogMessage(): String {
-        return "($status) Processing Block  $currentBlockNumber"
+        return "Processing %4d Blocks @ %,11d".format(1, currentBlockNumber)
     }
 
     internal fun checkForReorg(block: Block) {
@@ -304,6 +358,11 @@ open class BlockIndexer(
     /**
      * Handles a detected chain reorganization.
      *
+     * Rolls back persisted state and resets in-memory `currentBlockNumber` / `previousBlock` to
+     * track the new persisted cursor. Without this reset the runner would retry processing the
+     * reorg-detected block against a stale `previousBlock`, re-trigger the reorg check, deepen the
+     * rollback by one more block, and loop without making progress.
+     *
      * @param block The block where the reorg was detected.
      * @throws ReorgException always, after logging and rolling back.
      */
@@ -311,6 +370,14 @@ open class BlockIndexer(
         val message = buildReorgMessage(block)
         logger.error(message)
         rollback(currentBlockNumber - 1)
+        val lastSynced = getLastSyncedBlock()
+        if (lastSynced != null) {
+            currentBlockNumber = lastSynced.number + 1
+            previousBlock = lastSynced
+        } else {
+            currentBlockNumber = startBlock
+            previousBlock = null
+        }
         throw ReorgException(message)
     }
 

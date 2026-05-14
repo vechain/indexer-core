@@ -94,12 +94,15 @@ open class DefaultThorClient(
                 }
                 return block
             } catch (e: BlockNotFoundException) {
-                logger.info(
-                    "Block {} not yet available, waiting {}ms (attempt {})",
-                    revision.value,
-                    TIP_POLL_DELAY_MS,
-                    attempts
-                )
+                // Retries are expected so only log if the retries exceed 5
+                if (attempts > 5) {
+                    logger.info(
+                        "Block {} not yet available, waiting {}ms (attempt {})",
+                        revision.value,
+                        TIP_POLL_DELAY_MS,
+                        attempts
+                    )
+                }
                 delay(TIP_POLL_DELAY_MS)
             } catch (e: CancellationException) {
                 throw e
@@ -126,7 +129,7 @@ open class DefaultThorClient(
 
     override suspend fun getEventLogs(req: EventLogsRequest): List<EventLog> =
         withContext(Dispatchers.IO) {
-            val (_, _, result) =
+            val (_, response, result) =
                 Fuel.post("$baseUrl/logs/event")
                     .body(JsonUtils.mapper.writeValueAsBytes(req))
                     .appendHeader(*headers)
@@ -135,7 +138,8 @@ open class DefaultThorClient(
             val responseBody =
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
-                    is Result.Failure -> throw result.error
+                    is Result.Failure ->
+                        throw thorRequestFailed("/logs/event", response, result.error)
                 }
 
             return@withContext objectMapper.readValue(
@@ -146,7 +150,7 @@ open class DefaultThorClient(
 
     override suspend fun getVetTransfers(req: TransferLogsRequest): List<TransferLog> =
         withContext(Dispatchers.IO) {
-            val (_, _, result) =
+            val (_, response, result) =
                 Fuel.post("$baseUrl/logs/transfer")
                     .body(JsonUtils.mapper.writeValueAsBytes(req))
                     .appendHeader(*headers)
@@ -155,7 +159,8 @@ open class DefaultThorClient(
             val responseBody =
                 when (result) {
                     is Result.Success -> result.get().toString(Charsets.UTF_8)
-                    is Result.Failure -> throw result.error
+                    is Result.Failure ->
+                        throw thorRequestFailed("/logs/transfer", response, result.error)
                 }
 
             return@withContext objectMapper.readValue(
@@ -163,6 +168,19 @@ open class DefaultThorClient(
                 object : TypeReference<List<TransferLog>>() {}
             )
         }
+
+    private fun thorRequestFailed(
+        path: String,
+        response: com.github.kittinunf.fuel.core.Response,
+        cause: com.github.kittinunf.fuel.core.FuelError,
+    ): RuntimeException {
+        val body = String(cause.errorData, Charsets.UTF_8).trim()
+        val truncated = if (body.length > 500) body.take(500) + "…" else body
+        return RuntimeException(
+            "Thor $path returned ${response.statusCode}: ${truncated.ifEmpty { "<empty body>" }}",
+            cause,
+        )
+    }
 
     override suspend fun inspectClauses(
         clauses: List<Clause>,

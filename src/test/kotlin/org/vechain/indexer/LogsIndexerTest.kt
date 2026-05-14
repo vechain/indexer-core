@@ -3,6 +3,8 @@ package org.vechain.indexer
 import io.mockk.*
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TestTimeSource
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -42,18 +44,21 @@ internal class TestableLogsIndexer(
         startBlock = startBlock,
         syncLoggerInterval = syncLoggerInterval,
         excludeVetTransfers = excludeVetTransfers,
-        blockBatchSize = blockBatchSize,
         logFetchLimit = logFetchLimit,
         eventCriteriaSet = eventCriteriaSet,
         transferCriteriaSet = transferCriteriaSet,
         eventProcessor = eventProcessor,
     ) {
 
+    init {
+        setCurrentBlockBatchSize(blockBatchSize)
+    }
+
     override val logClient: LogClient
         get() = mockLogClient ?: super.logClient
 
     suspend fun publicSync(toBlock: BlockIdentifier) {
-        super.sync(toBlock)
+        super.sync(toBlock, deadlineMark = null)
     }
 
     suspend fun publicProcessBatch(toBlockNumber: Long) {
@@ -169,11 +174,35 @@ internal class LogsIndexerTest {
             // sync() processes up to finalizedBlock.number - 1, so previousBlock must reflect
             // the last processed block (finalizedBlock's parent) — not finalizedBlock itself.
             expect {
-                that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
+                that(indexer.getStatus()).isEqualTo(Status.READY_TO_SYNC)
                 that(indexer.getPreviousBlock())
                     .isEqualTo(BlockIdentifier(number = 99L, id = finalizedBlock.parentID))
                 that(indexer.getCurrentBlockNumber()).isEqualTo(100L)
             }
+        }
+
+        @Test
+        fun `deadline-bound fastSync pauses after finishing current batch`() = runBlocking {
+            val testTimeSource = TestTimeSource()
+            val finalizedBlock = buildBlock(num = 30L)
+            coEvery { thorClient.getBlock(BlockRevision.Keyword.FINALIZED) } returns finalizedBlock
+            coEvery { logClient.fetchTransfers(0L, 9L, 100L, null) } coAnswers
+                {
+                    testTimeSource += 60.milliseconds
+                    emptyList()
+                }
+
+            indexer.publicSetCurrentBlockNumber(0L)
+            val deadlineMark = testTimeSource.markNow() + 50.milliseconds
+            indexer.fastSyncUntil(deadlineMark)
+
+            expect {
+                that(indexer.getStatus()).isEqualTo(Status.FAST_SYNCING)
+                that(indexer.getCurrentBlockNumber()).isEqualTo(10L)
+                that(indexer.getPreviousBlock()).isNull()
+            }
+            coVerify(exactly = 1) { logClient.fetchTransfers(0L, 9L, 100L, null) }
+            coVerify(exactly = 0) { logClient.fetchTransfers(10L, 29L, 100L, null) }
         }
 
         @Test
@@ -211,7 +240,7 @@ internal class LogsIndexerTest {
             indexer.fastSync()
 
             expect {
-                that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
+                that(indexer.getStatus()).isEqualTo(Status.READY_TO_SYNC)
                 that(indexer.getPreviousBlock()).isNull()
                 that(indexer.getCurrentBlockNumber()).isEqualTo(150L)
             }
@@ -227,7 +256,7 @@ internal class LogsIndexerTest {
             indexer.fastSync()
 
             expect {
-                that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
+                that(indexer.getStatus()).isEqualTo(Status.READY_TO_SYNC)
                 that(indexer.getPreviousBlock())
                     .isEqualTo(BlockIdentifier(number = 75L, id = "0x75"))
                 that(indexer.getCurrentBlockNumber()).isEqualTo(150L)
@@ -243,7 +272,7 @@ internal class LogsIndexerTest {
             indexer.fastSync()
 
             expect {
-                that(indexer.getStatus()).isEqualTo(Status.INITIALISED)
+                that(indexer.getStatus()).isEqualTo(Status.READY_TO_SYNC)
                 that(indexer.getPreviousBlock()).isNull()
                 that(indexer.getCurrentBlockNumber()).isEqualTo(100L)
             }

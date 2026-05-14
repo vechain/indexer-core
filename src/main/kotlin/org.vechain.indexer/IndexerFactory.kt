@@ -1,5 +1,6 @@
 package org.vechain.indexer
 
+import org.slf4j.LoggerFactory
 import org.vechain.indexer.event.CombinedEventProcessor
 import org.vechain.indexer.thor.client.DefaultThorClient
 import org.vechain.indexer.thor.client.ThorClient
@@ -9,10 +10,12 @@ import org.vechain.indexer.thor.model.TransferCriteria
 
 class IndexerFactory {
 
+    private val logger = LoggerFactory.getLogger(IndexerFactory::class.java)
+
     private var name: String? = null
     private var thorClient: ThorClient? = null
     private var processor: IndexerProcessor? = null
-    private var startBlock: Long = 0L
+    private var startBlock: Long? = null
     private var syncLoggerInterval: Long = 1_000L
     private var abiBasePath: String? = null
     private var abiEventNames: List<String> = emptyList()
@@ -39,6 +42,8 @@ class IndexerFactory {
             }
         }
 
+        val resolvedStartBlock = resolveStartBlock()
+
         val eventProcessor =
             CombinedEventProcessor.create(
                 abiBasePath = abiBasePath,
@@ -60,7 +65,7 @@ class IndexerFactory {
                 name = name!!,
                 thorClient = thorClient!!,
                 processor = processor!!,
-                startBlock = startBlock,
+                startBlock = resolvedStartBlock,
                 syncLoggerInterval = syncLoggerInterval,
                 eventProcessor = eventProcessor,
                 inspectionClauses = callDataClauses,
@@ -72,16 +77,53 @@ class IndexerFactory {
                 name = name!!,
                 thorClient = thorClient!!,
                 processor = processor!!,
-                startBlock = startBlock,
+                startBlock = resolvedStartBlock,
                 syncLoggerInterval = syncLoggerInterval,
                 excludeVetTransfers = !needsVetTransfers,
-                blockBatchSize = INITIAL_ADAPTIVE_BLOCK_RANGE,
                 logFetchLimit = LOG_FETCH_PAGE_SIZE,
-                eventCriteriaSet = eventCriteriaSet ?: emptyList(),
+                eventCriteriaSet = eventCriteriaSet ?: eventProcessor.deriveEventCriteria(),
                 transferCriteriaSet = transferCriteriaSet ?: emptyList(),
                 eventProcessor = eventProcessor,
             )
         }
+    }
+
+    // Reconciles the configured startBlock against any dependsOn parent's startBlock so that the
+    // dependency component shares a single start block. A child reading the parent's table during
+    // processBlock(N) requires the parent to be at exactly N — there is no way to satisfy that if
+    // the child starts before the parent. The mismatched-but-correctable case (child > parent) is
+    // pulled back with a warning rather than rejected so consumers can be deliberate about
+    // misalignment without it being silently accepted.
+    private fun resolveStartBlock(): Long {
+        val parentStart = dependsOn?.startBlock
+        val childStart = startBlock
+        val resolved =
+            when {
+                parentStart == null -> childStart ?: 0L
+                childStart == null -> parentStart
+                childStart < parentStart ->
+                    throw IllegalArgumentException(
+                        "Indexer '${name}' has startBlock $childStart but its parent " +
+                            "'${dependsOn!!.name}' starts at $parentStart. A dependent indexer " +
+                            "cannot start before its parent."
+                    )
+                childStart > parentStart -> {
+                    logger.warn(
+                        "Indexer '{}' configured startBlock {} is being overridden to {} to match " +
+                            "parent '{}'. Dependents must share their parent's start block.",
+                        name,
+                        childStart,
+                        parentStart,
+                        dependsOn!!.name,
+                    )
+                    parentStart
+                }
+                else -> childStart
+            }
+        require(resolved >= 0) {
+            "Indexer '${name}' has startBlock $resolved; startBlock must be >= 0."
+        }
+        return resolved
     }
 
     // Setters for configuration options
@@ -136,9 +178,13 @@ class IndexerFactory {
     /**
      * Used to tune how often the indexer will log its progress when syncing.
      *
-     * The default value is `1000` blocks
+     * Acts as a throttle: while the indexer is catching up, info-level progress logs are emitted at
+     * most once per `interval` seconds. Live-tip processing (status `FULLY_SYNCED`) is not
+     * throttled. Debug-level logging, when enabled, is unaffected.
      *
-     * @param interval The interval in `blocks` for logging progress.
+     * The default value is `1000` seconds.
+     *
+     * @param interval The minimum interval in `seconds` between info-level progress logs.
      */
     fun syncLoggerInterval(interval: Long) = apply {
         require(interval > 0) { "syncLoggerInterval must be > 0" }
@@ -251,6 +297,10 @@ class IndexerFactory {
     /**
      * Optional criteria for filtering event logs. This can be used to optimise the call to the Thor
      * API to fetch only the relevant logs.
+     *
+     * If left unset, criteria are auto-derived from the configured ABIs and contract addresses
+     * (cartesian product of `abiContracts` × event topic0s, including business event ABIs). Pass an
+     * empty list to disable filtering entirely; pass a custom list to override the default.
      */
     fun eventCriteriaSet(criteria: List<EventCriteria>) = apply { this.eventCriteriaSet = criteria }
 
@@ -283,7 +333,6 @@ class IndexerFactory {
     fun callDataClauses(clauses: List<Clause>) = apply { this.callDataClauses = clauses }
 
     private companion object {
-        const val INITIAL_ADAPTIVE_BLOCK_RANGE = 100L
         const val LOG_FETCH_PAGE_SIZE = 1000L
     }
 }

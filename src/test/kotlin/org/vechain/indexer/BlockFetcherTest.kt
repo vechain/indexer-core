@@ -3,6 +3,7 @@ package org.vechain.indexer
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TestTimeSource
 import kotlinx.coroutines.CancellationException
@@ -302,6 +303,78 @@ internal class BlockFetcherTest {
             // After first batch (null timestamp), should use maxBatchSize=5
             // After that, old timestamps should also trigger large window
             expectThat(fetchedBlocks.size).isGreaterThanOrEqualTo(5)
+        }
+
+        @Test
+        fun `seeded with recent timestamp keeps first iteration parallelism at one`() = runTest {
+            val thorClient = mockk<ThorClient>()
+            val activeFetches = AtomicInteger(0)
+            val maxConcurrentFetches = AtomicInteger(0)
+            val recentTimestamp = (System.currentTimeMillis() / 1000) - 5
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    val current = activeFetches.incrementAndGet()
+                    maxConcurrentFetches.updateAndGet { maxOf(it, current) }
+                    delay(10)
+                    activeFetches.decrementAndGet()
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
+                    buildBlock(num = blockNum, timestamp = recentTimestamp)
+                }
+
+            val channel = Channel<Long>(capacity = Channel.UNLIMITED)
+            val fetcher = BlockFetcher(thorClient, emptyList())
+
+            val job = launch {
+                fetcher.prefetchBlocksInOrder(
+                    startBlock = 100L,
+                    maxBatchSize = 15,
+                    initialTimestampSeconds = recentTimestamp,
+                ) { preparedBlock ->
+                    channel.send(preparedBlock.block.number)
+                }
+            }
+
+            // Drain a few blocks; the seeded recent timestamp should keep windowSize at 1.
+            repeat(3) { channel.receive() }
+            job.cancelAndJoin()
+
+            expectThat(maxConcurrentFetches.get()).isEqualTo(1)
+        }
+
+        @Test
+        fun `unseeded first iteration fans out to maxBatchSize`() = runTest {
+            // Companion to the seeded test: confirms the seed is what gates parallelism, by
+            // exercising the same setup without it and observing concurrent fetches > 1.
+            val thorClient = mockk<ThorClient>()
+            val activeFetches = AtomicInteger(0)
+            val maxConcurrentFetches = AtomicInteger(0)
+            val recentTimestamp = (System.currentTimeMillis() / 1000) - 5
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    val current = activeFetches.incrementAndGet()
+                    maxConcurrentFetches.updateAndGet { maxOf(it, current) }
+                    delay(10)
+                    activeFetches.decrementAndGet()
+                    val blockNum = (firstArg<BlockRevision>() as BlockRevision.Number).number
+                    buildBlock(num = blockNum, timestamp = recentTimestamp)
+                }
+
+            val channel = Channel<Long>(capacity = Channel.UNLIMITED)
+            val fetcher = BlockFetcher(thorClient, emptyList())
+
+            val job = launch {
+                fetcher.prefetchBlocksInOrder(startBlock = 100L, maxBatchSize = 15) { preparedBlock
+                    ->
+                    channel.send(preparedBlock.block.number)
+                }
+            }
+
+            repeat(3) { channel.receive() }
+            job.cancelAndJoin()
+
+            expectThat(maxConcurrentFetches.get()).isGreaterThanOrEqualTo(2)
         }
     }
 }
