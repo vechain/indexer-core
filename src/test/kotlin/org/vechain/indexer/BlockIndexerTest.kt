@@ -245,6 +245,83 @@ internal class BlockIndexerTest {
     }
 
     @Nested
+    inner class AlignToBlock {
+        private fun newIndexer(startBlock: Long = 0L): BlockIndexer =
+            BlockIndexer(
+                name = "TestBlockIndexer",
+                thorClient = thorClient,
+                processor = processor,
+                startBlock = startBlock,
+                eventProcessor = null,
+                syncLoggerInterval = 1L,
+                inspectionClauses = null,
+                dependsOn = null,
+            )
+
+        @Test
+        fun `is a no-op when already at target`() {
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(number = 50L, id = "0x50") andThen
+                BlockIdentifier(number = 49L, id = "0x49")
+            val indexer = newIndexer()
+            indexer.initialise()
+            // currentBlockNumber == 50 after init
+
+            indexer.alignToBlock(50L)
+
+            // rollback(50) was called during init, but no additional rollback for the no-op align
+            verify(exactly = 1) { processor.rollback(any()) }
+            expectThat(indexer.getCurrentBlockNumber()).isEqualTo(50L)
+        }
+
+        @Test
+        fun `rolls back persistence and resets cursor when target is lower`() {
+            // Init at 100, persistence reports lastSynced = 79 after our rollback(80) call.
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(number = 100L, id = "0x100") andThen
+                BlockIdentifier(number = 99L, id = "0x99") andThen
+                BlockIdentifier(number = 79L, id = "0x79")
+            val indexer = newIndexer()
+            indexer.initialise()
+            // currentBlockNumber == 100 after init
+
+            indexer.alignToBlock(80L)
+
+            verify(exactly = 1) { processor.rollback(80L) }
+            expectThat(indexer.getCurrentBlockNumber()).isEqualTo(80L)
+            expectThat(indexer.getPreviousBlock())
+                .isEqualTo(BlockIdentifier(number = 79L, id = "0x79"))
+        }
+
+        @Test
+        fun `resets to startBlock when rollback leaves no persisted state`() {
+            // Init at 100; after rollback persistence is empty.
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(number = 100L, id = "0x100") andThen
+                BlockIdentifier(number = 99L, id = "0x99") andThen
+                null
+            val indexer = newIndexer(startBlock = 25L)
+            indexer.initialise()
+
+            indexer.alignToBlock(20L)
+
+            verify(exactly = 1) { processor.rollback(20L) }
+            expectThat(indexer.getCurrentBlockNumber()).isEqualTo(25L)
+            expectThat(indexer.getPreviousBlock()).isEqualTo(null)
+        }
+
+        @Test
+        fun `throws if asked to forward-jump`() {
+            every { processor.getLastSyncedBlock() } returns null
+            val indexer = newIndexer(startBlock = 10L)
+            indexer.initialise()
+            // currentBlockNumber == 10 after init
+
+            assertThrows<IllegalArgumentException> { indexer.alignToBlock(20L) }
+        }
+    }
+
+    @Nested
     inner class BuildIndexingResults {
 
         @Test

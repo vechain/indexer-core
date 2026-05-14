@@ -70,6 +70,12 @@ open class LogsIndexer(
         runFastSync(deadlineMark = null)
     }
 
+    override fun bypassFastSync() {
+        if (getStatus() == Status.READY_TO_FAST_SYNC) {
+            setStatus(Status.READY_TO_SYNC)
+        }
+    }
+
     internal suspend fun fastSyncUntil(deadlineMark: TimeMark) {
         runFastSync(deadlineMark)
     }

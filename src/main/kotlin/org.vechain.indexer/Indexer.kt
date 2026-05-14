@@ -91,6 +91,17 @@ interface Indexer : IndexerProcessor {
 /** An [Indexer] that supports fast-syncing to quickly catch up to the finalized block. */
 interface FastSyncableIndexer : Indexer {
     suspend fun fastSync()
+
+    /**
+     * Transitions a freshly-initialised indexer past its fast-sync stage without running it. The
+     * runner calls this for fast-syncable indexers that have dependants — fast-syncing a parent
+     * would leave its dependants reading an arbitrarily-advanced state when they themselves are
+     * still at the configured start block, breaking determinism. Bypassing keeps the whole
+     * dependency component on a single, block-by-block timeline.
+     *
+     * No-op if the indexer is not in [Status.READY_TO_FAST_SYNC].
+     */
+    fun bypassFastSync()
 }
 
 /**

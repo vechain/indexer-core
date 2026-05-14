@@ -21,6 +21,7 @@ import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.utils.ClauseIndexMapping
 import org.vechain.indexer.utils.ClauseUtils.buildClauseListWithMapping
+import org.vechain.indexer.utils.IndexerOrderUtils
 import org.vechain.indexer.utils.IndexerOrderUtils.proximityGroups
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
 import org.vechain.indexer.utils.retryOnFailure
@@ -72,6 +73,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
 
         logger.info("Starting ${indexers.size} Indexer ${indexers.map { it.name }}")
 
+        bypassFastSyncForIndexersWithDependants(indexers)
+
         while (isActive) {
             try {
                 catchUp(
@@ -115,6 +118,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     ) {
         while (true) {
             initialiseUnblockedIndexers(indexers)
+            alignComponents(indexers)
 
             val (group1, group2, group3) = classify(indexers)
             logCatchUpGroups(group1, group2, group3)
@@ -160,6 +164,76 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         this !is FastSyncableIndexer &&
             getStatus() == Status.NOT_INITIALISED &&
             !hasFastSyncingAncestor()
+
+    /**
+     * Initialises any fast-syncable indexer that has dependants and transitions it past fast sync
+     * without running it. A fast-synced parent would land its dependents at the configured start
+     * block while it sits thousands of blocks ahead — every dependent read of the parent's table
+     * would observe a future state. Bypassing keeps the whole component on one block-by-block
+     * timeline (slower than fast sync, but the only deterministic option once dependants exist).
+     */
+    internal suspend fun bypassFastSyncForIndexersWithDependants(indexers: List<Indexer>) {
+        val withDependants = indexersWithDependants(indexers)
+        val toBypass =
+            indexers.filterIsInstance<FastSyncableIndexer>().filter { it in withDependants }
+        if (toBypass.isEmpty()) return
+        for (indexer in toBypass) {
+            logger.warn(
+                "Indexer {} is fast-syncable but has dependants; fast sync will be skipped to " +
+                    "keep the dependency component on a single block-by-block timeline.",
+                indexer.name,
+            )
+        }
+        val toInit = toBypass.filter { it.getStatus() == Status.NOT_INITIALISED }
+        if (toInit.isNotEmpty()) initialise(toInit)
+        toBypass.forEach { it.bypassFastSync() }
+    }
+
+    /**
+     * Collapses every indexer in a dependency component to the same `currentBlockNumber`. Iterates
+     * until the system is stable so processors that persist sparsely (and may end up below the
+     * naïve component min after a rollback) still converge.
+     */
+    internal fun alignComponents(indexers: List<Indexer>) {
+        val initialised = indexers.filter { it.getStatus() != Status.NOT_INITIALISED }
+        if (initialised.size < 2) return
+        val components = IndexerOrderUtils.connectedComponents(initialised)
+        val byComponent = initialised.groupBy { components.getValue(it) }
+        var changed = true
+        while (changed) {
+            changed = false
+            for ((_, members) in byComponent) {
+                if (members.size < 2) continue
+                val target = members.minOf { it.getCurrentBlockNumber() }
+                for (indexer in members) {
+                    val current = indexer.getCurrentBlockNumber()
+                    if (current > target && indexer is BlockIndexer) {
+                        logger.warn(
+                            "Aligning indexer {} from block {} back to {} to keep dependency " +
+                                "component in lockstep.",
+                            indexer.name,
+                            current,
+                            target,
+                        )
+                        indexer.alignToBlock(target)
+                        changed = true
+                    }
+                }
+            }
+        }
+    }
+
+    private fun indexersWithDependants(indexers: List<Indexer>): Set<Indexer> {
+        val result = mutableSetOf<Indexer>()
+        for (i in indexers) {
+            var current = i.dependsOn
+            while (current != null) {
+                result.add(current)
+                current = current.dependsOn
+            }
+        }
+        return result
+    }
 
     internal fun Indexer.hasFastSyncingAncestor(): Boolean {
         var current = dependsOn
