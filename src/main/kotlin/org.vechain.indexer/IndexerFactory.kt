@@ -97,28 +97,33 @@ class IndexerFactory {
     private fun resolveStartBlock(): Long {
         val parentStart = dependsOn?.startBlock
         val childStart = startBlock
-        return when {
-            parentStart == null -> childStart ?: 0L
-            childStart == null -> parentStart
-            childStart < parentStart ->
-                throw IllegalArgumentException(
-                    "Indexer '${name}' has startBlock $childStart but its parent " +
-                        "'${dependsOn!!.name}' starts at $parentStart. A dependent indexer cannot " +
-                        "start before its parent."
-                )
-            childStart > parentStart -> {
-                logger.warn(
-                    "Indexer '{}' configured startBlock {} is being overridden to {} to match " +
-                        "parent '{}'. Dependents must share their parent's start block.",
-                    name,
-                    childStart,
-                    parentStart,
-                    dependsOn!!.name,
-                )
-                parentStart
+        val resolved =
+            when {
+                parentStart == null -> childStart ?: 0L
+                childStart == null -> parentStart
+                childStart < parentStart ->
+                    throw IllegalArgumentException(
+                        "Indexer '${name}' has startBlock $childStart but its parent " +
+                            "'${dependsOn!!.name}' starts at $parentStart. A dependent indexer " +
+                            "cannot start before its parent."
+                    )
+                childStart > parentStart -> {
+                    logger.warn(
+                        "Indexer '{}' configured startBlock {} is being overridden to {} to match " +
+                            "parent '{}'. Dependents must share their parent's start block.",
+                        name,
+                        childStart,
+                        parentStart,
+                        dependsOn!!.name,
+                    )
+                    parentStart
+                }
+                else -> childStart
             }
-            else -> childStart
+        require(resolved >= 0) {
+            "Indexer '${name}' has startBlock $resolved; startBlock must be >= 0."
         }
+        return resolved
     }
 
     // Setters for configuration options
