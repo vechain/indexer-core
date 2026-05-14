@@ -48,6 +48,11 @@ interface Indexer : IndexerProcessor {
     // The current status of the indexer
     fun getStatus(): Status
 
+    // The block at which this indexer begins processing. For indexers with a dependsOn parent,
+    // this is resolved by IndexerFactory to match the parent's startBlock so the whole dependency
+    // component runs in lockstep.
+    val startBlock: Long
+
     // The current block number being processed
     fun getCurrentBlockNumber(): Long
 
