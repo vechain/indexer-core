@@ -6,6 +6,7 @@ import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -398,10 +399,22 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         channel: Channel<PreparedBlock>,
         clauseIndexMapping: ClauseIndexMapping,
     ) {
+        // `group` arrives in topological order (parents before children), so by the time we read
+        // jobs[parent], it has been populated. Siblings without a dependency on each other run in
+        // parallel; the awaitAll at end-of-block keeps the group block-synchronised so the next
+        // prepared block is only consumed after every indexer has finished the current one.
+        val groupSet = group.toSet()
         for (preparedBlock in channel) {
-            // Process indexers in the group sequentially to preserve order
-            for (indexer in group) {
-                processIndexerBlock(indexer, preparedBlock, clauseIndexMapping)
+            coroutineScope {
+                val jobs = mutableMapOf<Indexer, Deferred<Unit>>()
+                for (indexer in group) {
+                    val parentJob = indexer.dependsOn?.takeIf { it in groupSet }?.let { jobs[it] }
+                    jobs[indexer] = async {
+                        parentJob?.await()
+                        processIndexerBlock(indexer, preparedBlock, clauseIndexMapping)
+                    }
+                }
+                jobs.values.awaitAll()
             }
         }
     }

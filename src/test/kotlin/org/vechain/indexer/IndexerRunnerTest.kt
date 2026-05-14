@@ -658,6 +658,191 @@ internal class IndexerRunnerTest {
                 kotlin.math.abs((startTimes["indexer1"] ?: 0L) - (startTimes["indexer2"] ?: 0L))
             expectThat(timeDiff).isGreaterThanOrEqualTo(0)
         }
+
+        @Test
+        fun `independent siblings run in parallel and a child only awaits its direct parent`() =
+            runTest {
+                // Dependency tree: A -> {B, C}; C -> D
+                // Within a block: A runs first; B and C run in parallel after A; D runs after C
+                // but does not need to wait for B. With B intentionally slow, D must finish
+                // before B does within the same block.
+                val thorClient = mockk<ThorClient>()
+                val block0 = buildBlock(num = 0L)
+
+                val events = mutableListOf<String>()
+                fun record(event: String) = synchronized(events) { events.add(event) }
+
+                val a =
+                    createMockNonFastSyncableIndexer(
+                        "A",
+                        processBlock = {
+                            record("start:A")
+                            record("end:A")
+                        },
+                    )
+                val b =
+                    createMockNonFastSyncableIndexer(
+                        "B",
+                        dependsOn = a,
+                        processBlock = {
+                            record("start:B")
+                            delay(200)
+                            record("end:B")
+                        },
+                    )
+                val c =
+                    createMockNonFastSyncableIndexer(
+                        "C",
+                        dependsOn = a,
+                        processBlock = {
+                            record("start:C")
+                            record("end:C")
+                        },
+                    )
+                val d =
+                    createMockNonFastSyncableIndexer(
+                        "D",
+                        dependsOn = c,
+                        processBlock = {
+                            record("start:D")
+                            record("end:D")
+                        },
+                    )
+
+                coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
+                coEvery { thorClient.waitForBlock(BlockRevision.Number(1L)) } coAnswers
+                    {
+                        delay(5_000)
+                        buildBlock(num = 1L)
+                    }
+
+                val runner = IndexerRunner()
+                val job = launch { runner.runIndexers(listOf(a, b, c, d), thorClient, 1) }
+
+                delay(500)
+                job.cancelAndJoin()
+
+                val snap = synchronized(events) { events.toList() }
+
+                // A finishes before any of its descendants start.
+                val endA = snap.indexOf("end:A")
+                expectThat(endA).isGreaterThanOrEqualTo(0)
+                expectThat(endA < snap.indexOf("start:B")).isTrue()
+                expectThat(endA < snap.indexOf("start:C")).isTrue()
+                // D only starts after C finishes.
+                expectThat(snap.indexOf("end:C") < snap.indexOf("start:D")).isTrue()
+                // D does not wait for B — B is slow, so D should finish first.
+                expectThat(snap.indexOf("end:D") < snap.indexOf("end:B")).isTrue()
+                // B and C overlap: C starts (and finishes) before B finishes.
+                expectThat(snap.indexOf("start:C") < snap.indexOf("end:B")).isTrue()
+            }
+
+        @Test
+        fun `linear chain still processes sequentially in dependency order`() = runTest {
+            // Regression: A -> B -> C must still serialize per block.
+            val thorClient = mockk<ThorClient>()
+            val block0 = buildBlock(num = 0L)
+
+            val events = mutableListOf<String>()
+            fun record(event: String) = synchronized(events) { events.add(event) }
+
+            val a =
+                createMockNonFastSyncableIndexer(
+                    "A",
+                    processBlock = {
+                        record("start:A")
+                        record("end:A")
+                    },
+                )
+            val b =
+                createMockNonFastSyncableIndexer(
+                    "B",
+                    dependsOn = a,
+                    processBlock = {
+                        record("start:B")
+                        record("end:B")
+                    },
+                )
+            val c =
+                createMockNonFastSyncableIndexer(
+                    "C",
+                    dependsOn = b,
+                    processBlock = {
+                        record("start:C")
+                        record("end:C")
+                    },
+                )
+
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns block0
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(1L)) } coAnswers
+                {
+                    delay(5_000)
+                    buildBlock(num = 1L)
+                }
+
+            val runner = IndexerRunner()
+            val job = launch { runner.runIndexers(listOf(a, b, c), thorClient, 1) }
+
+            delay(300)
+            job.cancelAndJoin()
+
+            val snap = synchronized(events) { events.toList() }
+            expectThat(snap.take(6))
+                .containsExactly("start:A", "end:A", "start:B", "end:B", "start:C", "end:C")
+        }
+
+        @Test
+        fun `unrecoverable failure in one indexer aborts the group and cancels siblings`() =
+            runTest {
+                // A -> {B, C}; C -> D. B throws ReorgException (the runner does not retry it);
+                // sibling C should be cancelled before its slow processing finishes, and D should
+                // never run because its parent C never completed.
+                val thorClient = mockk<ThorClient>()
+                val block0 = buildBlock(num = 0L)
+
+                val completed = mutableSetOf<String>()
+                fun mark(name: String) = synchronized(completed) { completed.add(name) }
+
+                val a =
+                    createMockNonFastSyncableIndexer(
+                        "A",
+                        processBlock = { mark("A") },
+                    )
+                val b =
+                    createMockNonFastSyncableIndexer(
+                        "B",
+                        dependsOn = a,
+                        processBlock = { throw ReorgException("boom") },
+                    )
+                val c =
+                    createMockNonFastSyncableIndexer(
+                        "C",
+                        dependsOn = a,
+                        processBlock = {
+                            delay(1_000)
+                            mark("C")
+                        },
+                    )
+                val d =
+                    createMockNonFastSyncableIndexer(
+                        "D",
+                        dependsOn = c,
+                        processBlock = { mark("D") },
+                    )
+
+                coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
+
+                val runner = IndexerRunner()
+                assertThrows<ReorgException> {
+                    runner.runIndexers(listOf(a, b, c, d), thorClient, 1)
+                }
+
+                val snap = synchronized(completed) { completed.toSet() }
+                // A finished before B threw; C was cancelled mid-delay; D never ran.
+                expectThat(snap.contains("A")).isTrue()
+                expectThat(snap.contains("C")).isFalse()
+                expectThat(snap.contains("D")).isFalse()
+            }
     }
 
     @Nested
