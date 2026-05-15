@@ -88,14 +88,14 @@ protected constructor(
      *
      * Thor caps `criteriaSet` at [MAX_CRITERIA] entries. When the full cartesian product exceeds
      * that, this method falls back progressively: address-only criteria (drop the topic0 axis),
-     * then topic0-only criteria (drop addresses), then an empty list (no filter). Returns an
-     * empty list when no event ABIs are loaded.
+     * then topic0-only criteria (drop addresses), then an empty list (no filter). Returns an empty
+     * list when no event ABIs are loaded.
      *
-     * Address-only is preferred over topic0-only because addresses pin to specific contracts,
-     * while a single topic0 (e.g. `Transfer`) matches every contract that emits it — typically
-     * a much larger fraction of all logs. Empirically, topic0-only OR-filters that include
-     * common signatures cost roughly the same as no filter at all on Thor but with extra
-     * matching overhead, so we prefer the axis the consumer narrowed deliberately.
+     * Address-only is preferred over topic0-only because addresses pin to specific contracts, while
+     * a single topic0 (e.g. `Transfer`) matches every contract that emits it — typically a much
+     * larger fraction of all logs. Empirically, topic0-only OR-filters that include common
+     * signatures cost roughly the same as no filter at all on Thor but with extra matching
+     * overhead, so we prefer the axis the consumer narrowed deliberately.
      */
     fun deriveEventCriteria(): List<EventCriteria> {
         val abiCriteria = abiEventProcessor?.buildEventCriteria() ?: emptyList()
