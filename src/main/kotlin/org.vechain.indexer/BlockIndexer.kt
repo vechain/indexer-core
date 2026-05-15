@@ -296,6 +296,12 @@ open class BlockIndexer(
      * Mirrors [handleReorg]'s state reset but takes the target explicitly instead of inferring it
      * from a detected reorg. The next [processBlock] will pick up at [currentBlockNumber] with
      * [previousBlock] re-seeded from persistence so reorg detection still works on the next block.
+     *
+     * Processors typically retain only a shallow rollback window (the reorg depth, not the full
+     * chain). For deep alignment — e.g. when a new dependant joins a component that's already
+     * synced to head — `rollback(target)` may be a no-op or only partial. This method verifies the
+     * rollback actually took effect and refuses to advance with an inconsistent cursor; the
+     * operator must drop the indexer's persisted state and restart.
      */
     internal fun alignToBlock(target: Long) {
         if (target == currentBlockNumber) return
@@ -304,6 +310,12 @@ open class BlockIndexer(
         }
         rollback(target)
         val lastSynced = getLastSyncedBlock()
+        check(lastSynced == null || lastSynced.number < target) {
+            "Indexer '$name' could not be rolled back to block $target — persisted state is " +
+                "still at block ${lastSynced!!.number}. The processor's rollback retention is " +
+                "likely insufficient for this depth of realignment. Drop this indexer's " +
+                "persisted state and restart to proceed."
+        }
         if (lastSynced != null) {
             currentBlockNumber = lastSynced.number + 1
             previousBlock = lastSynced

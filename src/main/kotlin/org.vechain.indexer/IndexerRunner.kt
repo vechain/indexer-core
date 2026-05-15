@@ -190,15 +190,30 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     }
 
     /**
-     * Collapses every indexer in a dependency component to the same `currentBlockNumber`. Iterates
-     * until the system is stable so processors that persist sparsely (and may end up below the
-     * naïve component min after a rollback) still converge.
+     * Rolls back any indexer that has drifted ahead of the component min via persisted progress.
+     *
+     * Only indexers with a persisted last-synced block are candidates for rollback. An unpersisted
+     * indexer sitting above the component min is at its configured `startBlock` (either a delayed
+     * dependant or a pre-dependency-start consumer) — that's a legitimate configuration, not
+     * drift, and rolling it back would erase the user's intent. The runtime's skip path on
+     * `processIndexerBlock` handles the start-block gap once the fetcher catches up.
+     *
+     * Iterates to a fixed point so processors that persist sparsely (and may land below the naïve
+     * component min after a rollback) still converge.
+     *
+     * If an indexer's processor cannot honour the rollback (typically because its retention is
+     * shallower than the requested depth), its [BlockIndexer.alignToBlock] throws. Such failures
+     * are collected per call and surfaced once as a single [IllegalStateException] listing every
+     * indexer the operator needs to drop, so a topology change requires only one
+     * intervene-and-restart cycle.
      */
     internal fun alignComponents(indexers: List<Indexer>) {
         val initialised = indexers.filter { it.getStatus() != Status.NOT_INITIALISED }
         if (initialised.size < 2) return
         val components = IndexerOrderUtils.connectedComponents(initialised)
         val byComponent = initialised.groupBy { components.getValue(it) }
+        val failures = mutableListOf<AlignmentFailure>()
+        val failedNames = mutableSetOf<String>()
         var changed = true
         while (changed) {
             changed = false
@@ -206,8 +221,13 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 if (members.size < 2) continue
                 val target = members.minOf { it.getCurrentBlockNumber() }
                 for (indexer in members) {
+                    if (indexer.name in failedNames) continue
                     val current = indexer.getCurrentBlockNumber()
-                    if (current > target && indexer is BlockIndexer) {
+                    if (
+                        current > target &&
+                            indexer is BlockIndexer &&
+                            indexer.getLastSyncedBlock() != null
+                    ) {
                         logger.warn(
                             "Aligning indexer {} from block {} back to {} to keep dependency " +
                                 "component in lockstep.",
@@ -215,12 +235,47 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                             current,
                             target,
                         )
-                        indexer.alignToBlock(target)
-                        changed = true
+                        try {
+                            indexer.alignToBlock(target)
+                            changed = true
+                        } catch (e: IllegalStateException) {
+                            failures.add(AlignmentFailure(indexer.name, current, target, e))
+                            failedNames.add(indexer.name)
+                        }
                     }
                 }
             }
         }
+        if (failures.isNotEmpty()) throw alignmentFailureException(failures)
+    }
+
+    private data class AlignmentFailure(
+        val indexerName: String,
+        val current: Long,
+        val target: Long,
+        val cause: IllegalStateException,
+    )
+
+    private fun alignmentFailureException(
+        failures: List<AlignmentFailure>
+    ): IllegalStateException {
+        val message = buildString {
+            appendLine(
+                "Cannot align ${failures.size} indexer(s) to their dependency component start block:"
+            )
+            failures.forEach {
+                appendLine(
+                    "  - '${it.indexerName}' is at block ${it.current}, cannot roll back to ${it.target}"
+                )
+            }
+            append(
+                "Drop persisted state for these indexers and restart to proceed. The processor's " +
+                    "rollback retention is likely insufficient for this depth of realignment."
+            )
+        }
+        val ex = IllegalStateException(message, failures.first().cause)
+        failures.drop(1).forEach { ex.addSuppressed(it.cause) }
+        return ex
     }
 
     private fun indexersWithDependants(indexers: List<Indexer>): Set<Indexer> {

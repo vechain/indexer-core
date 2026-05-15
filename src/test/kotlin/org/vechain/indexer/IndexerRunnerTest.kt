@@ -2317,6 +2317,29 @@ internal class IndexerRunnerTest {
             return indexer
         }
 
+        private fun unpersistedBlockIndexer(
+            name: String,
+            startBlock: Long,
+            dependsOn: Indexer? = null,
+        ): BlockIndexer {
+            val processor = mockk<IndexerProcessor>(relaxed = true)
+            every { processor.getLastSyncedBlock() } returns null
+            every { processor.rollback(any()) } just Runs
+            val indexer =
+                BlockIndexer(
+                    name = name,
+                    thorClient = mockk(relaxed = true),
+                    processor = processor,
+                    startBlock = startBlock,
+                    syncLoggerInterval = 1L,
+                    eventProcessor = null,
+                    inspectionClauses = null,
+                    dependsOn = dependsOn,
+                )
+            indexer.initialise()
+            return indexer
+        }
+
         @Test
         fun `is a no-op when all indexers are aligned`() {
             val a = blockIndexer("a", persistedBlock = 100L)
@@ -2382,6 +2405,87 @@ internal class IndexerRunnerTest {
             IndexerRunner().alignComponents(listOf(a, uninit))
 
             expectThat(a.getCurrentBlockNumber()).isEqualTo(3000L)
+        }
+
+        @Test
+        fun `does not roll back an unpersisted indexer sitting at a later startBlock`() {
+            // Delayed-dependant configuration: parent has done no work yet and is at startBlock=0;
+            // child is at startBlock=500 with no persistence. The runtime skip path handles the
+            // gap. Without this carve-out, alignment would target=0 and force child back to 0.
+            val parent = unpersistedBlockIndexer("parent", startBlock = 0L)
+            val child = unpersistedBlockIndexer("child", startBlock = 500L, dependsOn = parent)
+
+            IndexerRunner().alignComponents(listOf(parent, child))
+
+            expectThat(parent.getCurrentBlockNumber()).isEqualTo(0L)
+            expectThat(child.getCurrentBlockNumber()).isEqualTo(500L)
+        }
+
+        @Test
+        fun `does not roll back an unpersisted indexer sitting at an earlier startBlock`() {
+            // Pre-dependency-work configuration: child runs alone before its dependency on the
+            // parent becomes relevant. Child starts at 100, parent at 500. The library trusts the
+            // consumer not to read parent state in [100, 500) and leaves both alone.
+            val parent = unpersistedBlockIndexer("parent", startBlock = 500L)
+            val child = unpersistedBlockIndexer("child", startBlock = 100L, dependsOn = parent)
+
+            IndexerRunner().alignComponents(listOf(child, parent))
+
+            expectThat(child.getCurrentBlockNumber()).isEqualTo(100L)
+            expectThat(parent.getCurrentBlockNumber()).isEqualTo(500L)
+        }
+
+        @Test
+        fun `aggregates rollback failures into a single exception listing every stuck indexer`() {
+            // Two persisted indexers in a component whose processors retain only a shallow
+            // rollback window — both refuse to actually roll back to the component target. The
+            // operator should see one error listing both names rather than failing-restarting once
+            // per indexer.
+            val stuckParent = stuckBlockIndexer("stuck-parent", persistedBlock = 10_000_000L)
+            val stuckChild =
+                stuckBlockIndexer(
+                    "stuck-child",
+                    persistedBlock = 10_000_000L,
+                    dependsOn = stuckParent,
+                )
+            val newChild =
+                unpersistedBlockIndexer("new-child", startBlock = 1_000_000L, dependsOn = stuckParent)
+
+            val ex =
+                assertThrows<IllegalStateException> {
+                    IndexerRunner().alignComponents(listOf(stuckParent, stuckChild, newChild))
+                }
+            expectThat(ex.message!!).contains("Cannot align 2 indexer(s)")
+            expectThat(ex.message!!).contains("'stuck-parent'")
+            expectThat(ex.message!!).contains("'stuck-child'")
+            expectThat(ex.message!!).contains("Drop persisted state")
+        }
+
+        // A persisted BlockIndexer whose processor's rollback is a no-op — getLastSyncedBlock
+        // continues to report the persisted block after rollback. Models a processor with
+        // insufficient retention for deep realignment.
+        private fun stuckBlockIndexer(
+            name: String,
+            persistedBlock: Long,
+            dependsOn: Indexer? = null,
+        ): BlockIndexer {
+            val processor = mockk<IndexerProcessor>(relaxed = true)
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(persistedBlock, "0x$persistedBlock")
+            every { processor.rollback(any()) } just Runs // no-op rollback
+            val indexer =
+                BlockIndexer(
+                    name = name,
+                    thorClient = mockk(relaxed = true),
+                    processor = processor,
+                    startBlock = 0L,
+                    syncLoggerInterval = 1L,
+                    eventProcessor = null,
+                    inspectionClauses = null,
+                    dependsOn = dependsOn,
+                )
+            indexer.initialise()
+            return indexer
         }
     }
 }
