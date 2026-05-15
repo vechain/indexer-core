@@ -65,7 +65,8 @@ internal class IndexerFactoryTest {
         @Test
         fun `keeps child startBlock when earlier than parent (pre-dependency work)`() {
             // Child legitimately starts at 100 to do its own work before parent's data becomes
-            // relevant at 500. Consumer is responsible for not reading parent's state in [100, 500).
+            // relevant at 500. Consumer is responsible for not reading parent's state in [100,
+            // 500).
             val parent = parentIndexer(startBlock = 500L)
             val indexer = baseFactory().dependsOn(parent).startBlock(100L).build()
             expectThat(indexer.startBlock).isEqualTo(100L)
