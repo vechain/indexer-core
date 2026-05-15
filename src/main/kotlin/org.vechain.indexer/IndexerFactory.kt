@@ -316,8 +316,8 @@ class IndexerFactory {
      * addresses so Thor returns only matching logs. For some workloads — typically when the derived
      * criteria match a large fraction of all logs in a block range — server-side filtering can be
      * slower than fetching unfiltered logs and discarding non-matches client-side. Calling this
-     * opts out: the request to `/logs/event` is sent with an empty `criteriaSet`, which Thor
-     * treats as "no filter".
+     * opts out: the request to `/logs/event` is sent with an empty `criteriaSet`, which Thor treats
+     * as "no filter".
      *
      * ABI-based filtering still applies inside the processor, so decoded events are unchanged.
      *
