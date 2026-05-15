@@ -190,9 +190,16 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     }
 
     /**
-     * Collapses every indexer in a dependency component to the same `currentBlockNumber`. Iterates
-     * until the system is stable so processors that persist sparsely (and may end up below the
-     * naïve component min after a rollback) still converge.
+     * Rolls back any indexer that has drifted ahead of the component min via persisted progress.
+     *
+     * Only indexers with a persisted last-synced block are candidates for rollback. An unpersisted
+     * indexer sitting above the component min is at its configured `startBlock` (either a delayed
+     * dependant or a pre-dependency-start consumer) — that's a legitimate configuration, not
+     * drift, and rolling it back would erase the user's intent. The runtime's skip path on
+     * `processIndexerBlock` handles the start-block gap once the fetcher catches up.
+     *
+     * Iterates to a fixed point so processors that persist sparsely (and may land below the naïve
+     * component min after a rollback) still converge.
      */
     internal fun alignComponents(indexers: List<Indexer>) {
         val initialised = indexers.filter { it.getStatus() != Status.NOT_INITIALISED }
@@ -207,7 +214,11 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 val target = members.minOf { it.getCurrentBlockNumber() }
                 for (indexer in members) {
                     val current = indexer.getCurrentBlockNumber()
-                    if (current > target && indexer is BlockIndexer) {
+                    if (
+                        current > target &&
+                            indexer is BlockIndexer &&
+                            indexer.getLastSyncedBlock() != null
+                    ) {
                         logger.warn(
                             "Aligning indexer {} from block {} back to {} to keep dependency " +
                                 "component in lockstep.",

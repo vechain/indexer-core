@@ -88,12 +88,20 @@ class IndexerFactory {
         }
     }
 
-    // Reconciles the configured startBlock against any dependsOn parent's startBlock so that the
-    // dependency component shares a single start block. A child reading the parent's table during
-    // processBlock(N) requires the parent to be at exactly N — there is no way to satisfy that if
-    // the child starts before the parent. The mismatched-but-correctable case (child > parent) is
-    // pulled back with a warning rather than rejected so consumers can be deliberate about
-    // misalignment without it being silently accepted.
+    // Resolves the configured startBlock against any dependsOn parent's startBlock.
+    //
+    // The child's explicit value is always honoured. Inheritance only kicks in when the child
+    // hasn't set one. Two non-equal cases are worth calling out:
+    //
+    //   - child.start > parent.start: a "delayed dependant". Parent runs alone for the gap; child
+    //     joins later. The runtime's skip path on processIndexerBlock handles the gap with no
+    //     extra coordination.
+    //
+    //   - child.start < parent.start: the child has its own independent work to do before the
+    //     dependency becomes relevant (e.g. tracking a contract from its deployment block while
+    //     the parent has logic that only starts later). For this to be deterministic the consumer
+    //     must not read the parent's state in blocks where the parent has no data — the library
+    //     cannot enforce that, so we log a warning to surface the contract.
     private fun resolveStartBlock(): Long {
         val parentStart = dependsOn?.startBlock
         val childStart = startBlock
@@ -101,22 +109,18 @@ class IndexerFactory {
             when {
                 parentStart == null -> childStart ?: 0L
                 childStart == null -> parentStart
-                childStart < parentStart ->
-                    throw IllegalArgumentException(
-                        "Indexer '${name}' has startBlock $childStart but its parent " +
-                            "'${dependsOn!!.name}' starts at $parentStart. A dependent indexer " +
-                            "cannot start before its parent."
-                    )
-                childStart > parentStart -> {
+                childStart < parentStart -> {
                     logger.warn(
-                        "Indexer '{}' configured startBlock {} is being overridden to {} to match " +
-                            "parent '{}'. Dependents must share their parent's start block.",
+                        "Indexer '{}' starts at {} but its parent '{}' starts at {}. The indexer's " +
+                            "processBlock must not read parent state for blocks before {} — the " +
+                            "parent has no data there.",
                         name,
                         childStart,
-                        parentStart,
                         dependsOn!!.name,
+                        parentStart,
+                        parentStart,
                     )
-                    parentStart
+                    childStart
                 }
                 else -> childStart
             }

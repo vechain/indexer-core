@@ -54,21 +54,21 @@ internal class IndexerFactoryTest {
         }
 
         @Test
-        fun `overrides child startBlock to parent's when child is later`() {
-            // Pulling the child back to the parent keeps the dependency component in lockstep.
+        fun `keeps child startBlock when later than parent (delayed dependant)`() {
+            // Parent starts at 100, child starts at 500: parent runs alone until block 500, then
+            // child joins. Runtime's skip path handles the gap; no factory-level override.
             val parent = parentIndexer(startBlock = 100L)
             val indexer = baseFactory().dependsOn(parent).startBlock(500L).build()
-            expectThat(indexer.startBlock).isEqualTo(100L)
+            expectThat(indexer.startBlock).isEqualTo(500L)
         }
 
         @Test
-        fun `throws when child startBlock is earlier than parent's`() {
-            val parent = parentIndexer(name = "p", startBlock = 500L)
-            val ex =
-                assertThrows<IllegalArgumentException> {
-                    baseFactory().dependsOn(parent).startBlock(100L).build()
-                }
-            expectThat(ex.message!!).contains("cannot start before its parent")
+        fun `keeps child startBlock when earlier than parent (pre-dependency work)`() {
+            // Child legitimately starts at 100 to do its own work before parent's data becomes
+            // relevant at 500. Consumer is responsible for not reading parent's state in [100, 500).
+            val parent = parentIndexer(startBlock = 500L)
+            val indexer = baseFactory().dependsOn(parent).startBlock(100L).build()
+            expectThat(indexer.startBlock).isEqualTo(100L)
         }
 
         @Test
