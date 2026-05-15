@@ -87,26 +87,21 @@ protected constructor(
      * server-side when the consumer has not supplied an explicit criteria set.
      *
      * Thor caps `criteriaSet` at [MAX_CRITERIA] entries. When the full cartesian product exceeds
-     * that, this method falls back progressively: topic0-only criteria (drop the address axis),
-     * then address-only criteria (drop topic0s), then an empty list (no filter). Returns an empty
-     * list when no event ABIs are loaded.
+     * that, this method falls back progressively: address-only criteria (drop the topic0 axis),
+     * then topic0-only criteria (drop addresses), then an empty list (no filter). Returns an
+     * empty list when no event ABIs are loaded.
+     *
+     * Address-only is preferred over topic0-only because addresses pin to specific contracts,
+     * while a single topic0 (e.g. `Transfer`) matches every contract that emits it — typically
+     * a much larger fraction of all logs. Empirically, topic0-only OR-filters that include
+     * common signatures cost roughly the same as no filter at all on Thor but with extra
+     * matching overhead, so we prefer the axis the consumer narrowed deliberately.
      */
     fun deriveEventCriteria(): List<EventCriteria> {
         val abiCriteria = abiEventProcessor?.buildEventCriteria() ?: emptyList()
         val businessCriteria = businessEventProcessor?.buildEventCriteria() ?: emptyList()
         val full = (abiCriteria + businessCriteria).distinct()
         if (full.size <= MAX_CRITERIA) return full
-
-        val topic0Only = full.mapNotNull { it.topic0 }.distinct().map { EventCriteria(topic0 = it) }
-        if (topic0Only.isNotEmpty() && topic0Only.size <= MAX_CRITERIA) {
-            logger.info(
-                "Cartesian criteria set ({}) exceeds Thor's cap of {}; using {} topic0-only criteria",
-                full.size,
-                MAX_CRITERIA,
-                topic0Only.size,
-            )
-            return topic0Only
-        }
 
         val addressOnly =
             full.mapNotNull { it.address }.distinct().map { EventCriteria(address = it) }
@@ -120,12 +115,24 @@ protected constructor(
             return addressOnly
         }
 
+        val topic0Only = full.mapNotNull { it.topic0 }.distinct().map { EventCriteria(topic0 = it) }
+        if (topic0Only.isNotEmpty() && topic0Only.size <= MAX_CRITERIA) {
+            logger.info(
+                "Cartesian criteria set ({}) exceeds Thor's cap of {}; address-only ({}) also exceeds the cap, using {} topic0-only criteria",
+                full.size,
+                MAX_CRITERIA,
+                addressOnly.size,
+                topic0Only.size,
+            )
+            return topic0Only
+        }
+
         logger.warn(
-            "Cannot fit derived criteria under Thor's cap of {} (cartesian: {}, topic0-only: {}, address-only: {}); falling back to no filter",
+            "Cannot fit derived criteria under Thor's cap of {} (cartesian: {}, address-only: {}, topic0-only: {}); falling back to no filter",
             MAX_CRITERIA,
             full.size,
-            topic0Only.size,
             addressOnly.size,
+            topic0Only.size,
         )
         return emptyList()
     }

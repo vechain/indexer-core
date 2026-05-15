@@ -308,8 +308,11 @@ class EventProcessorTest {
     }
 
     @Test
-    fun `deriveEventCriteria falls back to topic0-only when cartesian exceeds Thor cap`() {
-        // 6 contracts × 4 events = 24 criteria — exceeds Thor's cap of 10.
+    fun `deriveEventCriteria falls back to address-only when cartesian exceeds Thor cap`() {
+        // 6 contracts × 4 events = 24 criteria — exceeds Thor's cap of 10. Both addresses
+        // (6) and topic0s (4) fit individually; we prefer addresses because they pin to
+        // specific contracts, while topic0s like Transfer match every contract that emits
+        // them — empirically dominating Thor scan cost.
         val contracts = (1..6).map { "0x${it}" }
         val topic0s = (1..4).map { "0xsig${it}" }
         val cartesian =
@@ -323,8 +326,8 @@ class EventProcessorTest {
         val result = eventProcessor.deriveEventCriteria()
 
         expectThat(result)
-            .hasSize(4)
-            .containsExactlyInAnyOrder(topic0s.map { EventCriteria(topic0 = it) })
+            .hasSize(6)
+            .containsExactlyInAnyOrder(contracts.map { EventCriteria(address = it) })
     }
 
     @Test
@@ -346,6 +349,27 @@ class EventProcessorTest {
         expectThat(result)
             .hasSize(2)
             .containsExactlyInAnyOrder(contracts.map { EventCriteria(address = it) })
+    }
+
+    @Test
+    fun `deriveEventCriteria falls back to topic0-only when only topic0s fit Thor cap`() {
+        // 11 contracts × 4 events = 44 criteria — cartesian and address-only (11) both
+        // exceed 10. Topic0-only (4) fits, so it wins.
+        val contracts = (1..11).map { "0x${it}" }
+        val topic0s = (1..4).map { "0xsig${it}" }
+        val cartesian =
+            contracts.flatMap { addr ->
+                topic0s.map { sig -> EventCriteria(address = addr, topic0 = sig) }
+            }
+
+        every { abiEventProcessor.buildEventCriteria() } returns cartesian
+        every { businessEventProcessor.buildEventCriteria() } returns emptyList()
+
+        val result = eventProcessor.deriveEventCriteria()
+
+        expectThat(result)
+            .hasSize(4)
+            .containsExactlyInAnyOrder(topic0s.map { EventCriteria(topic0 = it) })
     }
 
     @Test
