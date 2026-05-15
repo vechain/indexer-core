@@ -22,6 +22,7 @@ import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.thor.model.InspectionResult
 import strikt.api.expect
 import strikt.api.expectThat
+import strikt.assertions.contains
 import strikt.assertions.isEqualTo
 import strikt.assertions.isGreaterThan
 
@@ -318,6 +319,24 @@ internal class BlockIndexerTest {
             // currentBlockNumber == 10 after init
 
             assertThrows<IllegalArgumentException> { indexer.alignToBlock(20L) }
+        }
+
+        @Test
+        fun `throws when rollback retention is insufficient for the requested depth`() {
+            // Processor at block 10_000_000; alignment requests block 1_000_000 but the
+            // processor's rollback retains only the last few blocks, so getLastSyncedBlock()
+            // continues to report a block well above the target.
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(number = 10_000_000L, id = "0xhead") andThen
+                BlockIdentifier(number = 9_999_999L, id = "0xprev") andThen
+                BlockIdentifier(number = 9_999_950L, id = "0xshallow")
+            val indexer = newIndexer()
+            indexer.initialise()
+
+            val ex =
+                assertThrows<IllegalStateException> { indexer.alignToBlock(1_000_000L) }
+            expectThat(ex.message!!).contains("rollback retention")
+            expectThat(ex.message!!).contains("Drop this indexer's persisted state")
         }
     }
 
