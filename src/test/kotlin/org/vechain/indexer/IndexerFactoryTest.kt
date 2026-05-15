@@ -1,14 +1,26 @@
 package org.vechain.indexer
 
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkConstructor
+import io.mockk.slot
+import io.mockk.unmockkConstructor
+import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.vechain.indexer.thor.client.LogClient
 import org.vechain.indexer.thor.client.ThorClient
+import org.vechain.indexer.thor.model.BlockIdentifier
+import org.vechain.indexer.thor.model.EventCriteria
 import strikt.api.expectThat
 import strikt.assertions.contains
+import strikt.assertions.hasSize
+import strikt.assertions.isEmpty
 import strikt.assertions.isEqualTo
+import strikt.assertions.isNotNull
 
 internal class IndexerFactoryTest {
 
@@ -78,6 +90,63 @@ internal class IndexerFactoryTest {
                 assertThrows<IllegalArgumentException> { baseFactory().startBlock(-5L).build() }
             expectThat(ex.message!!).contains("startBlock must be >= 0")
             expectThat(ex.message!!).contains("-5")
+        }
+    }
+
+    @Nested
+    inner class EventCriteriaSetWiring {
+
+        // mockkConstructor swaps the real LogClient (constructed inside LogsIndexer.init) for a
+        // mock so we can intercept fetchEventLogs and capture the criteria the factory wired in.
+        // Drives the LogsIndexer through one sync iteration; the empty-logs return short-circuits
+        // processBatch into the hasNoLogs branch, advancing the block cursor and exiting the loop.
+
+        @AfterEach
+        fun unmock() {
+            unmockkConstructor(LogClient::class)
+        }
+
+        @Test
+        fun `disableEventCriteria sends empty criteriaSet to LogClient`() {
+            val captured = slot<List<EventCriteria>?>()
+            mockkConstructor(LogClient::class)
+            coEvery {
+                anyConstructed<LogClient>()
+                    .fetchEventLogs(any(), any(), any(), captureNullable(captured))
+            } returns emptyList()
+
+            val indexer =
+                baseFactory()
+                    .abis("test-abis/tokens")
+                    .abiEventNames(listOf("Transfer", "TransferSingle", "TransferBatch"))
+                    .disableEventCriteria()
+                    .build() as LogsIndexer
+
+            runBlocking { indexer.sync(BlockIdentifier(number = 1L, id = "0x01")) }
+
+            expectThat(captured.captured).isNotNull().isEmpty()
+        }
+
+        @Test
+        fun `default wiring sends auto-derived topic0 criteriaSet to LogClient`() {
+            val captured = slot<List<EventCriteria>?>()
+            mockkConstructor(LogClient::class)
+            coEvery {
+                anyConstructed<LogClient>()
+                    .fetchEventLogs(any(), any(), any(), captureNullable(captured))
+            } returns emptyList()
+
+            val indexer =
+                baseFactory()
+                    .abis("test-abis/tokens")
+                    .abiEventNames(listOf("Transfer", "TransferSingle", "TransferBatch"))
+                    .build() as LogsIndexer
+
+            runBlocking { indexer.sync(BlockIdentifier(number = 1L, id = "0x01")) }
+
+            // 5 distinct signatures across the token ABIs; ERC1155 + vip210 each define their own
+            // TransferSingle / TransferBatch variants, plus the shared ERC20/721/vip180 Transfer.
+            expectThat(captured.captured).isNotNull().hasSize(5)
         }
     }
 }

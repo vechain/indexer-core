@@ -303,10 +303,27 @@ class IndexerFactory {
      * API to fetch only the relevant logs.
      *
      * If left unset, criteria are auto-derived from the configured ABIs and contract addresses
-     * (cartesian product of `abiContracts` × event topic0s, including business event ABIs). Pass an
-     * empty list to disable filtering entirely; pass a custom list to override the default.
+     * (cartesian product of `abiContracts` × event topic0s, including business event ABIs). Pass a
+     * custom list to override the default; call [disableEventCriteria] to opt out of server-side
+     * filtering entirely.
      */
     fun eventCriteriaSet(criteria: List<EventCriteria>) = apply { this.eventCriteriaSet = criteria }
+
+    /**
+     * Disables server-side event-log filtering for this indexer.
+     *
+     * By default, [build] auto-derives a `criteriaSet` from the configured ABIs and contract
+     * addresses so Thor returns only matching logs. For some workloads — typically when the derived
+     * criteria match a large fraction of all logs in a block range — server-side filtering can be
+     * slower than fetching unfiltered logs and discarding non-matches client-side. Calling this
+     * opts out: the request to `/logs/event` is sent with an empty `criteriaSet`, which Thor treats
+     * as "no filter".
+     *
+     * ABI-based filtering still applies inside the processor, so decoded events are unchanged.
+     *
+     * Mutually exclusive with [eventCriteriaSet]: whichever is called last wins.
+     */
+    fun disableEventCriteria() = apply { this.eventCriteriaSet = emptyList() }
 
     /**
      * Optional criteria for filtering transfer logs. This can be used to optimise the call to the
