@@ -333,8 +333,7 @@ internal class BlockIndexerTest {
             val indexer = newIndexer()
             indexer.initialise()
 
-            val ex =
-                assertThrows<IllegalStateException> { indexer.alignToBlock(1_000_000L) }
+            val ex = assertThrows<IllegalStateException> { indexer.alignToBlock(1_000_000L) }
             expectThat(ex.message!!).contains("rollback retention")
             expectThat(ex.message!!).contains("Drop this indexer's persisted state")
         }

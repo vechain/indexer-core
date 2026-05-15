@@ -194,8 +194,8 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
      *
      * Only indexers with a persisted last-synced block are candidates for rollback. An unpersisted
      * indexer sitting above the component min is at its configured `startBlock` (either a delayed
-     * dependant or a pre-dependency-start consumer) — that's a legitimate configuration, not
-     * drift, and rolling it back would erase the user's intent. The runtime's skip path on
+     * dependant or a pre-dependency-start consumer) — that's a legitimate configuration, not drift,
+     * and rolling it back would erase the user's intent. The runtime's skip path on
      * `processIndexerBlock` handles the start-block gap once the fetcher catches up.
      *
      * Iterates to a fixed point so processors that persist sparsely (and may land below the naïve
@@ -256,9 +256,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         val cause: IllegalStateException,
     )
 
-    private fun alignmentFailureException(
-        failures: List<AlignmentFailure>
-    ): IllegalStateException {
+    private fun alignmentFailureException(failures: List<AlignmentFailure>): IllegalStateException {
         val message = buildString {
             appendLine(
                 "Cannot align ${failures.size} indexer(s) to their dependency component start block:"

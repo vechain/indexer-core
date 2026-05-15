@@ -2449,7 +2449,11 @@ internal class IndexerRunnerTest {
                     dependsOn = stuckParent,
                 )
             val newChild =
-                unpersistedBlockIndexer("new-child", startBlock = 1_000_000L, dependsOn = stuckParent)
+                unpersistedBlockIndexer(
+                    "new-child",
+                    startBlock = 1_000_000L,
+                    dependsOn = stuckParent
+                )
 
             val ex =
                 assertThrows<IllegalStateException> {
