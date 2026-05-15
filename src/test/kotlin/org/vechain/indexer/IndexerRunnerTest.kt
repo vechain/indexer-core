@@ -2434,5 +2434,58 @@ internal class IndexerRunnerTest {
             expectThat(child.getCurrentBlockNumber()).isEqualTo(100L)
             expectThat(parent.getCurrentBlockNumber()).isEqualTo(500L)
         }
+
+        @Test
+        fun `aggregates rollback failures into a single exception listing every stuck indexer`() {
+            // Two persisted indexers in a component whose processors retain only a shallow
+            // rollback window — both refuse to actually roll back to the component target. The
+            // operator should see one error listing both names rather than failing-restarting once
+            // per indexer.
+            val stuckParent = stuckBlockIndexer("stuck-parent", persistedBlock = 10_000_000L)
+            val stuckChild =
+                stuckBlockIndexer(
+                    "stuck-child",
+                    persistedBlock = 10_000_000L,
+                    dependsOn = stuckParent,
+                )
+            val newChild =
+                unpersistedBlockIndexer("new-child", startBlock = 1_000_000L, dependsOn = stuckParent)
+
+            val ex =
+                assertThrows<IllegalStateException> {
+                    IndexerRunner().alignComponents(listOf(stuckParent, stuckChild, newChild))
+                }
+            expectThat(ex.message!!).contains("Cannot align 2 indexer(s)")
+            expectThat(ex.message!!).contains("'stuck-parent'")
+            expectThat(ex.message!!).contains("'stuck-child'")
+            expectThat(ex.message!!).contains("Drop persisted state")
+        }
+
+        // A persisted BlockIndexer whose processor's rollback is a no-op — getLastSyncedBlock
+        // continues to report the persisted block after rollback. Models a processor with
+        // insufficient retention for deep realignment.
+        private fun stuckBlockIndexer(
+            name: String,
+            persistedBlock: Long,
+            dependsOn: Indexer? = null,
+        ): BlockIndexer {
+            val processor = mockk<IndexerProcessor>(relaxed = true)
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(persistedBlock, "0x$persistedBlock")
+            every { processor.rollback(any()) } just Runs // no-op rollback
+            val indexer =
+                BlockIndexer(
+                    name = name,
+                    thorClient = mockk(relaxed = true),
+                    processor = processor,
+                    startBlock = 0L,
+                    syncLoggerInterval = 1L,
+                    eventProcessor = null,
+                    inspectionClauses = null,
+                    dependsOn = dependsOn,
+                )
+            indexer.initialise()
+            return indexer
+        }
     }
 }
