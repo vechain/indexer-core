@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.vechain.indexer.BlockTestBuilder.Companion.buildBlock
 import org.vechain.indexer.exception.ReorgException
+import org.vechain.indexer.exception.StuckBlockException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
@@ -1056,6 +1057,40 @@ internal class IndexerRunnerTest {
             // Reorg restart causes processBlock to be called again on the same block
             expectThat(processAttempts).isGreaterThanOrEqualTo(2)
         }
+
+        @Test
+        fun `bounded retry gives up and raises StuckBlockException after exhausting attempts`() =
+            runTest {
+                val thorClient = mockk<ThorClient>()
+                val block0 = buildBlock(num = 0L)
+                var processAttempts = 0
+
+                val indexer =
+                    mockk<Indexer>(relaxed = true) {
+                        every { name } returns "stuck"
+                        every { dependsOn } returns null
+                        every { getCurrentBlockNumber() } returns 0L
+                        every { getInspectionClauses() } returns null
+                        coEvery { processBlock(any()) } coAnswers
+                            {
+                                processAttempts++
+                                throw RuntimeException("permanent failure #$processAttempts")
+                            }
+                    }
+
+                coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
+
+                val runner = IndexerRunner()
+
+                val thrown =
+                    assertThrows<StuckBlockException> {
+                        runner.runIndexers(listOf(indexer), thorClient, 1)
+                    }
+
+                // Bounded retry: exactly MAX_BLOCK_PROCESS_ATTEMPTS attempts, then give up.
+                expectThat(processAttempts).isEqualTo(10)
+                expectThat(thrown.message!!).contains("stuck at block 0")
+            }
 
         @Test
         fun `should restart all indexers when one throws ReorgException`() = runTest {

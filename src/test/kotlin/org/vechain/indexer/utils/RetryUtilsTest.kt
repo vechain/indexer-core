@@ -165,4 +165,126 @@ internal class RetryUtilsTest {
             expectThat(secondDelay).isLessThan(2_000L)
         }
     }
+
+    @Nested
+    inner class BoundedRetry {
+
+        @Test
+        fun `returns result on first success without invoking onGiveUp`() = runTest {
+            var gaveUp = false
+            val result =
+                retryOnFailureBounded(
+                    maxAttempts = 3,
+                    onGiveUp = {
+                        gaveUp = true
+                        throw IllegalStateException("should not give up")
+                    },
+                ) {
+                    42
+                }
+
+            expectThat(result).isEqualTo(42)
+            expectThat(gaveUp).isEqualTo(false)
+        }
+
+        @Test
+        fun `returns result after transient failures within budget`() = runTest {
+            var attempts = 0
+            val result =
+                retryOnFailureBounded(
+                    maxAttempts = 5,
+                    onGiveUp = { throw IllegalStateException("should not give up") },
+                ) {
+                    attempts++
+                    if (attempts < 3) throw RuntimeException("transient")
+                    "success"
+                }
+
+            expectThat(result).isEqualTo("success")
+            expectThat(attempts).isEqualTo(3)
+        }
+
+        @Test
+        fun `invokes onGiveUp exactly once after maxAttempts failures`() = runTest {
+            var attempts = 0
+            var giveUpCalls = 0
+            var receivedCause: Throwable? = null
+
+            val thrown =
+                assertThrows<IllegalStateException> {
+                    retryOnFailureBounded(
+                        maxAttempts = 3,
+                        onGiveUp = { cause ->
+                            giveUpCalls++
+                            receivedCause = cause
+                            throw IllegalStateException("gave up", cause)
+                        },
+                    ) {
+                        attempts++
+                        throw RuntimeException("permanent #$attempts")
+                    }
+                }
+
+            expectThat(attempts).isEqualTo(3)
+            expectThat(giveUpCalls).isEqualTo(1)
+            expectThat(thrown.message).isEqualTo("gave up")
+            expectThat(receivedCause!!.message).isEqualTo("permanent #3")
+        }
+
+        @Test
+        fun `propagates CancellationException immediately and skips onGiveUp`() = runTest {
+            var attempts = 0
+            var gaveUp = false
+
+            assertThrows<CancellationException> {
+                retryOnFailureBounded(
+                    maxAttempts = 5,
+                    onGiveUp = {
+                        gaveUp = true
+                        throw IllegalStateException("should not give up")
+                    },
+                ) {
+                    attempts++
+                    throw CancellationException("cancelled")
+                }
+            }
+
+            expectThat(attempts).isEqualTo(1)
+            expectThat(gaveUp).isEqualTo(false)
+        }
+
+        @Test
+        fun `propagates ReorgException immediately and skips onGiveUp`() = runTest {
+            var attempts = 0
+            var gaveUp = false
+
+            assertThrows<ReorgException> {
+                retryOnFailureBounded(
+                    maxAttempts = 5,
+                    onGiveUp = {
+                        gaveUp = true
+                        throw IllegalStateException("should not give up")
+                    },
+                ) {
+                    attempts++
+                    throw ReorgException("reorg")
+                }
+            }
+
+            expectThat(attempts).isEqualTo(1)
+            expectThat(gaveUp).isEqualTo(false)
+        }
+
+        @Test
+        fun `rejects maxAttempts less than 1`() = runTest {
+            assertThrows<IllegalArgumentException> {
+                retryOnFailureBounded(
+                    maxAttempts = 0,
+                    onGiveUp = { throw IllegalStateException("unused") },
+                ) {
+                    42
+                }
+            }
+        }
+    }
 }

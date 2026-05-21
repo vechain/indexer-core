@@ -340,6 +340,58 @@ internal class BlockIndexerTest {
     }
 
     @Nested
+    inner class RecoverFromStuckBlock {
+        private fun newIndexer(startBlock: Long = 0L): BlockIndexer =
+            BlockIndexer(
+                name = "TestBlockIndexer",
+                thorClient = thorClient,
+                processor = processor,
+                startBlock = startBlock,
+                eventProcessor = null,
+                syncLoggerInterval = 1L,
+                inspectionClauses = null,
+                dependsOn = null,
+            )
+
+        @Test
+        fun `rolls back the current block and resets cursor from persisted state`() {
+            // Init at 100 (latest record = 100). After rollback(100) deletes the partial
+            // write at block 100, persistence reports 99 as the last clean block.
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(number = 100L, id = "0x100") andThen
+                BlockIdentifier(number = 99L, id = "0x99") andThen
+                BlockIdentifier(number = 99L, id = "0x99")
+            val indexer = newIndexer()
+            indexer.initialise()
+            // currentBlockNumber == 100 after init
+
+            indexer.recoverFromStuckBlock()
+
+            // First rollback(100) is from init; second is from recoverFromStuckBlock at block 100.
+            verify(exactly = 2) { processor.rollback(100L) }
+            expectThat(indexer.getCurrentBlockNumber()).isEqualTo(100L)
+            expectThat(indexer.getPreviousBlock())
+                .isEqualTo(BlockIdentifier(number = 99L, id = "0x99"))
+        }
+
+        @Test
+        fun `resets to startBlock when rollback leaves no persisted state`() {
+            // Init at 100; after recovery rollback, persistence is empty.
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(number = 100L, id = "0x100") andThen
+                BlockIdentifier(number = 99L, id = "0x99") andThen
+                null
+            val indexer = newIndexer(startBlock = 50L)
+            indexer.initialise()
+
+            indexer.recoverFromStuckBlock()
+
+            expectThat(indexer.getCurrentBlockNumber()).isEqualTo(50L)
+            expectThat(indexer.getPreviousBlock()).isEqualTo(null)
+        }
+    }
+
+    @Nested
     inner class BuildIndexingResults {
 
         @Test
