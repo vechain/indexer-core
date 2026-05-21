@@ -309,13 +309,26 @@ open class BlockIndexer(
             "alignToBlock can only move backwards (current=$currentBlockNumber, target=$target)"
         }
         rollback(target)
-        val lastSynced = getLastSyncedBlock()
+        val lastSynced = syncCursorToPersistedState()
         check(lastSynced == null || lastSynced.number < target) {
             "Indexer '$name' could not be rolled back to block $target — persisted state is " +
                 "still at block ${lastSynced!!.number}. The processor's rollback retention is " +
                 "likely insufficient for this depth of realignment. Drop this indexer's " +
                 "persisted state and restart to proceed."
         }
+    }
+
+    /**
+     * Re-seats the in-memory cursor (`currentBlockNumber`, `previousBlock`) from persisted state
+     * after a rollback, and transitions out of `FULLY_SYNCED` since the tip is now further away.
+     * Shared by [handleReorg], [alignToBlock], and [recoverFromStuckBlock]; the only thing each
+     * caller varies is the rollback depth and any post-rollback validation it needs.
+     *
+     * Returns the persisted last-synced block (or `null` if none) so callers that need it for an
+     * additional check don't have to query again.
+     */
+    private fun syncCursorToPersistedState(): BlockIdentifier? {
+        val lastSynced = getLastSyncedBlock()
         if (lastSynced != null) {
             currentBlockNumber = lastSynced.number + 1
             previousBlock = lastSynced
@@ -326,6 +339,19 @@ open class BlockIndexer(
         if (status == Status.FULLY_SYNCED) {
             status = Status.SYNCING
         }
+        return lastSynced
+    }
+
+    /**
+     * Recovers from a block that the runner has given up retrying. Clears the failing block's
+     * partial persisted state (`rollback(currentBlockNumber)` deletes records `>= currentBlock` and
+     * parks the checkpoint at `currentBlock - 1`) and re-seats the in-memory cursor. The runner
+     * throws [org.vechain.indexer.exception.StuckBlockException] afterwards; the outer `run()` loop
+     * catches it and restarts the indexers from this clean state.
+     */
+    internal fun recoverFromStuckBlock() {
+        rollback(currentBlockNumber)
+        syncCursorToPersistedState()
     }
 
     private fun logProcessingBlock() {
@@ -411,14 +437,7 @@ open class BlockIndexer(
         val message = buildReorgMessage(block)
         logger.error(message)
         rollback(currentBlockNumber - 1)
-        val lastSynced = getLastSyncedBlock()
-        if (lastSynced != null) {
-            currentBlockNumber = lastSynced.number + 1
-            previousBlock = lastSynced
-        } else {
-            currentBlockNumber = startBlock
-            previousBlock = null
-        }
+        syncCursorToPersistedState()
         throw ReorgException(message)
     }
 

@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.vechain.indexer.exception.ReorgException
+import org.vechain.indexer.exception.StuckBlockException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.utils.ClauseIndexMapping
@@ -25,6 +26,7 @@ import org.vechain.indexer.utils.IndexerOrderUtils
 import org.vechain.indexer.utils.IndexerOrderUtils.proximityGroups
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
 import org.vechain.indexer.utils.retryOnFailure
+import org.vechain.indexer.utils.retryOnFailureBounded
 
 class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
@@ -34,6 +36,11 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             setOf(Status.NOT_INITIALISED, Status.READY_TO_FAST_SYNC, Status.FAST_SYNCING)
         private val SYNC_READY_STATUSES =
             setOf(Status.READY_TO_SYNC, Status.SYNCING, Status.FULLY_SYNCED)
+
+        // Caps per-block retry wall-time at ~3 minutes with the 1s→30s exponential backoff in
+        // retryOnFailureBounded. Long enough to ride out Mongo failovers and brief network
+        // partitions; short enough that a genuinely poisoned block escapes to the recovery path.
+        private const val MAX_BLOCK_PROCESS_ATTEMPTS = 10
 
         fun launch(
             scope: CoroutineScope,
@@ -94,6 +101,10 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             } catch (e: ReorgException) {
                 logger.error("Reorg detected, restarting all indexers", e)
                 // Exception caught, job will complete normally and loop will restart
+            } catch (e: StuckBlockException) {
+                logger.error("Stuck block recovered, restarting all indexers", e)
+                // Recovery (rollback + cursor reset) already happened before the throw;
+                // the loop just needs to re-enter so the indexer re-fetches the block.
             }
         }
     }
@@ -556,7 +567,17 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
 
         when {
             currentNumber == block.number -> {
-                retryOnFailure {
+                retryOnFailureBounded(
+                    maxAttempts = MAX_BLOCK_PROCESS_ATTEMPTS,
+                    onGiveUp = { cause ->
+                        val message =
+                            "Indexer ${indexer.name} stuck at block ${block.number} after " +
+                                "$MAX_BLOCK_PROCESS_ATTEMPTS attempts; rolling back and restarting."
+                        logger.error(message, cause)
+                        if (indexer is BlockIndexer) indexer.recoverFromStuckBlock()
+                        throw StuckBlockException(message, cause)
+                    },
+                ) {
                     // Use pre-computed inspection results if indexer has clauses
                     val indexerIndices = clauseIndexMapping[indexer]
                     if (indexerIndices != null) {

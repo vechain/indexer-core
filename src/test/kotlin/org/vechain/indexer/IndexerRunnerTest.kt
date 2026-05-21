@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.vechain.indexer.BlockTestBuilder.Companion.buildBlock
 import org.vechain.indexer.exception.ReorgException
+import org.vechain.indexer.exception.StuckBlockException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
@@ -1055,6 +1056,84 @@ internal class IndexerRunnerTest {
             expectThat(syncCount).isEqualTo(1)
             // Reorg restart causes processBlock to be called again on the same block
             expectThat(processAttempts).isGreaterThanOrEqualTo(2)
+        }
+
+        @Test
+        fun `bounded retry gives up and raises StuckBlockException after exhausting attempts`() =
+            runTest {
+                val thorClient = mockk<ThorClient>()
+                val block0 = buildBlock(num = 0L)
+                var processAttempts = 0
+
+                val indexer =
+                    mockk<Indexer>(relaxed = true) {
+                        every { name } returns "stuck"
+                        every { dependsOn } returns null
+                        every { getCurrentBlockNumber() } returns 0L
+                        every { getInspectionClauses() } returns null
+                        coEvery { processBlock(any()) } coAnswers
+                            {
+                                processAttempts++
+                                throw RuntimeException("permanent failure #$processAttempts")
+                            }
+                    }
+
+                coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
+
+                val runner = IndexerRunner()
+
+                val thrown =
+                    assertThrows<StuckBlockException> {
+                        runner.runIndexers(listOf(indexer), thorClient, 1)
+                    }
+
+                // Bounded retry: exactly MAX_BLOCK_PROCESS_ATTEMPTS attempts, then give up.
+                expectThat(processAttempts).isEqualTo(10)
+                expectThat(thrown.message!!).contains("stuck at block 0")
+                expectThat(thrown.cause!!.message!!).contains("permanent failure #10")
+            }
+
+        @Test
+        fun `run method restarts processing after StuckBlockException`() = runTest {
+            val thorClient = mockk<ThorClient>()
+            val block0 = buildBlock(num = 0L)
+            var initCount = 0
+            var processAttempts = 0
+            // Fail the first MAX_BLOCK_PROCESS_ATTEMPTS times to trigger one stuck-block cycle,
+            // then start succeeding on the post-restart attempts.
+            val failuresBeforeRecovery = 10
+
+            val indexer =
+                createMockIndexer(
+                    name = "indexer1",
+                    initializeBlock = { initCount++ },
+                    processBlock = {
+                        processAttempts++
+                        if (processAttempts <= failuresBeforeRecovery) {
+                            throw RuntimeException("stuck #$processAttempts")
+                        }
+                        delay(5_000)
+                    },
+                )
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
+
+            val runner = IndexerRunner()
+            val job = launch {
+                runner.run(listOf(indexer), 1, thorClient, 500_000L, 15.minutes, 1.minutes)
+            }
+
+            // Bounded retry burns up to ~3 min of virtual time before giving up; advance well past
+            // that so the outer-loop catch has time to restart and re-enter processing.
+            delay(10.minutes)
+            job.cancelAndJoin()
+
+            // The outer loop only initialises NOT_INITIALISED indexers, so init still runs once.
+            expectThat(initCount).isEqualTo(1)
+            // After give-up + restart, refreshState aligns the in-memory cursor before re-entering.
+            coVerify(atLeast = 1) { indexer.refreshState() }
+            // Bounded retry made the budgeted attempts; the restart added at least one more.
+            expectThat(processAttempts).isGreaterThan(failuresBeforeRecovery)
         }
 
         @Test
