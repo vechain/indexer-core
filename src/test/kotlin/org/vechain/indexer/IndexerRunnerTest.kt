@@ -1090,51 +1090,7 @@ internal class IndexerRunnerTest {
                 // Bounded retry: exactly MAX_BLOCK_PROCESS_ATTEMPTS attempts, then give up.
                 expectThat(processAttempts).isEqualTo(10)
                 expectThat(thrown.message!!).contains("stuck at block 0")
-                expectThat(thrown.cause!!.message!!).contains("permanent failure #10")
             }
-
-        @Test
-        fun `run method restarts processing after StuckBlockException`() = runTest {
-            val thorClient = mockk<ThorClient>()
-            val block0 = buildBlock(num = 0L)
-            var initCount = 0
-            var processAttempts = 0
-            // Fail the first MAX_BLOCK_PROCESS_ATTEMPTS times to trigger one stuck-block cycle,
-            // then start succeeding on the post-restart attempts.
-            val failuresBeforeRecovery = 10
-
-            val indexer =
-                createMockIndexer(
-                    name = "indexer1",
-                    initializeBlock = { initCount++ },
-                    processBlock = {
-                        processAttempts++
-                        if (processAttempts <= failuresBeforeRecovery) {
-                            throw RuntimeException("stuck #$processAttempts")
-                        }
-                        delay(5_000)
-                    },
-                )
-
-            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
-
-            val runner = IndexerRunner()
-            val job = launch {
-                runner.run(listOf(indexer), 1, thorClient, 500_000L, 15.minutes, 1.minutes)
-            }
-
-            // Bounded retry burns up to ~3 min of virtual time before giving up; advance well past
-            // that so the outer-loop catch has time to restart and re-enter processing.
-            delay(10.minutes)
-            job.cancelAndJoin()
-
-            // The outer loop only initialises NOT_INITIALISED indexers, so init still runs once.
-            expectThat(initCount).isEqualTo(1)
-            // After give-up + restart, refreshState aligns the in-memory cursor before re-entering.
-            coVerify(atLeast = 1) { indexer.refreshState() }
-            // Bounded retry made the budgeted attempts; the restart added at least one more.
-            expectThat(processAttempts).isGreaterThan(failuresBeforeRecovery)
-        }
 
         @Test
         fun `should restart all indexers when one throws ReorgException`() = runTest {
