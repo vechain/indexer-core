@@ -22,7 +22,6 @@ import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.utils.ClauseIndexMapping
 import org.vechain.indexer.utils.ClauseUtils.buildClauseListWithMapping
-import org.vechain.indexer.utils.IndexerOrderUtils
 import org.vechain.indexer.utils.IndexerOrderUtils.proximityGroups
 import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
 import org.vechain.indexer.utils.retryOnFailure
@@ -129,7 +128,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     ) {
         while (true) {
             initialiseUnblockedIndexers(indexers)
-            alignComponents(indexers)
+            alignDependencyTargets(indexers)
 
             val (group1, group2, group3) = classify(indexers)
             logCatchUpGroups(group1, group2, group3)
@@ -180,8 +179,9 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
      * Initialises any fast-syncable indexer that has dependants and transitions it past fast sync
      * without running it. A fast-synced parent would land its dependents at the configured start
      * block while it sits thousands of blocks ahead — every dependent read of the parent's table
-     * would observe a future state. Bypassing keeps the whole component on one block-by-block
-     * timeline (slower than fast sync, but the only deterministic option once dependants exist).
+     * would observe a future state. Bypassing lets dependency edges run on deterministic,
+     * block-by-block timelines (slower than fast sync, but the only deterministic option once
+     * dependants exist).
      */
     internal suspend fun bypassFastSyncForIndexersWithDependants(indexers: List<Indexer>) {
         val withDependants = indexersWithDependants(indexers)
@@ -191,7 +191,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         for (indexer in toBypass) {
             logger.warn(
                 "Indexer {} is fast-syncable but has dependants; fast sync will be skipped to " +
-                    "keep the dependency component on a single block-by-block timeline.",
+                    "keep dependency ordering on a deterministic block-by-block timeline.",
                 indexer.name,
             )
         }
@@ -201,16 +201,22 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     }
 
     /**
-     * Rolls back any indexer that has drifted ahead of the component min via persisted progress.
+     * Rolls back indexers that have drifted ahead of dependency-alignment targets.
+     *
+     * Alignment is computed from dependency edges, not from the minimum block of the whole
+     * connected component. A low descendant can pull its ancestor chain back only as far as each
+     * ancestor's configured `startBlock`; direct dependants are then aligned to that ancestor
+     * target. This keeps dependants from reading future parent state without forcing unrelated
+     * branches below the block where their parent can actually participate.
      *
      * Only indexers with a persisted last-synced block are candidates for rollback. An unpersisted
-     * indexer sitting above the component min is at its configured `startBlock` (either a delayed
+     * indexer sitting above its target is at its configured `startBlock` (either a delayed
      * dependant or a pre-dependency-start consumer) — that's a legitimate configuration, not drift,
      * and rolling it back would erase the user's intent. The runtime's skip path on
      * `processIndexerBlock` handles the start-block gap once the fetcher catches up.
      *
-     * Iterates to a fixed point so processors that persist sparsely (and may land below the naïve
-     * component min after a rollback) still converge.
+     * Iterates to a fixed point so processors that persist sparsely (and may land below an
+     * alignment target after a rollback) still converge.
      *
      * If an indexer's processor cannot honour the rollback (typically because its retention is
      * shallower than the requested depth), its [BlockIndexer.alignToBlock] throws. Such failures
@@ -218,46 +224,80 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
      * indexer the operator needs to drop, so a topology change requires only one
      * intervene-and-restart cycle.
      */
-    internal fun alignComponents(indexers: List<Indexer>) {
+    internal fun alignDependencyTargets(indexers: List<Indexer>) {
         val initialised = indexers.filter { it.getStatus() != Status.NOT_INITIALISED }
         if (initialised.size < 2) return
-        val components = IndexerOrderUtils.connectedComponents(initialised)
-        val byComponent = initialised.groupBy { components.getValue(it) }
         val failures = mutableListOf<AlignmentFailure>()
         val failedNames = mutableSetOf<String>()
         var changed = true
         while (changed) {
             changed = false
-            for ((_, members) in byComponent) {
-                if (members.size < 2) continue
-                val target = members.minOf { it.getCurrentBlockNumber() }
-                for (indexer in members) {
-                    if (indexer.name in failedNames) continue
-                    val current = indexer.getCurrentBlockNumber()
-                    if (
-                        current > target &&
-                            indexer is BlockIndexer &&
-                            indexer.getLastSyncedBlock() != null
-                    ) {
-                        logger.warn(
-                            "Aligning indexer {} from block {} back to {} to keep dependency " +
-                                "component in lockstep.",
-                            indexer.name,
-                            current,
-                            target,
-                        )
-                        try {
-                            indexer.alignToBlock(target)
-                            changed = true
-                        } catch (e: IllegalStateException) {
-                            failures.add(AlignmentFailure(indexer.name, current, target, e))
-                            failedNames.add(indexer.name)
-                        }
+            val targets = dependencyAlignmentTargets(initialised)
+            for (indexer in initialised) {
+                if (indexer.name in failedNames) continue
+                val target = targets.getValue(indexer)
+                val current = indexer.getCurrentBlockNumber()
+                if (
+                    current > target &&
+                        indexer is BlockIndexer &&
+                        indexer.getLastSyncedBlock() != null
+                ) {
+                    logger.warn(
+                        "Aligning indexer {} from block {} back to {} to keep dependency " +
+                            "ordering deterministic.",
+                        indexer.name,
+                        current,
+                        target,
+                    )
+                    try {
+                        indexer.alignToBlock(target)
+                        changed = true
+                    } catch (e: IllegalStateException) {
+                        failures.add(AlignmentFailure(indexer.name, current, target, e))
+                        failedNames.add(indexer.name)
                     }
                 }
             }
         }
         if (failures.isNotEmpty()) throw alignmentFailureException(failures)
+    }
+
+    private fun dependencyAlignmentTargets(indexers: List<Indexer>): Map<Indexer, Long> {
+        val indexerSet = indexers.toSet()
+        val targets = indexers.associateWith { it.getCurrentBlockNumber() }.toMutableMap()
+
+        // Per edge (child -> parent), each target is monotonically lowered toward the dependency
+        // partner, but never below the indexer's own startBlock:
+        //   parent_target := min(parent_target, max(child_target, parent.startBlock))
+        //   child_target  := min(child_target,  max(parent_target, child.startBlock))
+        // Iterate to a fixed point so constraints propagate across multi-hop chains and across
+        // sibling subtrees that meet at a shared ancestor.
+        var changed = true
+        while (changed) {
+            changed = false
+            for (child in indexers) {
+                val parent = child.dependsOn?.takeIf { it in indexerSet } ?: continue
+
+                val parentTarget = targets.getValue(parent)
+                val childTarget = targets.getValue(child)
+                val alignedParentTarget = minOf(parentTarget, maxOf(childTarget, parent.startBlock))
+                if (alignedParentTarget < parentTarget) {
+                    targets[parent] = alignedParentTarget
+                    changed = true
+                }
+
+                val refreshedParentTarget = targets.getValue(parent)
+                val refreshedChildTarget = targets.getValue(child)
+                val alignedChildTarget =
+                    minOf(refreshedChildTarget, maxOf(refreshedParentTarget, child.startBlock))
+                if (alignedChildTarget < refreshedChildTarget) {
+                    targets[child] = alignedChildTarget
+                    changed = true
+                }
+            }
+        }
+
+        return targets
     }
 
     private data class AlignmentFailure(
@@ -269,9 +309,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
 
     private fun alignmentFailureException(failures: List<AlignmentFailure>): IllegalStateException {
         val message = buildString {
-            appendLine(
-                "Cannot align ${failures.size} indexer(s) to their dependency component start block:"
-            )
+            appendLine("Cannot align ${failures.size} indexer(s) to their dependency target block:")
             failures.forEach {
                 appendLine(
                     "  - '${it.indexerName}' is at block ${it.current}, cannot roll back to ${it.target}"
