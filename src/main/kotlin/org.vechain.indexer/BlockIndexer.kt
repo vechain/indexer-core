@@ -288,20 +288,20 @@ open class BlockIndexer(
     override suspend fun process(entry: IndexingResult) = processor.process(entry)
 
     /**
-     * Rolls the indexer back to a target block so it lines up with the rest of its dependency
-     * component. Only ever moves backwards: an indexer with no persisted state already sits at
-     * [startBlock] and cannot have advanced past a sibling that did real work, so a target below
-     * the current cursor is treated as a misconfiguration.
+     * Rolls the indexer back to a dependency-alignment target. Only ever moves backwards: an
+     * indexer with no persisted state already sits at [startBlock] and cannot have advanced past a
+     * related indexer that did real work, so a target below the current cursor is treated as a
+     * misconfiguration.
      *
      * Mirrors [handleReorg]'s state reset but takes the target explicitly instead of inferring it
      * from a detected reorg. The next [processBlock] will pick up at [currentBlockNumber] with
      * [previousBlock] re-seeded from persistence so reorg detection still works on the next block.
      *
      * Processors typically retain only a shallow rollback window (the reorg depth, not the full
-     * chain). For deep alignment — e.g. when a new dependant joins a component that's already
-     * synced to head — `rollback(target)` may be a no-op or only partial. This method verifies the
-     * rollback actually took effect and refuses to advance with an inconsistent cursor; the
-     * operator must drop the indexer's persisted state and restart.
+     * chain). For deep alignment — e.g. when a new dependant joins a graph that's already synced to
+     * head — `rollback(target)` may be a no-op or only partial. This method verifies the rollback
+     * actually took effect and refuses to advance with an inconsistent cursor; the operator must
+     * drop the indexer's persisted state and restart.
      */
     internal fun alignToBlock(target: Long) {
         if (target == currentBlockNumber) return

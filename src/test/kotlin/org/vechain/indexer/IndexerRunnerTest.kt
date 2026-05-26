@@ -2323,7 +2323,7 @@ internal class IndexerRunnerTest {
     }
 
     @Nested
-    inner class AlignComponents {
+    inner class AlignDependencyTargets {
 
         // Real BlockIndexer instances with mocked processors. Avoids mocking BlockIndexer itself
         // (which triggers OOM during mock generation) while still exercising the actual
@@ -2331,6 +2331,7 @@ internal class IndexerRunnerTest {
         private fun blockIndexer(
             name: String,
             persistedBlock: Long,
+            startBlock: Long = 0L,
             dependsOn: Indexer? = null,
         ): BlockIndexer {
             val processor = mockk<IndexerProcessor>(relaxed = true)
@@ -2342,7 +2343,7 @@ internal class IndexerRunnerTest {
                     name = name,
                     thorClient = mockk(relaxed = true),
                     processor = processor,
-                    startBlock = 0L,
+                    startBlock = startBlock,
                     syncLoggerInterval = 1L,
                     eventProcessor = null,
                     inspectionClauses = null,
@@ -2382,14 +2383,14 @@ internal class IndexerRunnerTest {
             val processorA = (a as BlockIndexer)
             val processorB = (b as BlockIndexer)
 
-            IndexerRunner().alignComponents(listOf(a, b))
+            IndexerRunner().alignDependencyTargets(listOf(a, b))
 
             expectThat(processorA.getCurrentBlockNumber()).isEqualTo(100L)
             expectThat(processorB.getCurrentBlockNumber()).isEqualTo(100L)
         }
 
         @Test
-        fun `rolls the ahead indexer back to the component min`() {
+        fun `rolls the ahead indexer back to the dependency target`() {
             val a = blockIndexer("a", persistedBlock = 3000L)
             val b = blockIndexer("b", persistedBlock = 2500L, dependsOn = a)
 
@@ -2397,14 +2398,14 @@ internal class IndexerRunnerTest {
             every { (a as BlockIndexer).getLastSyncedBlock() } returns
                 BlockIdentifier(2499L, "0x2499")
 
-            IndexerRunner().alignComponents(listOf(a, b))
+            IndexerRunner().alignDependencyTargets(listOf(a, b))
 
             expectThat(a.getCurrentBlockNumber()).isEqualTo(2500L)
             expectThat(b.getCurrentBlockNumber()).isEqualTo(2500L)
         }
 
         @Test
-        fun `independent components are aligned independently`() {
+        fun `independent dependency graphs are aligned independently`() {
             // Component 1: a (3000) and b (2500) — a aligns to 2500.
             val a = blockIndexer("a", persistedBlock = 3000L)
             val b = blockIndexer("b", persistedBlock = 2500L, dependsOn = a)
@@ -2416,12 +2417,88 @@ internal class IndexerRunnerTest {
             every { (c as BlockIndexer).getLastSyncedBlock() } returns
                 BlockIdentifier(3999L, "0x3999")
 
-            IndexerRunner().alignComponents(listOf(a, b, c, d))
+            IndexerRunner().alignDependencyTargets(listOf(a, b, c, d))
 
             expectThat(a.getCurrentBlockNumber()).isEqualTo(2500L)
             expectThat(b.getCurrentBlockNumber()).isEqualTo(2500L)
             expectThat(c.getCurrentBlockNumber()).isEqualTo(4000L)
             expectThat(d.getCurrentBlockNumber()).isEqualTo(4000L)
+        }
+
+        @Test
+        fun `propagates constraints through multi-hop dependency chains`() {
+            // A ← B ← C ← D, all startBlock=0 and persisted at 5000 except D at 2000. D must pull
+            // C, then B, then A back to 2000 — three hops of constraint propagation.
+            val a = blockIndexer("a", persistedBlock = 5000L)
+            val b = blockIndexer("b", persistedBlock = 5000L, dependsOn = a)
+            val c = blockIndexer("c", persistedBlock = 5000L, dependsOn = b)
+            val d = blockIndexer("d", persistedBlock = 2000L, dependsOn = c)
+
+            every { (a as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(1999L, "0x1999")
+            every { (b as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(1999L, "0x1999")
+            every { (c as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(1999L, "0x1999")
+
+            IndexerRunner().alignDependencyTargets(listOf(a, b, c, d))
+
+            expectThat(a.getCurrentBlockNumber()).isEqualTo(2000L)
+            expectThat(b.getCurrentBlockNumber()).isEqualTo(2000L)
+            expectThat(c.getCurrentBlockNumber()).isEqualTo(2000L)
+            expectThat(d.getCurrentBlockNumber()).isEqualTo(2000L)
+        }
+
+        @Test
+        fun `mid-chain startBlock floors the rollback target for ancestors above it`() {
+            // A ← B (startBlock=3000) ← C (persisted at 2000). C would pull the chain to 2000, but
+            // B's startBlock floor stops the descent at 3000 — both B and A halt there. C stays at
+            // 2000 (its persisted state) even though that's below its parent's target.
+            val a = blockIndexer("a", persistedBlock = 5000L)
+            val b = blockIndexer("b", persistedBlock = 5000L, startBlock = 3000L, dependsOn = a)
+            val c = blockIndexer("c", persistedBlock = 2000L, dependsOn = b)
+
+            every { (a as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(2999L, "0x2999")
+            every { (b as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(2999L, "0x2999")
+
+            IndexerRunner().alignDependencyTargets(listOf(a, b, c))
+
+            expectThat(a.getCurrentBlockNumber()).isEqualTo(3000L)
+            expectThat(b.getCurrentBlockNumber()).isEqualTo(3000L)
+            expectThat(c.getCurrentBlockNumber()).isEqualTo(2000L)
+        }
+
+        @Test
+        fun `does not align ancestors or direct siblings below the ancestor start block`() {
+            val validator = blockIndexer("validator", persistedBlock = 5000L, startBlock = 3000L)
+            val delegation =
+                unpersistedBlockIndexer("delegation", startBlock = 0L, dependsOn = validator)
+            val vetDelegated =
+                unpersistedBlockIndexer(
+                    "vet-delegated-by-block",
+                    startBlock = 0L,
+                    dependsOn = delegation,
+                )
+            val history =
+                blockIndexer(
+                    "history",
+                    persistedBlock = 5000L,
+                    startBlock = 0L,
+                    dependsOn = validator,
+                )
+
+            every { validator.getLastSyncedBlock() } returns BlockIdentifier(2999L, "0x2999")
+            every { history.getLastSyncedBlock() } returns BlockIdentifier(2999L, "0x2999")
+
+            IndexerRunner()
+                .alignDependencyTargets(listOf(validator, delegation, vetDelegated, history))
+
+            expectThat(validator.getCurrentBlockNumber()).isEqualTo(3000L)
+            expectThat(history.getCurrentBlockNumber()).isEqualTo(3000L)
+            expectThat(delegation.getCurrentBlockNumber()).isEqualTo(0L)
+            expectThat(vetDelegated.getCurrentBlockNumber()).isEqualTo(0L)
         }
 
         @Test
@@ -2437,7 +2514,7 @@ internal class IndexerRunnerTest {
                     every { getCurrentBlockNumber() } returns 0L
                 }
 
-            IndexerRunner().alignComponents(listOf(a, uninit))
+            IndexerRunner().alignDependencyTargets(listOf(a, uninit))
 
             expectThat(a.getCurrentBlockNumber()).isEqualTo(3000L)
         }
@@ -2450,7 +2527,7 @@ internal class IndexerRunnerTest {
             val parent = unpersistedBlockIndexer("parent", startBlock = 0L)
             val child = unpersistedBlockIndexer("child", startBlock = 500L, dependsOn = parent)
 
-            IndexerRunner().alignComponents(listOf(parent, child))
+            IndexerRunner().alignDependencyTargets(listOf(parent, child))
 
             expectThat(parent.getCurrentBlockNumber()).isEqualTo(0L)
             expectThat(child.getCurrentBlockNumber()).isEqualTo(500L)
@@ -2464,7 +2541,7 @@ internal class IndexerRunnerTest {
             val parent = unpersistedBlockIndexer("parent", startBlock = 500L)
             val child = unpersistedBlockIndexer("child", startBlock = 100L, dependsOn = parent)
 
-            IndexerRunner().alignComponents(listOf(child, parent))
+            IndexerRunner().alignDependencyTargets(listOf(child, parent))
 
             expectThat(child.getCurrentBlockNumber()).isEqualTo(100L)
             expectThat(parent.getCurrentBlockNumber()).isEqualTo(500L)
@@ -2492,7 +2569,8 @@ internal class IndexerRunnerTest {
 
             val ex =
                 assertThrows<IllegalStateException> {
-                    IndexerRunner().alignComponents(listOf(stuckParent, stuckChild, newChild))
+                    IndexerRunner()
+                        .alignDependencyTargets(listOf(stuckParent, stuckChild, newChild))
                 }
             expectThat(ex.message!!).contains("Cannot align 2 indexer(s)")
             expectThat(ex.message!!).contains("'stuck-parent'")
