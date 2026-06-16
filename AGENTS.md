@@ -41,7 +41,7 @@ Before making claims about library behavior, read in this order:
    - log-based mode and fast sync: [`docs/LogsIndexerOverview.md`](docs/LogsIndexerOverview.md)
    - ABI loading and decoded events: [`docs/EventsAndABIHandling.md`](docs/EventsAndABIHandling.md)
    - business event design: [`docs/BusinessEvents.md`](docs/BusinessEvents.md)
-   - upgrade / compatibility questions: [`docs/MIGRATION-8.0.0.md`](docs/MIGRATION-8.0.0.md)
+   - upgrade / compatibility questions: [`docs/MIGRATION-8.0.0.md`](docs/MIGRATION-8.0.0.md), [`docs/MIGRATION-11.0.0.md`](docs/MIGRATION-11.0.0.md)
 
 The repo markdown docs are the source of truth. Prefer them over memory, ad hoc code reading, or external copies.
 
@@ -49,7 +49,7 @@ The repo markdown docs are the source of truth. Prefer them over memory, ad hoc 
 
 - `IndexerProcessor` is where consumers persist progress and domain data.
 - The runtime may emit either `IndexingResult.LogResult` or `IndexingResult.BlockResult`; processors should handle both when relevant to the configuration.
-- Startup rollback is intentional. It is a data-integrity feature, not a bug.
+- Startup rollback is intentional. It is a data-integrity feature, not a bug — but as of 11.0.0 it is one-directional: ancestors are aligned down to a behind-descendant, a child ahead of its parent is left in place. See `docs/MIGRATION-11.0.0.md`.
 - Reorg recovery is part of the runtime contract. Consumers are expected to implement deterministic rollback behavior.
 - Dependencies affect execution semantics, not just throughput. Adding `dependsOn(...)` changes how the runtime must coordinate indexers.
 

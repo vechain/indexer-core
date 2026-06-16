@@ -2471,7 +2471,11 @@ internal class IndexerRunnerTest {
         }
 
         @Test
-        fun `does not align ancestors or direct siblings below the ancestor start block`() {
+        fun `does not align an ancestor below its startBlock and leaves the ahead sibling alone`() {
+            // validator (startBlock=3000) is pulled back by its behind unpersisted descendant
+            // (delegation/vetDelegated), but the descent stops at validator.startBlock=3000. Its
+            // other child `history` is persisted ahead of validator after the rollback; under the
+            // 11.x contract, ahead children are not pulled back, so history remains at 5000.
             val validator = blockIndexer("validator", persistedBlock = 5000L, startBlock = 3000L)
             val delegation =
                 unpersistedBlockIndexer("delegation", startBlock = 0L, dependsOn = validator)
@@ -2490,13 +2494,12 @@ internal class IndexerRunnerTest {
                 )
 
             every { validator.getLastSyncedBlock() } returns BlockIdentifier(2999L, "0x2999")
-            every { history.getLastSyncedBlock() } returns BlockIdentifier(2999L, "0x2999")
 
             IndexerRunner()
                 .alignDependencyTargets(listOf(validator, delegation, vetDelegated, history))
 
             expectThat(validator.getCurrentBlockNumber()).isEqualTo(3000L)
-            expectThat(history.getCurrentBlockNumber()).isEqualTo(3000L)
+            expectThat(history.getCurrentBlockNumber()).isEqualTo(5000L)
             expectThat(delegation.getCurrentBlockNumber()).isEqualTo(0L)
             expectThat(vetDelegated.getCurrentBlockNumber()).isEqualTo(0L)
         }
@@ -2549,10 +2552,11 @@ internal class IndexerRunnerTest {
 
         @Test
         fun `aggregates rollback failures into a single exception listing every stuck indexer`() {
-            // Two persisted indexers in a component whose processors retain only a shallow
-            // rollback window — both refuse to actually roll back to the component target. The
-            // operator should see one error listing both names rather than failing-restarting once
-            // per indexer.
+            // Chain stuckParent ← stuckChild ← newChild, with both stuck indexers persisted at 10M
+            // and newChild unpersisted at startBlock=1M. Constraint propagation through the chain
+            // lowers stuckChild and stuckParent to 1M; both processors refuse to honour the
+            // rollback. The operator should see one error listing both names rather than failing-
+            // restarting once per indexer.
             val stuckParent = stuckBlockIndexer("stuck-parent", persistedBlock = 10_000_000L)
             val stuckChild =
                 stuckBlockIndexer(
@@ -2564,7 +2568,7 @@ internal class IndexerRunnerTest {
                 unpersistedBlockIndexer(
                     "new-child",
                     startBlock = 1_000_000L,
-                    dependsOn = stuckParent
+                    dependsOn = stuckChild,
                 )
 
             val ex =
@@ -2576,6 +2580,36 @@ internal class IndexerRunnerTest {
             expectThat(ex.message!!).contains("'stuck-parent'")
             expectThat(ex.message!!).contains("'stuck-child'")
             expectThat(ex.message!!).contains("Drop persisted state")
+        }
+
+        @Test
+        fun `does not roll back a child that is ahead of its parent`() {
+            // Parent has been resynced (or freshly bootstrapped) and sits below the child. Prior
+            // to 11.x the child would have been rolled back to the parent's level; now the child
+            // holds at its persisted block and the runtime's skip path waits for the parent to
+            // catch up. See docs/MIGRATION-11.0.0.md.
+            val parent = blockIndexer("parent", persistedBlock = 500L)
+            val child = blockIndexer("child", persistedBlock = 10_000L, dependsOn = parent)
+
+            IndexerRunner().alignDependencyTargets(listOf(parent, child))
+
+            expectThat(parent.getCurrentBlockNumber()).isEqualTo(500L)
+            expectThat(child.getCurrentBlockNumber()).isEqualTo(10_000L)
+        }
+
+        @Test
+        fun `does not roll back deep child-ahead chains`() {
+            // Resync of the root pulls neither the direct dependant nor its descendant back —
+            // each child holds at its own persisted block independently of the parent's level.
+            val root = blockIndexer("root", persistedBlock = 500L)
+            val mid = blockIndexer("mid", persistedBlock = 8_000L, dependsOn = root)
+            val leaf = blockIndexer("leaf", persistedBlock = 10_000L, dependsOn = mid)
+
+            IndexerRunner().alignDependencyTargets(listOf(root, mid, leaf))
+
+            expectThat(root.getCurrentBlockNumber()).isEqualTo(500L)
+            expectThat(mid.getCurrentBlockNumber()).isEqualTo(8_000L)
+            expectThat(leaf.getCurrentBlockNumber()).isEqualTo(10_000L)
         }
 
         // A persisted BlockIndexer whose processor's rollback is a no-op — getLastSyncedBlock
@@ -2603,6 +2637,146 @@ internal class IndexerRunnerTest {
                 )
             indexer.initialise()
             return indexer
+        }
+    }
+
+    @Nested
+    inner class WarnChildAheadOfParent {
+
+        private fun blockIndexer(
+            name: String,
+            persistedBlock: Long,
+            startBlock: Long = 0L,
+            dependsOn: Indexer? = null,
+        ): BlockIndexer {
+            val processor = mockk<IndexerProcessor>(relaxed = true)
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(persistedBlock, "0x$persistedBlock")
+            every { processor.rollback(any()) } just Runs
+            val indexer =
+                BlockIndexer(
+                    name = name,
+                    thorClient = mockk(relaxed = true),
+                    processor = processor,
+                    startBlock = startBlock,
+                    syncLoggerInterval = 1L,
+                    eventProcessor = null,
+                    inspectionClauses = null,
+                    dependsOn = dependsOn,
+                )
+            indexer.initialise()
+            return indexer
+        }
+
+        private fun unpersistedBlockIndexer(
+            name: String,
+            startBlock: Long,
+            dependsOn: Indexer? = null,
+        ): BlockIndexer {
+            val processor = mockk<IndexerProcessor>(relaxed = true)
+            every { processor.getLastSyncedBlock() } returns null
+            every { processor.rollback(any()) } just Runs
+            val indexer =
+                BlockIndexer(
+                    name = name,
+                    thorClient = mockk(relaxed = true),
+                    processor = processor,
+                    startBlock = startBlock,
+                    syncLoggerInterval = 1L,
+                    eventProcessor = null,
+                    inspectionClauses = null,
+                    dependsOn = dependsOn,
+                )
+            indexer.initialise()
+            return indexer
+        }
+
+        private fun runnerWithMockLogger(): Pair<IndexerRunner, org.slf4j.Logger> {
+            val runner = IndexerRunner()
+            val mockLogger = mockk<org.slf4j.Logger>(relaxed = true)
+            val field = IndexerRunner::class.java.getDeclaredField("logger")
+            field.isAccessible = true
+            field.set(runner, mockLogger)
+            return runner to mockLogger
+        }
+
+        @Test
+        fun `warns when a persisted child is ahead of its parent`() {
+            val parent = blockIndexer("parent", persistedBlock = 500L)
+            val child = blockIndexer("child", persistedBlock = 10_000L, dependsOn = parent)
+            val (runner, mockLogger) = runnerWithMockLogger()
+
+            runner.warnChildAheadOfParent(listOf(parent, child))
+
+            verify(exactly = 1) {
+                mockLogger.warn(
+                    any<String>(),
+                    "child",
+                    10_000L,
+                    "parent",
+                    500L,
+                    9_500L,
+                    "child",
+                    "parent",
+                    "child",
+                    "parent",
+                    "child",
+                )
+            }
+        }
+
+        @Test
+        fun `does not warn when child and parent are at the same block`() {
+            val parent = blockIndexer("parent", persistedBlock = 1_000L)
+            val child = blockIndexer("child", persistedBlock = 1_000L, dependsOn = parent)
+            val (runner, mockLogger) = runnerWithMockLogger()
+
+            runner.warnChildAheadOfParent(listOf(parent, child))
+
+            verify(exactly = 0) { mockLogger.warn(any<String>(), *anyVararg()) }
+        }
+
+        @Test
+        fun `does not warn when child is behind its parent`() {
+            val parent = blockIndexer("parent", persistedBlock = 10_000L)
+            val child = blockIndexer("child", persistedBlock = 1_000L, dependsOn = parent)
+            val (runner, mockLogger) = runnerWithMockLogger()
+
+            runner.warnChildAheadOfParent(listOf(parent, child))
+
+            verify(exactly = 0) { mockLogger.warn(any<String>(), *anyVararg()) }
+        }
+
+        @Test
+        fun `does not warn when the ahead child has no persisted state`() {
+            // Delayed-dependant configuration: child's startBlock is above the parent's current
+            // block but the child has never persisted. That's intentional config, not drift, so
+            // it should be silent.
+            val parent = blockIndexer("parent", persistedBlock = 500L)
+            val child = unpersistedBlockIndexer("child", startBlock = 10_000L, dependsOn = parent)
+            val (runner, mockLogger) = runnerWithMockLogger()
+
+            runner.warnChildAheadOfParent(listOf(parent, child))
+
+            verify(exactly = 0) { mockLogger.warn(any<String>(), *anyVararg()) }
+        }
+
+        @Test
+        fun `skips uninitialised indexers`() {
+            val parent = blockIndexer("parent", persistedBlock = 500L)
+            val uninitChild =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "uninit"
+                    every { dependsOn } returns parent
+                    every { getStatus() } returns Status.NOT_INITIALISED
+                    every { getCurrentBlockNumber() } returns 10_000L
+                    every { getLastSyncedBlock() } returns BlockIdentifier(10_000L, "0x10000")
+                }
+            val (runner, mockLogger) = runnerWithMockLogger()
+
+            runner.warnChildAheadOfParent(listOf(parent, uninitChild))
+
+            verify(exactly = 0) { mockLogger.warn(any<String>(), *anyVararg()) }
         }
     }
 }
