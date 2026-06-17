@@ -25,6 +25,8 @@ That keeps versioned technical documentation close to the code and avoids mainta
   - business event JSON definitions, matching flow, rules, and interaction with ABI events
 - [`MIGRATION-8.0.0.md`](./MIGRATION-8.0.0.md)
   - breaking changes when upgrading from 7.x
+- [`MIGRATION-11.0.0.md`](./MIGRATION-11.0.0.md)
+  - breaking change to dependency-startup alignment when upgrading from 10.x
 
 ## Suggested Confluence Shape
 
