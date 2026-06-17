@@ -126,9 +126,14 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         proximityThreshold: Long,
         catchUpInterval: Duration,
     ) {
+        var firstPass = true
         while (true) {
             initialiseUnblockedIndexers(indexers)
             alignDependencyTargets(indexers)
+            if (firstPass) {
+                warnChildAheadOfParent(indexers)
+                firstPass = false
+            }
 
             val (group1, group2, group3) = classify(indexers)
             logCatchUpGroups(group1, group2, group3)
@@ -201,13 +206,23 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
     }
 
     /**
-     * Rolls back indexers that have drifted ahead of dependency-alignment targets.
+     * Rolls ancestors back to the level of a behind-descendant so the dependency chain can run in
+     * lockstep from a common point.
+     *
+     * Alignment is one-directional: only parents are pulled down to a behind-child, never the other
+     * way around. A child that is ahead of its parent is left in place; the runtime's
+     * `processIndexerBlock` skip path handles the gap while the parent catches up, and the
+     * `parentJob.await()` in `processGroupBlocks` re-establishes same-block ordering once they
+     * meet. This is the deliberate flip from the previous (≤10.x) contract — see
+     * `docs/MIGRATION-11.0.0.md`. Consumers whose `process(...)` reads parent persisted state must
+     * now manage their own rollback when they resync a parent, because the library will no longer
+     * cascade the rollback to dependants. [warnChildAheadOfParent] surfaces the condition at
+     * startup so operators notice when a child has been left ahead.
      *
      * Alignment is computed from dependency edges, not from the minimum block of the whole
      * connected component. A low descendant can pull its ancestor chain back only as far as each
-     * ancestor's configured `startBlock`; direct dependants are then aligned to that ancestor
-     * target. This keeps dependants from reading future parent state without forcing unrelated
-     * branches below the block where their parent can actually participate.
+     * ancestor's configured `startBlock`, so unrelated branches are not forced below the block
+     * where their parent can actually participate.
      *
      * Only indexers with a persisted last-synced block are candidates for rollback. An unpersisted
      * indexer sitting above its target is at its configured `startBlock` (either a delayed
@@ -266,12 +281,13 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         val indexerSet = indexers.toSet()
         val targets = indexers.associateWith { it.getCurrentBlockNumber() }.toMutableMap()
 
-        // Per edge (child -> parent), each target is monotonically lowered toward the dependency
-        // partner, but never below the indexer's own startBlock:
+        // Per edge (child -> parent), only the parent's target is lowered toward the child, never
+        // below the parent's own startBlock:
         //   parent_target := min(parent_target, max(child_target, parent.startBlock))
-        //   child_target  := min(child_target,  max(parent_target, child.startBlock))
-        // Iterate to a fixed point so constraints propagate across multi-hop chains and across
-        // sibling subtrees that meet at a shared ancestor.
+        // A child ahead of its parent is intentionally not pulled back — see the KDoc on
+        // [alignDependencyTargets] and `docs/MIGRATION-11.0.0.md`. Iterate to a fixed point so
+        // constraints propagate across multi-hop chains and across sibling subtrees that meet at
+        // a shared ancestor.
         var changed = true
         while (changed) {
             changed = false
@@ -285,19 +301,54 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                     targets[parent] = alignedParentTarget
                     changed = true
                 }
-
-                val refreshedParentTarget = targets.getValue(parent)
-                val refreshedChildTarget = targets.getValue(child)
-                val alignedChildTarget =
-                    minOf(refreshedChildTarget, maxOf(refreshedParentTarget, child.startBlock))
-                if (alignedChildTarget < refreshedChildTarget) {
-                    targets[child] = alignedChildTarget
-                    changed = true
-                }
             }
         }
 
         return targets
+    }
+
+    /**
+     * Emits a WARN for each `dependsOn` edge where a persisted child sits above its parent. Prior
+     * to 11.x this condition triggered a rollback of the child to the parent's level; the new
+     * contract leaves the child in place and relies on the runtime's skip path to converge once the
+     * parent catches up.
+     *
+     * The warning is informational. It exists so operators who resync a parent notice the
+     * dependants that the library is no longer cascading the rollback to. Consumers whose
+     * `process(...)` reads parent persisted state must decide whether to roll the dependant back
+     * manually; consumers whose dependants only need same-block ordering can ignore the warning.
+     *
+     * Unpersisted children above their parent are not flagged — that's a legitimate delayed-
+     * dependant configuration and not drift caused by an out-of-band resync.
+     */
+    internal fun warnChildAheadOfParent(indexers: List<Indexer>) {
+        val indexerSet = indexers.toSet()
+        for (child in indexers) {
+            if (child.getStatus() == Status.NOT_INITIALISED) continue
+            if (child.getLastSyncedBlock() == null) continue
+            val parent = child.dependsOn?.takeIf { it in indexerSet } ?: continue
+            if (parent.getStatus() == Status.NOT_INITIALISED) continue
+            val childBlock = child.getCurrentBlockNumber()
+            val parentBlock = parent.getCurrentBlockNumber()
+            if (childBlock <= parentBlock) continue
+            logger.warn(
+                "Indexer '{}' is at block {} while its dependency '{}' is at block {} " +
+                    "(child ahead by {} blocks). The runtime will not roll '{}' back; '{}' will " +
+                    "catch up and same-block ordering will resume from there. If '{}'.process(...) " +
+                    "reads '{}'s persisted state and you intended that data to be invalidated, " +
+                    "roll '{}' back manually before restart.",
+                child.name,
+                childBlock,
+                parent.name,
+                parentBlock,
+                childBlock - parentBlock,
+                child.name,
+                parent.name,
+                child.name,
+                parent.name,
+                child.name,
+            )
+        }
     }
 
     private data class AlignmentFailure(

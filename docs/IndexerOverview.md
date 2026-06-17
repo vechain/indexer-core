@@ -162,6 +162,12 @@ Important behavior:
 - circular dependency chains are rejected
 - dependent indexers are executed after their parent for the same block
 
+### Startup alignment
+
+If the runner finds an ancestor ahead of a behind-descendant at startup, it rolls the ancestor back to the descendant's level so the dependency chain can run in lockstep from a common block. Only ancestors are aligned — a child that is **ahead** of its parent (for example after the parent has been resynced out of band) is left in place. The runtime's skip path waits for the parent to catch up, and same-block ordering resumes from the point at which the two meet.
+
+This is a contract change from 10.x — see [`MIGRATION-11.0.0.md`](./MIGRATION-11.0.0.md). Consumers whose `process(...)` reads parent persisted state should now manage their own rollback of dependants when they resync a parent; the library will log a WARN at startup for each child that sits ahead of its parent so the condition is visible.
+
 ## Runner Behaviour
 
 `IndexerRunner` coordinates all configured indexers:
