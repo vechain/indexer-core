@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.vechain.indexer.BlockTestBuilder.Companion.buildBlock
 import org.vechain.indexer.exception.ReorgException
+import org.vechain.indexer.exception.StuckBlockException
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.Block
 import org.vechain.indexer.thor.model.BlockIdentifier
@@ -1056,6 +1057,40 @@ internal class IndexerRunnerTest {
             // Reorg restart causes processBlock to be called again on the same block
             expectThat(processAttempts).isGreaterThanOrEqualTo(2)
         }
+
+        @Test
+        fun `bounded retry gives up and raises StuckBlockException after exhausting attempts`() =
+            runTest {
+                val thorClient = mockk<ThorClient>()
+                val block0 = buildBlock(num = 0L)
+                var processAttempts = 0
+
+                val indexer =
+                    mockk<Indexer>(relaxed = true) {
+                        every { name } returns "stuck"
+                        every { dependsOn } returns null
+                        every { getCurrentBlockNumber() } returns 0L
+                        every { getInspectionClauses() } returns null
+                        coEvery { processBlock(any()) } coAnswers
+                            {
+                                processAttempts++
+                                throw RuntimeException("permanent failure #$processAttempts")
+                            }
+                    }
+
+                coEvery { thorClient.waitForBlock(any<BlockRevision>()) } returns block0
+
+                val runner = IndexerRunner()
+
+                val thrown =
+                    assertThrows<StuckBlockException> {
+                        runner.runIndexers(listOf(indexer), thorClient, 1)
+                    }
+
+                // Bounded retry: exactly MAX_BLOCK_PROCESS_ATTEMPTS attempts, then give up.
+                expectThat(processAttempts).isEqualTo(10)
+                expectThat(thrown.message!!).contains("stuck at block 0")
+            }
 
         @Test
         fun `should restart all indexers when one throws ReorgException`() = runTest {
@@ -2288,7 +2323,7 @@ internal class IndexerRunnerTest {
     }
 
     @Nested
-    inner class AlignComponents {
+    inner class AlignDependencyTargets {
 
         // Real BlockIndexer instances with mocked processors. Avoids mocking BlockIndexer itself
         // (which triggers OOM during mock generation) while still exercising the actual
@@ -2296,6 +2331,7 @@ internal class IndexerRunnerTest {
         private fun blockIndexer(
             name: String,
             persistedBlock: Long,
+            startBlock: Long = 0L,
             dependsOn: Indexer? = null,
         ): BlockIndexer {
             val processor = mockk<IndexerProcessor>(relaxed = true)
@@ -2307,7 +2343,7 @@ internal class IndexerRunnerTest {
                     name = name,
                     thorClient = mockk(relaxed = true),
                     processor = processor,
-                    startBlock = 0L,
+                    startBlock = startBlock,
                     syncLoggerInterval = 1L,
                     eventProcessor = null,
                     inspectionClauses = null,
@@ -2347,14 +2383,14 @@ internal class IndexerRunnerTest {
             val processorA = (a as BlockIndexer)
             val processorB = (b as BlockIndexer)
 
-            IndexerRunner().alignComponents(listOf(a, b))
+            IndexerRunner().alignDependencyTargets(listOf(a, b))
 
             expectThat(processorA.getCurrentBlockNumber()).isEqualTo(100L)
             expectThat(processorB.getCurrentBlockNumber()).isEqualTo(100L)
         }
 
         @Test
-        fun `rolls the ahead indexer back to the component min`() {
+        fun `rolls the ahead indexer back to the dependency target`() {
             val a = blockIndexer("a", persistedBlock = 3000L)
             val b = blockIndexer("b", persistedBlock = 2500L, dependsOn = a)
 
@@ -2362,14 +2398,14 @@ internal class IndexerRunnerTest {
             every { (a as BlockIndexer).getLastSyncedBlock() } returns
                 BlockIdentifier(2499L, "0x2499")
 
-            IndexerRunner().alignComponents(listOf(a, b))
+            IndexerRunner().alignDependencyTargets(listOf(a, b))
 
             expectThat(a.getCurrentBlockNumber()).isEqualTo(2500L)
             expectThat(b.getCurrentBlockNumber()).isEqualTo(2500L)
         }
 
         @Test
-        fun `independent components are aligned independently`() {
+        fun `independent dependency graphs are aligned independently`() {
             // Component 1: a (3000) and b (2500) — a aligns to 2500.
             val a = blockIndexer("a", persistedBlock = 3000L)
             val b = blockIndexer("b", persistedBlock = 2500L, dependsOn = a)
@@ -2381,12 +2417,91 @@ internal class IndexerRunnerTest {
             every { (c as BlockIndexer).getLastSyncedBlock() } returns
                 BlockIdentifier(3999L, "0x3999")
 
-            IndexerRunner().alignComponents(listOf(a, b, c, d))
+            IndexerRunner().alignDependencyTargets(listOf(a, b, c, d))
 
             expectThat(a.getCurrentBlockNumber()).isEqualTo(2500L)
             expectThat(b.getCurrentBlockNumber()).isEqualTo(2500L)
             expectThat(c.getCurrentBlockNumber()).isEqualTo(4000L)
             expectThat(d.getCurrentBlockNumber()).isEqualTo(4000L)
+        }
+
+        @Test
+        fun `propagates constraints through multi-hop dependency chains`() {
+            // A ← B ← C ← D, all startBlock=0 and persisted at 5000 except D at 2000. D must pull
+            // C, then B, then A back to 2000 — three hops of constraint propagation.
+            val a = blockIndexer("a", persistedBlock = 5000L)
+            val b = blockIndexer("b", persistedBlock = 5000L, dependsOn = a)
+            val c = blockIndexer("c", persistedBlock = 5000L, dependsOn = b)
+            val d = blockIndexer("d", persistedBlock = 2000L, dependsOn = c)
+
+            every { (a as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(1999L, "0x1999")
+            every { (b as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(1999L, "0x1999")
+            every { (c as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(1999L, "0x1999")
+
+            IndexerRunner().alignDependencyTargets(listOf(a, b, c, d))
+
+            expectThat(a.getCurrentBlockNumber()).isEqualTo(2000L)
+            expectThat(b.getCurrentBlockNumber()).isEqualTo(2000L)
+            expectThat(c.getCurrentBlockNumber()).isEqualTo(2000L)
+            expectThat(d.getCurrentBlockNumber()).isEqualTo(2000L)
+        }
+
+        @Test
+        fun `mid-chain startBlock floors the rollback target for ancestors above it`() {
+            // A ← B (startBlock=3000) ← C (persisted at 2000). C would pull the chain to 2000, but
+            // B's startBlock floor stops the descent at 3000 — both B and A halt there. C stays at
+            // 2000 (its persisted state) even though that's below its parent's target.
+            val a = blockIndexer("a", persistedBlock = 5000L)
+            val b = blockIndexer("b", persistedBlock = 5000L, startBlock = 3000L, dependsOn = a)
+            val c = blockIndexer("c", persistedBlock = 2000L, dependsOn = b)
+
+            every { (a as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(2999L, "0x2999")
+            every { (b as BlockIndexer).getLastSyncedBlock() } returns
+                BlockIdentifier(2999L, "0x2999")
+
+            IndexerRunner().alignDependencyTargets(listOf(a, b, c))
+
+            expectThat(a.getCurrentBlockNumber()).isEqualTo(3000L)
+            expectThat(b.getCurrentBlockNumber()).isEqualTo(3000L)
+            expectThat(c.getCurrentBlockNumber()).isEqualTo(2000L)
+        }
+
+        @Test
+        fun `does not align an ancestor below its startBlock and leaves the ahead sibling alone`() {
+            // validator (startBlock=3000) is pulled back by its behind unpersisted descendant
+            // (delegation/vetDelegated), but the descent stops at validator.startBlock=3000. Its
+            // other child `history` is persisted ahead of validator after the rollback; under the
+            // 11.x contract, ahead children are not pulled back, so history remains at 5000.
+            val validator = blockIndexer("validator", persistedBlock = 5000L, startBlock = 3000L)
+            val delegation =
+                unpersistedBlockIndexer("delegation", startBlock = 0L, dependsOn = validator)
+            val vetDelegated =
+                unpersistedBlockIndexer(
+                    "vet-delegated-by-block",
+                    startBlock = 0L,
+                    dependsOn = delegation,
+                )
+            val history =
+                blockIndexer(
+                    "history",
+                    persistedBlock = 5000L,
+                    startBlock = 0L,
+                    dependsOn = validator,
+                )
+
+            every { validator.getLastSyncedBlock() } returns BlockIdentifier(2999L, "0x2999")
+
+            IndexerRunner()
+                .alignDependencyTargets(listOf(validator, delegation, vetDelegated, history))
+
+            expectThat(validator.getCurrentBlockNumber()).isEqualTo(3000L)
+            expectThat(history.getCurrentBlockNumber()).isEqualTo(5000L)
+            expectThat(delegation.getCurrentBlockNumber()).isEqualTo(0L)
+            expectThat(vetDelegated.getCurrentBlockNumber()).isEqualTo(0L)
         }
 
         @Test
@@ -2402,7 +2517,7 @@ internal class IndexerRunnerTest {
                     every { getCurrentBlockNumber() } returns 0L
                 }
 
-            IndexerRunner().alignComponents(listOf(a, uninit))
+            IndexerRunner().alignDependencyTargets(listOf(a, uninit))
 
             expectThat(a.getCurrentBlockNumber()).isEqualTo(3000L)
         }
@@ -2415,7 +2530,7 @@ internal class IndexerRunnerTest {
             val parent = unpersistedBlockIndexer("parent", startBlock = 0L)
             val child = unpersistedBlockIndexer("child", startBlock = 500L, dependsOn = parent)
 
-            IndexerRunner().alignComponents(listOf(parent, child))
+            IndexerRunner().alignDependencyTargets(listOf(parent, child))
 
             expectThat(parent.getCurrentBlockNumber()).isEqualTo(0L)
             expectThat(child.getCurrentBlockNumber()).isEqualTo(500L)
@@ -2429,7 +2544,7 @@ internal class IndexerRunnerTest {
             val parent = unpersistedBlockIndexer("parent", startBlock = 500L)
             val child = unpersistedBlockIndexer("child", startBlock = 100L, dependsOn = parent)
 
-            IndexerRunner().alignComponents(listOf(child, parent))
+            IndexerRunner().alignDependencyTargets(listOf(child, parent))
 
             expectThat(child.getCurrentBlockNumber()).isEqualTo(100L)
             expectThat(parent.getCurrentBlockNumber()).isEqualTo(500L)
@@ -2437,10 +2552,11 @@ internal class IndexerRunnerTest {
 
         @Test
         fun `aggregates rollback failures into a single exception listing every stuck indexer`() {
-            // Two persisted indexers in a component whose processors retain only a shallow
-            // rollback window — both refuse to actually roll back to the component target. The
-            // operator should see one error listing both names rather than failing-restarting once
-            // per indexer.
+            // Chain stuckParent ← stuckChild ← newChild, with both stuck indexers persisted at 10M
+            // and newChild unpersisted at startBlock=1M. Constraint propagation through the chain
+            // lowers stuckChild and stuckParent to 1M; both processors refuse to honour the
+            // rollback. The operator should see one error listing both names rather than failing-
+            // restarting once per indexer.
             val stuckParent = stuckBlockIndexer("stuck-parent", persistedBlock = 10_000_000L)
             val stuckChild =
                 stuckBlockIndexer(
@@ -2452,17 +2568,48 @@ internal class IndexerRunnerTest {
                 unpersistedBlockIndexer(
                     "new-child",
                     startBlock = 1_000_000L,
-                    dependsOn = stuckParent
+                    dependsOn = stuckChild,
                 )
 
             val ex =
                 assertThrows<IllegalStateException> {
-                    IndexerRunner().alignComponents(listOf(stuckParent, stuckChild, newChild))
+                    IndexerRunner()
+                        .alignDependencyTargets(listOf(stuckParent, stuckChild, newChild))
                 }
             expectThat(ex.message!!).contains("Cannot align 2 indexer(s)")
             expectThat(ex.message!!).contains("'stuck-parent'")
             expectThat(ex.message!!).contains("'stuck-child'")
             expectThat(ex.message!!).contains("Drop persisted state")
+        }
+
+        @Test
+        fun `does not roll back a child that is ahead of its parent`() {
+            // Parent has been resynced (or freshly bootstrapped) and sits below the child. Prior
+            // to 11.x the child would have been rolled back to the parent's level; now the child
+            // holds at its persisted block and the runtime's skip path waits for the parent to
+            // catch up. See docs/MIGRATION-11.0.0.md.
+            val parent = blockIndexer("parent", persistedBlock = 500L)
+            val child = blockIndexer("child", persistedBlock = 10_000L, dependsOn = parent)
+
+            IndexerRunner().alignDependencyTargets(listOf(parent, child))
+
+            expectThat(parent.getCurrentBlockNumber()).isEqualTo(500L)
+            expectThat(child.getCurrentBlockNumber()).isEqualTo(10_000L)
+        }
+
+        @Test
+        fun `does not roll back deep child-ahead chains`() {
+            // Resync of the root pulls neither the direct dependant nor its descendant back —
+            // each child holds at its own persisted block independently of the parent's level.
+            val root = blockIndexer("root", persistedBlock = 500L)
+            val mid = blockIndexer("mid", persistedBlock = 8_000L, dependsOn = root)
+            val leaf = blockIndexer("leaf", persistedBlock = 10_000L, dependsOn = mid)
+
+            IndexerRunner().alignDependencyTargets(listOf(root, mid, leaf))
+
+            expectThat(root.getCurrentBlockNumber()).isEqualTo(500L)
+            expectThat(mid.getCurrentBlockNumber()).isEqualTo(8_000L)
+            expectThat(leaf.getCurrentBlockNumber()).isEqualTo(10_000L)
         }
 
         // A persisted BlockIndexer whose processor's rollback is a no-op — getLastSyncedBlock
@@ -2490,6 +2637,146 @@ internal class IndexerRunnerTest {
                 )
             indexer.initialise()
             return indexer
+        }
+    }
+
+    @Nested
+    inner class WarnChildAheadOfParent {
+
+        private fun blockIndexer(
+            name: String,
+            persistedBlock: Long,
+            startBlock: Long = 0L,
+            dependsOn: Indexer? = null,
+        ): BlockIndexer {
+            val processor = mockk<IndexerProcessor>(relaxed = true)
+            every { processor.getLastSyncedBlock() } returns
+                BlockIdentifier(persistedBlock, "0x$persistedBlock")
+            every { processor.rollback(any()) } just Runs
+            val indexer =
+                BlockIndexer(
+                    name = name,
+                    thorClient = mockk(relaxed = true),
+                    processor = processor,
+                    startBlock = startBlock,
+                    syncLoggerInterval = 1L,
+                    eventProcessor = null,
+                    inspectionClauses = null,
+                    dependsOn = dependsOn,
+                )
+            indexer.initialise()
+            return indexer
+        }
+
+        private fun unpersistedBlockIndexer(
+            name: String,
+            startBlock: Long,
+            dependsOn: Indexer? = null,
+        ): BlockIndexer {
+            val processor = mockk<IndexerProcessor>(relaxed = true)
+            every { processor.getLastSyncedBlock() } returns null
+            every { processor.rollback(any()) } just Runs
+            val indexer =
+                BlockIndexer(
+                    name = name,
+                    thorClient = mockk(relaxed = true),
+                    processor = processor,
+                    startBlock = startBlock,
+                    syncLoggerInterval = 1L,
+                    eventProcessor = null,
+                    inspectionClauses = null,
+                    dependsOn = dependsOn,
+                )
+            indexer.initialise()
+            return indexer
+        }
+
+        private fun runnerWithMockLogger(): Pair<IndexerRunner, org.slf4j.Logger> {
+            val runner = IndexerRunner()
+            val mockLogger = mockk<org.slf4j.Logger>(relaxed = true)
+            val field = IndexerRunner::class.java.getDeclaredField("logger")
+            field.isAccessible = true
+            field.set(runner, mockLogger)
+            return runner to mockLogger
+        }
+
+        @Test
+        fun `warns when a persisted child is ahead of its parent`() {
+            val parent = blockIndexer("parent", persistedBlock = 500L)
+            val child = blockIndexer("child", persistedBlock = 10_000L, dependsOn = parent)
+            val (runner, mockLogger) = runnerWithMockLogger()
+
+            runner.warnChildAheadOfParent(listOf(parent, child))
+
+            verify(exactly = 1) {
+                mockLogger.warn(
+                    any<String>(),
+                    "child",
+                    10_000L,
+                    "parent",
+                    500L,
+                    9_500L,
+                    "child",
+                    "parent",
+                    "child",
+                    "parent",
+                    "child",
+                )
+            }
+        }
+
+        @Test
+        fun `does not warn when child and parent are at the same block`() {
+            val parent = blockIndexer("parent", persistedBlock = 1_000L)
+            val child = blockIndexer("child", persistedBlock = 1_000L, dependsOn = parent)
+            val (runner, mockLogger) = runnerWithMockLogger()
+
+            runner.warnChildAheadOfParent(listOf(parent, child))
+
+            verify(exactly = 0) { mockLogger.warn(any<String>(), *anyVararg()) }
+        }
+
+        @Test
+        fun `does not warn when child is behind its parent`() {
+            val parent = blockIndexer("parent", persistedBlock = 10_000L)
+            val child = blockIndexer("child", persistedBlock = 1_000L, dependsOn = parent)
+            val (runner, mockLogger) = runnerWithMockLogger()
+
+            runner.warnChildAheadOfParent(listOf(parent, child))
+
+            verify(exactly = 0) { mockLogger.warn(any<String>(), *anyVararg()) }
+        }
+
+        @Test
+        fun `does not warn when the ahead child has no persisted state`() {
+            // Delayed-dependant configuration: child's startBlock is above the parent's current
+            // block but the child has never persisted. That's intentional config, not drift, so
+            // it should be silent.
+            val parent = blockIndexer("parent", persistedBlock = 500L)
+            val child = unpersistedBlockIndexer("child", startBlock = 10_000L, dependsOn = parent)
+            val (runner, mockLogger) = runnerWithMockLogger()
+
+            runner.warnChildAheadOfParent(listOf(parent, child))
+
+            verify(exactly = 0) { mockLogger.warn(any<String>(), *anyVararg()) }
+        }
+
+        @Test
+        fun `skips uninitialised indexers`() {
+            val parent = blockIndexer("parent", persistedBlock = 500L)
+            val uninitChild =
+                mockk<Indexer>(relaxed = true) {
+                    every { name } returns "uninit"
+                    every { dependsOn } returns parent
+                    every { getStatus() } returns Status.NOT_INITIALISED
+                    every { getCurrentBlockNumber() } returns 10_000L
+                    every { getLastSyncedBlock() } returns BlockIdentifier(10_000L, "0x10000")
+                }
+            val (runner, mockLogger) = runnerWithMockLogger()
+
+            runner.warnChildAheadOfParent(listOf(parent, uninitChild))
+
+            verify(exactly = 0) { mockLogger.warn(any<String>(), *anyVararg()) }
         }
     }
 }

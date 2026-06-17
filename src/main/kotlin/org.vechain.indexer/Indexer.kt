@@ -48,9 +48,9 @@ interface Indexer : IndexerProcessor {
     // The current status of the indexer
     fun getStatus(): Status
 
-    // The block at which this indexer begins processing. For indexers with a dependsOn parent,
-    // this is resolved by IndexerFactory to match the parent's startBlock so the whole dependency
-    // component runs in lockstep.
+    // The block at which this indexer begins processing. If no explicit start block is configured
+    // for a dependsOn child, IndexerFactory inherits the parent's startBlock. Explicit child start
+    // blocks are honoured.
     val startBlock: Long
 
     // The current block number being processed
@@ -96,8 +96,8 @@ interface FastSyncableIndexer : Indexer {
      * Transitions a freshly-initialised indexer past its fast-sync stage without running it. The
      * runner calls this for fast-syncable indexers that have dependants — fast-syncing a parent
      * would leave its dependants reading an arbitrarily-advanced state when they themselves are
-     * still at the configured start block, breaking determinism. Bypassing keeps the whole
-     * dependency component on a single, block-by-block timeline.
+     * still at the configured start block, breaking determinism. Bypassing lets the runner align
+     * dependency edges on a block-by-block timeline.
      *
      * No-op if the indexer is not in [Status.READY_TO_FAST_SYNC].
      */
