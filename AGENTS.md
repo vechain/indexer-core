@@ -131,6 +131,38 @@ Useful commands:
 ./gradlew spotlessApply
 ```
 
+## Commit & Pull Request Guidelines
+
+Follow the existing history: concise, imperative titles with a conventional-commit prefix (e.g.
+`fix: narrow the block range when a batch exceeds Thor's log offset cap`). Describe problem,
+solution, and verification in the PR body. Run formatters and tests locally before requesting
+review.
+
+### Prose Bloat Is a Merge Blocker
+
+[.github/workflows/pr-bloat.yml](.github/workflows/pr-bloat.yml) fails a PR on a description over
+240 words (or under 10), a tool-attribution trailer, or a comment block that outweighs the code it
+documents (>1:1 against attached added-code lines; 10 lines absolute; a top-of-file header measures
+against the whole file). Comment density and long markdown paragraphs are advisory; `**/*.md` never
+blocks. `make check-pr-bloat` runs it locally. Bypass is the `verbose-ok` label, which anyone
+including the author may apply. Thresholds are env-overridable in
+[check_pr_bloat.py](.github/workflows/scripts/check_pr_bloat.py).
+
+Write reviewer-facing prose at final length — don't draft long and trim. The budget is the target,
+not a limit to approach.
+
+- **PR descriptions:** what changed and why, in two or three sentences. Skip `## Summary` /
+  `## Test plan` scaffolding unless there is genuinely something new to test. No tool-attribution
+  trailers.
+- **Comments:** add one only where the WHY is non-obvious — a hidden constraint, an invariant, a
+  workaround. A comment must not outweigh the code it documents; on a one-line field addition, that
+  means no comment. KDoc counts.
+- Don't restate what the code does, or what a technical term already implies (a reader who knows
+  `reorg` doesn't need "when the chain changes").
+- Don't explain what something does _not_ do. State what is; the reader can see the absence.
+- Long-form rationale belongs in [`docs/`](docs/), which this guide already treats as the source of
+  truth, not stacked above the code.
+
 ## When Working From Source
 
 The codebase is useful for confirmation, but agents should not need to reverse-engineer the library from source just to understand its purpose.
