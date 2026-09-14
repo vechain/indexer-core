@@ -179,16 +179,12 @@ open class LogsIndexer(
     }
 
     /**
-     * Narrows the block range after a batch proved too dense to page through, leaving the current
-     * block untouched so [sync] retries the same start block at the smaller width.
+     * Narrows the range after a batch proved too dense to page through, leaving the current block
+     * untouched so [sync] retries it at the smaller width.
      *
-     * [adjustBlockBatchSize] normally only sees successful batches, which is why an unpageable
-     * range would otherwise be retried at its original width forever. The partial log count is a
-     * lower bound on the range's real volume, so feeding it through the same backpressure gets a
-     * usable width in one step; the halving floor keeps that a strict reduction whatever the count
-     * works out to.
-     *
-     * A single block past the cap cannot be narrowed any further, so that rethrows.
+     * [adjustBlockBatchSize] otherwise only sees successful batches, so an unpageable range would
+     * be retried at its original width forever. The halving floor keeps the reduction strict; a
+     * single block cannot be narrowed further, so that rethrows.
      */
     private fun narrowAfterPaginationLimit(limit: LogPaginationLimitException) {
         if (currentBlockBatchSize <= MIN_BLOCK_BATCH_SIZE) throw limit
