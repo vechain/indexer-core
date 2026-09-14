@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.vechain.indexer.BlockTestBuilder.Companion.buildBlock
 import org.vechain.indexer.event.CombinedEventProcessor
+import org.vechain.indexer.exception.LogPaginationLimitException
 import org.vechain.indexer.fixtures.EventLogFixtures
 import org.vechain.indexer.fixtures.IndexedEventFixture
 import org.vechain.indexer.fixtures.TransferLogFixtures
@@ -19,8 +20,10 @@ import org.vechain.indexer.thor.client.LogClient
 import org.vechain.indexer.thor.client.ThorClient
 import org.vechain.indexer.thor.model.*
 import strikt.api.expect
+import strikt.assertions.isA
 import strikt.assertions.isEqualTo
 import strikt.assertions.isGreaterThan
+import strikt.assertions.isLessThan
 import strikt.assertions.isNull
 
 internal class TestableLogsIndexer(
@@ -827,6 +830,112 @@ internal class LogsIndexerTest {
                 that(indexer.getCurrentBlockNumber()).isEqualTo(20L)
                 that(indexer.timeLastProcessed).isGreaterThan(timeBefore)
             }
+        }
+    }
+
+    @Nested
+    inner class PaginationLimitRecovery {
+
+        private fun indexerWith(blockBatchSize: Long) =
+            TestableLogsIndexer(
+                name = "TestLogsIndexer",
+                thorClient = thorClient,
+                processor = processor,
+                startBlock = 0L,
+                syncLoggerInterval = 1L,
+                excludeVetTransfers = false,
+                blockBatchSize = blockBatchSize,
+                logFetchLimit = 100L,
+                eventCriteriaSet = null,
+                transferCriteriaSet = null,
+                eventProcessor = eventProcessor,
+                mockLogClient = logClient,
+            )
+
+        private fun paginationLimit(from: Long, to: Long, logsFetched: Int = 100_000) =
+            LogPaginationLimitException(from, to, logsFetched, "too dense")
+
+        @Test
+        fun `processBatch narrows the range instead of advancing past an unpageable batch`() =
+            runBlocking {
+                val indexer = indexerWith(1000L)
+                every { eventProcessor.hasAbis() } returns true
+                coEvery { logClient.fetchEventLogs(0L, 999L, 100L, null) } throws
+                    paginationLimit(0L, 999L)
+
+                indexer.publicProcessBatch(10_000L)
+
+                expect {
+                    // The block cursor must not move, or the dense range would be skipped.
+                    that(indexer.getCurrentBlockNumber()).isEqualTo(0L)
+                    that(indexer.publicCalculateBatchEndBlock(10_000L)).isLessThan(999L)
+                }
+                coVerify(exactly = 0) { processor.process(any()) }
+            }
+
+        @Test
+        fun `processBatch retries the same start block at the narrowed width`() = runBlocking {
+            val indexer = indexerWith(1000L)
+            every { eventProcessor.hasAbis() } returns true
+            every { eventProcessor.needsVetTransfers() } returns false
+            coEvery { logClient.fetchEventLogs(0L, 999L, 100L, null) } throws
+                paginationLimit(0L, 999L)
+            coEvery { logClient.fetchEventLogs(0L, 9L, 100L, null) } returns emptyList()
+            coEvery { logClient.fetchTransfers(0L, 9L, 100L, null) } returns emptyList()
+
+            indexer.publicProcessBatch(10_000L)
+            indexer.publicProcessBatch(10_000L)
+
+            // 1000 blocks * 1000 target / 100,000 logs = 10 blocks, so the retry covers 0..9.
+            coVerify(exactly = 1) { logClient.fetchEventLogs(0L, 9L, 100L, null) }
+            expect { that(indexer.getCurrentBlockNumber()).isEqualTo(10L) }
+        }
+
+        @Test
+        fun `processBatch always at least halves the range`() = runBlocking {
+            val indexer = indexerWith(4L)
+            every { eventProcessor.hasAbis() } returns true
+            // A count below the target would otherwise widen the range rather than narrow it.
+            coEvery { logClient.fetchEventLogs(0L, 3L, 100L, null) } throws
+                paginationLimit(0L, 3L, logsFetched = 1)
+
+            indexer.publicProcessBatch(10_000L)
+
+            expect { that(indexer.publicCalculateBatchEndBlock(10_000L)).isEqualTo(1L) }
+        }
+
+        @Test
+        fun `sync drives through a range too dense to page rather than stalling on it`() =
+            runBlocking {
+                val indexer = indexerWith(1000L)
+                every { eventProcessor.hasAbis() } returns true
+                every { eventProcessor.needsVetTransfers() } returns false
+                every { eventProcessor.processEvents(any<List<EventLog>>(), any()) } returns
+                    emptyList()
+                // Any width over 20 blocks overruns the offset cap, mirroring the mainnet range
+                // that stalled the NFT indexer.
+                coEvery { logClient.fetchEventLogs(any(), any(), any(), any()) } answers
+                    {
+                        val from = firstArg<Long>()
+                        val to = secondArg<Long>()
+                        if (to - from + 1 > 20) throw paginationLimit(from, to) else emptyList()
+                    }
+                coEvery { logClient.fetchTransfers(any(), any(), any(), any()) } returns emptyList()
+
+                indexer.publicSync(BlockIdentifier(500L, "0xtip"))
+
+                expect { that(indexer.getCurrentBlockNumber()).isEqualTo(500L) }
+            }
+
+        @Test
+        fun `processBatch rethrows when a single block is already past the cap`() = runBlocking {
+            val indexer = indexerWith(1L)
+            every { eventProcessor.hasAbis() } returns true
+            coEvery { logClient.fetchEventLogs(0L, 0L, 100L, null) } throws paginationLimit(0L, 0L)
+
+            val thrown = runCatching { indexer.publicProcessBatch(10_000L) }.exceptionOrNull()
+
+            expect { that(thrown).isA<LogPaginationLimitException>() }
         }
     }
 }
