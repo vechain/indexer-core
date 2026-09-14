@@ -152,6 +152,11 @@ For each batch:
 
 If a batch contains no logs, the block pointer still advances.
 
+Steps 2 and 3 can instead find the range too dense to page through (see
+[Internal pagination](#internal-pagination)). The range is then narrowed and the batch restarted
+from the same current block, so steps 4 to 6 are skipped for that attempt and no range is passed
+over unread.
+
 ## Returned Data
 
 The processor receives decoded `IndexedEvent` items. Depending on configuration, those may include:
