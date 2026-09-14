@@ -60,7 +60,7 @@ These options are exposed through `IndexerFactory` and apply to `LogsIndexer` mo
 
 Log mode adapts the block range queried per batch automatically.
 
-The initial range is `100` blocks. After each successful batch, `LogsIndexer` uses the total number
+The initial range is `1` block. After each successful batch, `LogsIndexer` uses the total number
 of raw event logs and transfer logs returned by Thor to choose the next range:
 
 - empty batches increase the range quickly
@@ -74,6 +74,17 @@ The adaptive range is clamped between `1` and `1000` blocks.
 
 Thor log requests are still paginated internally. The page size defaults to `1000` logs per request.
 This does not control the searched block range.
+
+Thor also caps `options.offset` at `100000`, so a range holding more logs than that cannot be paged
+through at its current width. `LogsIndexer` treats this as a second backpressure signal: it narrows
+the range — at least halving it — and retries the same start block, rather than advancing past the
+range or retrying it unchanged. Because the plain adaptive path only reacts to batches that
+succeeded, this is what stops a dense range from being retried at the same width indefinitely.
+
+A range that is already a single block cannot be narrowed further, so that raises
+`LogPaginationLimitException` to the caller. Reaching that point means one block holds more than
+`100000` matching logs; narrow `eventCriteriaSet(...)` / `transferCriteriaSet(...)` so Thor filters
+server-side instead.
 
 ### `eventCriteriaSet(...)`
 
