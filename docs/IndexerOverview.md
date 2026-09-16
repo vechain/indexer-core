@@ -197,6 +197,21 @@ IndexerRunner.launch(
 `catchUpInterval` controls how long catch-up work runs before the runner safely reclassifies
 fast-syncing, sync-ready, and blocked indexers.
 
+### Proximity Grouping
+
+A group is a connected component over two relations:
+
+- **dependency** — a dependant shares a group with the indexer it `dependsOn`
+- **proximity** — indexers within `proximityThreshold` blocks of each other share a group
+
+Both relations are transitive, so a group can span far more than `proximityThreshold` blocks: a
+dependency chain holds together at any distance, and each proximity link chains onto the next. The
+threshold bounds the gap between neighbouring indexers, not the width of a group.
+
+Each group gets its own block-fetching pipeline, starting at the lowest block in the group.
+Indexers already past a fetched block skip it, so an indexer costs nothing extra by joining a group
+that already spans its position — which is why grouping merges freely rather than splitting.
+
 ## When to Use Which Mode
 
 Use a default factory-built `LogsIndexer` when you only need decoded events or VET transfers and want the fastest catch-up path.
