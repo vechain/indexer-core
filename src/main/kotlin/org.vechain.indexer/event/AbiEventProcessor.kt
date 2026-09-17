@@ -151,21 +151,23 @@ open class AbiEventProcessor(
      */
     protected fun decodeLogEvents(logs: List<EventLog>): List<IndexedEvent> {
         if (logs.isEmpty()) return emptyList()
+        val positions = ClausePositions()
 
-        return logs.mapIndexedNotNull { i, log ->
+        return logs.mapNotNull { log ->
+            val eventIndex = positions.next(log.meta)
             val txEvent = TxEvent(log.address, log.topics, log.data)
 
             // Check if the event is valid and has a matching ABI
             if (!EventUtils.isEventValid(txEvent, eventAbis, contractAddresses))
-                return@mapIndexedNotNull null
+                return@mapNotNull null
             val matchingAbi =
-                EventUtils.findMatchingAbi(log.topics, eventAbis) ?: return@mapIndexedNotNull null
+                EventUtils.findMatchingAbi(log.topics, eventAbis) ?: return@mapNotNull null
 
             try {
                 val parameters = EventUtils.decodeEvent(txEvent, matchingAbi)
 
                 IndexedEvent(
-                    id = generateEventId(log.meta.txID, log.meta.clauseIndex, i, txEvent),
+                    id = generateEventId(log.meta.txID, log.meta.clauseIndex, eventIndex, txEvent),
                     blockId = log.meta.blockID,
                     blockNumber = log.meta.blockNumber,
                     blockTimestamp = log.meta.blockTimestamp,
@@ -197,8 +199,11 @@ open class AbiEventProcessor(
      */
     protected fun decodeLogTransfers(logs: List<TransferLog>): List<IndexedEvent> {
         if (logs.isEmpty()) return emptyList()
+        val positions = ClausePositions()
 
-        return logs.mapIndexedNotNull { i, log ->
+        return logs.mapNotNull { log ->
+            val transferIndex = positions.next(log.meta)
+            val transfer = TxTransfer(log.sender, log.recipient, log.amount)
             try {
                 val parameters =
                     AbiEventParameters(
@@ -211,7 +216,13 @@ open class AbiEventProcessor(
                     )
 
                 IndexedEvent(
-                    id = generateEventId(log.meta.txID, log.meta.clauseIndex, i, parameters),
+                    id =
+                        generateEventId(
+                            log.meta.txID,
+                            log.meta.clauseIndex,
+                            transferIndex,
+                            transfer,
+                        ),
                     blockId = log.meta.blockID,
                     blockNumber = log.meta.blockNumber,
                     blockTimestamp = log.meta.blockTimestamp,
@@ -276,4 +287,16 @@ open class AbiEventProcessor(
                 null
             }
         }
+
+    /** Each log's position within its clause; a batch always holds a clause's logs in full. */
+    private class ClausePositions {
+        private val next = HashMap<Pair<String, Int>, Int>()
+
+        fun next(meta: EventMeta): Int {
+            val key = meta.txID to meta.clauseIndex
+            val position = next[key] ?: 0
+            next[key] = position + 1
+            return position
+        }
+    }
 }
