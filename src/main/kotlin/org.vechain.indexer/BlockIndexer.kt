@@ -15,7 +15,9 @@ import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.utils.IndexerUtils.ensureStatus
 
-open class BlockIndexer(
+open class BlockIndexer
+@JvmOverloads
+constructor(
     override val name: String,
     protected open val thorClient: ThorClient,
     private val processor: IndexerProcessor,

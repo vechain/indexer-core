@@ -350,6 +350,7 @@ class IndexerFactory {
      * Sets a parent indexer that this indexer depends on. With [align] false, startup alignment
      * never rolls the parent back to this indexer; see `docs/MIGRATION-11.0.0.md`.
      */
+    @JvmOverloads
     fun dependsOn(indexer: Indexer, align: Boolean = true) = apply {
         this.dependsOn = indexer
         this.alignWithParent = align
