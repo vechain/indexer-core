@@ -201,18 +201,18 @@ fast-syncing, sync-ready, and blocked indexers.
 
 ### Proximity Grouping
 
-A group is a connected component over two relations:
+Groups are built in two steps:
 
-- **dependency** — a dependant shares a group with the indexer it `dependsOn`
-- **proximity** — indexers within `proximityThreshold` blocks of each other share a group
-
-Both relations are transitive, so a group can span far more than `proximityThreshold` blocks: a
-dependency chain holds together at any distance, and each proximity link chains onto the next. The
-threshold bounds the gap between neighbouring indexers, not the width of a group.
+- **dependency** — a dependant shares a group with the indexer it `dependsOn`, at any distance. Such
+  a component advances from its lowest member, so that block is its position.
+- **proximity** — components (a lone indexer is a component of one) whose positions are within
+  `proximityThreshold` blocks of each other share a group, chained transitively.
 
 Each group gets its own block-fetching pipeline, starting at the lowest block in the group.
-Indexers already past a fetched block skip it, so an indexer costs nothing extra by joining a group
-that already spans its position — which is why grouping merges freely rather than splitting.
+Indexers already past a fetched block skip it, and so make no progress until the pipeline reaches
+them. Proximity is therefore measured from a component's lowest member only: an indexer near a
+dependant that is far ahead of its parent keeps its own pipeline instead of waiting for the parent
+to catch up.
 
 ## When to Use Which Mode
 

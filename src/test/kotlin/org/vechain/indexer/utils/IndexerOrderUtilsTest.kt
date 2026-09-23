@@ -469,7 +469,7 @@ internal class IndexerOrderUtilsTest {
         }
 
         @Test
-        fun `a chain spanning two clusters pulls both into one group`() {
+        fun `a chain joins the cluster at its lowest member, not the one at its far end`() {
             val a = createMockIndexer("a", currentBlock = 0)
             val b = createMockIndexer("b", currentBlock = 50)
             val c = createMockIndexer("c", currentBlock = 2000)
@@ -478,26 +478,55 @@ internal class IndexerOrderUtilsTest {
 
             val result = IndexerOrderUtils.proximityGroups(listOf(a, b, c, parent, child), 100)
 
-            // parent@10 is near a,b and child@2010 is near c; the dependency edge bridges them
-            expectThat(result).hasSize(1)
+            // The chain runs from parent@10, so c@2000 would only wait beside child@2010.
+            expectThat(result).hasSize(2)
             val names = result[0].map { it.name }
-            expectThat(names.toSet()).isEqualTo(setOf("a", "b", "c", "parent", "child"))
+            expectThat(names.toSet()).isEqualTo(setOf("a", "b", "parent", "child"))
             expectThat(names.indexOf("parent") < names.indexOf("child")).isEqualTo(true)
+            expectThat(result[1]).containsExactly(c)
         }
 
         @Test
-        fun `an independent indexer inside a chain's span joins that chain's group`() {
-            // Regression: the indexer sat alone in its own group while the group it overlapped
-            // spanned right across it.
-            val standalone = createMockIndexer("standalone", currentBlock = 600)
+        fun `head indexers beside a replaying parent's dependant keep their own group`() {
+            // Production shape: a parent resyncs while its dependant and every other indexer sit
+            // at the head; the dependant must not freeze the rest until the parent catches up.
+            val parent = createMockIndexer("parent", currentBlock = 0)
+            val child = createMockIndexer("child", dependsOn = parent, currentBlock = 10_000)
+            val x = createMockIndexer("x", currentBlock = 10_000)
+            val y = createMockIndexer("y", currentBlock = 9_950)
+
+            val result = IndexerOrderUtils.proximityGroups(listOf(x, parent, y, child), 100)
+
+            expectThat(result).hasSize(2)
+            expectThat(result[0]).containsExactly(parent, child)
+            expectThat(result[1]).containsExactly(y, x)
+        }
+
+        @Test
+        fun `chains whose lowest members are within the threshold share a group`() {
+            val p1 = createMockIndexer("p1", currentBlock = 0)
+            val c1 = createMockIndexer("c1", dependsOn = p1, currentBlock = 5000)
+            val p2 = createMockIndexer("p2", currentBlock = 80)
+            val c2 = createMockIndexer("c2", dependsOn = p2, currentBlock = 9000)
+
+            val result = IndexerOrderUtils.proximityGroups(listOf(c2, p2, c1, p1), 100)
+
+            expectThat(result).hasSize(1)
+            expectThat(result[0].map { it.name }.toSet()).isEqualTo(setOf("p1", "c1", "p2", "c2"))
+        }
+
+        @Test
+        fun `an indexer inside a chain's span joins it only near the chain's lowest member`() {
+            val near = createMockIndexer("near", currentBlock = 400)
+            val far = createMockIndexer("far", currentBlock = 950)
             val root = createMockIndexer("root", currentBlock = 0)
             val leaf = createMockIndexer("leaf", dependsOn = root, currentBlock = 1000)
 
-            val result = IndexerOrderUtils.proximityGroups(listOf(standalone, root, leaf), 500)
+            val result = IndexerOrderUtils.proximityGroups(listOf(far, near, root, leaf), 500)
 
-            expectThat(result).hasSize(1)
-            expectThat(result[0].map { it.name }.toSet())
-                .isEqualTo(setOf("root", "standalone", "leaf"))
+            expectThat(result).hasSize(2)
+            expectThat(result[0].map { it.name }.toSet()).isEqualTo(setOf("root", "near", "leaf"))
+            expectThat(result[1]).containsExactly(far)
         }
     }
 }

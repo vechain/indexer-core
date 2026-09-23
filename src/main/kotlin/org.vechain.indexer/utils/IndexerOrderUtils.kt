@@ -91,12 +91,19 @@ internal object IndexerOrderUtils {
 
         val union = IndexerUnion().apply { linkDependencies(indexers) }
 
-        val sorted = indexers.sortedBy { it.getCurrentBlockNumber() }
-        for (i in 1 ..< sorted.size) {
-            val gap = sorted[i].getCurrentBlockNumber() - sorted[i - 1].getCurrentBlockNumber()
-            if (gap <= threshold) union.merge(sorted[i], sorted[i - 1])
+        // A dependency component advances from its lowest member, so that block is its position.
+        val components =
+            indexers
+                .groupBy { union.find(it) }
+                .values
+                .map { it.first() to it.minOf { i -> i.getCurrentBlockNumber() } }
+                .sortedBy { it.second }
+        for (i in 1 ..< components.size) {
+            val gap = components[i].second - components[i - 1].second
+            if (gap <= threshold) union.merge(components[i].first, components[i - 1].first)
         }
 
+        val sorted = indexers.sortedBy { it.getCurrentBlockNumber() }
         return sorted.groupBy { union.find(it) }.values.map { topologicalOrder(it).flatten() }
     }
 

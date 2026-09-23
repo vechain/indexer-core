@@ -40,3 +40,11 @@ Audit each `dependsOn(...)` edge in your topology and decide what your dependant
 `dependsOn(parent, align = false)` keeps same-block ordering, group membership and the fast-sync bypass, but startup alignment never rolls the parent back to that child, and a child ahead of its parent on that edge is not warned about. Truncating such a child replays it alone while the parent skips.
 
 Use it only when every read the child makes of parent state is **as of the block being processed** and the parent never prunes that state. A child that reads the parent's current row still needs the default `align = true`, because replaying it against the parent's present state gives different results from the original run. A change to the parent's logic still requires resyncing its children.
+
+## 11.2.1: proximity from a chain's lowest member
+
+Before 11.2.1 an indexer within `proximityThreshold` of any member of a dependency chain joined the
+chain's group. A dependant at the head whose parent was resyncing therefore pulled every head
+indexer into the parent's group, and they all skipped blocks until the parent caught up. Proximity
+is now measured from the chain's lowest member, so those indexers keep their own group. Chains
+themselves are unchanged: a dependant still shares a group with its parent.
