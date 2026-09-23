@@ -793,6 +793,49 @@ internal class IndexerRunnerTest {
         }
 
         @Test
+        fun `a non-aligning child still awaits its parent within a block`() = runTest {
+            val thorClient = mockk<ThorClient>()
+            val events = mutableListOf<String>()
+            fun realIndexer(name: String, dependsOn: Indexer?, align: Boolean): BlockIndexer {
+                val processor = mockk<IndexerProcessor>(relaxed = true)
+                every { processor.getLastSyncedBlock() } returns null
+                coEvery { processor.process(any()) } coAnswers
+                    {
+                        if (dependsOn == null) delay(100)
+                        synchronized(events) { events.add(name) }
+                    }
+                return BlockIndexer(
+                        name = name,
+                        thorClient = thorClient,
+                        processor = processor,
+                        startBlock = 0L,
+                        syncLoggerInterval = 1L,
+                        eventProcessor = null,
+                        inspectionClauses = null,
+                        dependsOn = dependsOn,
+                        alignWithParent = align,
+                    )
+                    .apply { initialise() }
+            }
+            val parent = realIndexer("parent", dependsOn = null, align = true)
+            val child = realIndexer("child", dependsOn = parent, align = false)
+
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(0L)) } returns
+                buildBlock(num = 0L)
+            coEvery { thorClient.waitForBlock(BlockRevision.Number(1L)) } coAnswers
+                {
+                    delay(5_000)
+                    buildBlock(num = 1L)
+                }
+
+            val job = launch { IndexerRunner().runIndexers(listOf(child, parent), thorClient, 1) }
+            delay(500)
+            job.cancelAndJoin()
+
+            expectThat(synchronized(events) { events.toList() }).containsExactly("parent", "child")
+        }
+
+        @Test
         fun `unrecoverable failure in one indexer aborts the group and cancels siblings`() =
             runTest {
                 // A -> {B, C}; C -> D. B throws ReorgException (the runner does not retry it);
@@ -2333,6 +2376,7 @@ internal class IndexerRunnerTest {
             persistedBlock: Long,
             startBlock: Long = 0L,
             dependsOn: Indexer? = null,
+            align: Boolean = true,
         ): BlockIndexer {
             val processor = mockk<IndexerProcessor>(relaxed = true)
             every { processor.getLastSyncedBlock() } returns
@@ -2348,6 +2392,7 @@ internal class IndexerRunnerTest {
                     eventProcessor = null,
                     inspectionClauses = null,
                     dependsOn = dependsOn,
+                    alignWithParent = align,
                 )
             indexer.initialise()
             return indexer
@@ -2357,6 +2402,7 @@ internal class IndexerRunnerTest {
             name: String,
             startBlock: Long,
             dependsOn: Indexer? = null,
+            align: Boolean = true,
         ): BlockIndexer {
             val processor = mockk<IndexerProcessor>(relaxed = true)
             every { processor.getLastSyncedBlock() } returns null
@@ -2371,6 +2417,7 @@ internal class IndexerRunnerTest {
                     eventProcessor = null,
                     inspectionClauses = null,
                     dependsOn = dependsOn,
+                    alignWithParent = align,
                 )
             indexer.initialise()
             return indexer
@@ -2612,6 +2659,55 @@ internal class IndexerRunnerTest {
             expectThat(leaf.getCurrentBlockNumber()).isEqualTo(10_000L)
         }
 
+        @Test
+        fun `a non-aligning child at its start block leaves the parent's target untouched`() {
+            val parent = blockIndexer("parent", persistedBlock = 5_000L)
+            val child =
+                unpersistedBlockIndexer(
+                    "child",
+                    startBlock = 1_000L,
+                    dependsOn = parent,
+                    align = false,
+                )
+
+            IndexerRunner().alignDependencyTargets(listOf(parent, child))
+
+            expectThat(parent.getCurrentBlockNumber()).isEqualTo(5_000L)
+            expectThat(child.getCurrentBlockNumber()).isEqualTo(1_000L)
+        }
+
+        @Test
+        fun `a mixed group aligns only the aligning edges`() {
+            // root <- asOf (align = false, behind at 2000); root <- lockstep (behind at 3000).
+            // Only lockstep constrains root; asOf's lower block is ignored.
+            val root = blockIndexer("root", persistedBlock = 5_000L)
+            val asOf =
+                blockIndexer("as-of", persistedBlock = 2_000L, dependsOn = root, align = false)
+            val lockstep = blockIndexer("lockstep", persistedBlock = 3_000L, dependsOn = root)
+            every { root.getLastSyncedBlock() } returns BlockIdentifier(2_999L, "0x2999")
+
+            IndexerRunner().alignDependencyTargets(listOf(root, asOf, lockstep))
+
+            expectThat(root.getCurrentBlockNumber()).isEqualTo(3_000L)
+            expectThat(asOf.getCurrentBlockNumber()).isEqualTo(2_000L)
+            expectThat(lockstep.getCurrentBlockNumber()).isEqualTo(3_000L)
+        }
+
+        @Test
+        fun `a non-aligning edge stops propagation up the chain`() {
+            // a <- b (align = false) <- c (behind at 2000): c pulls b back, b does not pull a.
+            val a = blockIndexer("a", persistedBlock = 5_000L)
+            val b = blockIndexer("b", persistedBlock = 5_000L, dependsOn = a, align = false)
+            val c = blockIndexer("c", persistedBlock = 2_000L, dependsOn = b)
+            every { b.getLastSyncedBlock() } returns BlockIdentifier(1_999L, "0x1999")
+
+            IndexerRunner().alignDependencyTargets(listOf(a, b, c))
+
+            expectThat(a.getCurrentBlockNumber()).isEqualTo(5_000L)
+            expectThat(b.getCurrentBlockNumber()).isEqualTo(2_000L)
+            expectThat(c.getCurrentBlockNumber()).isEqualTo(2_000L)
+        }
+
         // A persisted BlockIndexer whose processor's rollback is a no-op — getLastSyncedBlock
         // continues to report the persisted block after rollback. Models a processor with
         // insufficient retention for deep realignment.
@@ -2648,6 +2744,7 @@ internal class IndexerRunnerTest {
             persistedBlock: Long,
             startBlock: Long = 0L,
             dependsOn: Indexer? = null,
+            align: Boolean = true,
         ): BlockIndexer {
             val processor = mockk<IndexerProcessor>(relaxed = true)
             every { processor.getLastSyncedBlock() } returns
@@ -2663,6 +2760,7 @@ internal class IndexerRunnerTest {
                     eventProcessor = null,
                     inspectionClauses = null,
                     dependsOn = dependsOn,
+                    alignWithParent = align,
                 )
             indexer.initialise()
             return indexer
@@ -2740,6 +2838,18 @@ internal class IndexerRunnerTest {
         fun `does not warn when child is behind its parent`() {
             val parent = blockIndexer("parent", persistedBlock = 10_000L)
             val child = blockIndexer("child", persistedBlock = 1_000L, dependsOn = parent)
+            val (runner, mockLogger) = runnerWithMockLogger()
+
+            runner.warnChildAheadOfParent(listOf(parent, child))
+
+            verify(exactly = 0) { mockLogger.warn(any<String>(), *anyVararg()) }
+        }
+
+        @Test
+        fun `does not warn when a non-aligning child is ahead of its parent`() {
+            val parent = blockIndexer("parent", persistedBlock = 500L)
+            val child =
+                blockIndexer("child", persistedBlock = 10_000L, dependsOn = parent, align = false)
             val (runner, mockLogger) = runnerWithMockLogger()
 
             runner.warnChildAheadOfParent(listOf(parent, child))

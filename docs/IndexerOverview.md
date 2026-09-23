@@ -168,6 +168,8 @@ If the runner finds an ancestor ahead of a behind-descendant at startup, it roll
 
 This is a contract change from 10.x — see [`MIGRATION-11.0.0.md`](./MIGRATION-11.0.0.md). Consumers whose `process(...)` reads parent persisted state should now manage their own rollback of dependants when they resync a parent; the library will log a WARN at startup for each child that sits ahead of its parent so the condition is visible.
 
+An edge built with `dependsOn(parent, align = false)` is skipped by startup alignment and by that warning, so a child truncated for a resync replays alone. Use it only for children that read parent state as of the block being processed from state the parent never prunes; see [`MIGRATION-11.0.0.md`](./MIGRATION-11.0.0.md#1120-as-of-consumers).
+
 ## Runner Behaviour
 
 `IndexerRunner` coordinates all configured indexers:

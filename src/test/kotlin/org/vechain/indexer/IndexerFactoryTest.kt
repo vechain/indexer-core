@@ -20,7 +20,9 @@ import strikt.assertions.contains
 import strikt.assertions.hasSize
 import strikt.assertions.isEmpty
 import strikt.assertions.isEqualTo
+import strikt.assertions.isFalse
 import strikt.assertions.isNotNull
+import strikt.assertions.isTrue
 
 internal class IndexerFactoryTest {
 
@@ -82,6 +84,14 @@ internal class IndexerFactoryTest {
             val parent = parentIndexer(startBlock = 500L)
             val indexer = baseFactory().dependsOn(parent).startBlock(100L).build()
             expectThat(indexer.startBlock).isEqualTo(100L)
+        }
+
+        @Test
+        fun `dependsOn aligns with the parent unless align is false`() {
+            val parent = parentIndexer(startBlock = 100L)
+            expectThat(baseFactory().dependsOn(parent).build().alignWithParent).isTrue()
+            expectThat(baseFactory().dependsOn(parent, align = false).build().alignWithParent)
+                .isFalse()
         }
 
         @Test

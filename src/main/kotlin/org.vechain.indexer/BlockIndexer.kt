@@ -24,6 +24,7 @@ open class BlockIndexer(
     protected val eventProcessor: CombinedEventProcessor?,
     private val inspectionClauses: List<Clause>?,
     override val dependsOn: Indexer?,
+    val alignWithParent: Boolean = true,
 ) : Indexer {
 
     override fun getInspectionClauses(): List<Clause>? = inspectionClauses

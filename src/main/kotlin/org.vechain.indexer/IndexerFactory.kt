@@ -30,6 +30,7 @@ class IndexerFactory {
     private var transferCriteriaSet: List<TransferCriteria>? = null
     private var includeFullBlock: Boolean = false
     private var dependsOn: Indexer? = null
+    private var alignWithParent: Boolean = true
     private var callDataClauses: List<Clause>? = null
 
     fun build(): BlockIndexer {
@@ -69,7 +70,8 @@ class IndexerFactory {
                 syncLoggerInterval = syncLoggerInterval,
                 eventProcessor = eventProcessor,
                 inspectionClauses = callDataClauses,
-                dependsOn = dependsOn
+                dependsOn = dependsOn,
+                alignWithParent = alignWithParent,
             )
         } else {
 
@@ -344,8 +346,14 @@ class IndexerFactory {
      */
     fun includeFullBlock() = apply { this.includeFullBlock = true }
 
-    /** Sets a parent indexer that this indexer depends on. */
-    fun dependsOn(indexer: Indexer) = apply { this.dependsOn = indexer }
+    /**
+     * Sets a parent indexer that this indexer depends on. With [align] false, startup alignment
+     * never rolls the parent back to this indexer; see `docs/MIGRATION-11.0.0.md`.
+     */
+    fun dependsOn(indexer: Indexer, align: Boolean = true) = apply {
+        this.dependsOn = indexer
+        this.alignWithParent = align
+    }
 
     /**
      * Sets the clauses to be used for call data inspection. This requires a block by block indexer
