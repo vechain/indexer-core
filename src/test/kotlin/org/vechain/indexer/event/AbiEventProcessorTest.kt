@@ -213,7 +213,8 @@ class AbiEventProcessorTest {
             expectThat(result).isNotEmpty()
             expectThat(result.size).isEqualTo(1)
             expectThat(result[0]) {
-                get { id }.isEqualTo("tx1-0-0--1837219028")
+                get { id }
+                    .isEqualTo("tx1-0-0-${TxTransfer("sender", "recipient", "100").hashCode()}")
                 get { blockId }.isEqualTo(log.meta.blockID)
                 get { blockNumber }.isEqualTo(log.meta.blockNumber)
                 get { blockTimestamp }.isEqualTo(log.meta.blockTimestamp)
@@ -284,6 +285,86 @@ class AbiEventProcessorTest {
             expectThat(result.map { it.eventType })
                 .isEqualTo(listOf("VET_TRANSFER", "RewardDistributed"))
         }
+    }
+
+    @Nested
+    inner class LogIds {
+        private val stargate =
+            TestableAbiEventProcessor(
+                basePath = "test-abis/stargate",
+                eventNames = listOf("Transfer", "TokenMinted"),
+                contractAddresses = emptyList(),
+                includeVetTransfers = true
+            )
+
+        @Test
+        fun `a log batch gives every event and transfer the id the block scan gives it`() {
+            val block = BLOCK_STARGATE_STAKE
+
+            val fromBlock = stargate.processEvents(block).map { it.id }
+            val fromLogs =
+                stargate.processEvents(eventLogsOf(block), transferLogsOf(block)).map { it.id }
+
+            expectThat(fromBlock).isNotEmpty()
+            expectThat(fromLogs).containsExactlyInAnyOrder(fromBlock)
+        }
+
+        @Test
+        fun `an id does not move with where the batch begins`() {
+            val block = BlockFixtures.BLOCK_TRANSFERS
+            val earlier = BLOCK_STARGATE_STAKE
+            val tokens =
+                TestableAbiEventProcessor(
+                    basePath = "test-abis/tokens",
+                    eventNames = listOf("Transfer"),
+                    contractAddresses = emptyList(),
+                    includeVetTransfers = true
+                )
+
+            val alone = tokens.processEvents(eventLogsOf(block), transferLogsOf(block))
+            val afterAnotherBlock =
+                tokens.processEvents(
+                    eventLogsOf(earlier) + eventLogsOf(block),
+                    transferLogsOf(earlier) + transferLogsOf(block),
+                )
+
+            expectThat(alone).isNotEmpty()
+            expectThat(afterAnotherBlock.filter { it.blockNumber == block.number }.map { it.id })
+                .isEqualTo(alone.map { it.id })
+        }
+
+        private fun eventLogsOf(block: Block): List<EventLog> =
+            block.transactions.flatMap { tx ->
+                tx.outputs.flatMapIndexed { clauseIndex, output ->
+                    output.events.map {
+                        EventLog(it.address, it.topics, it.data, meta(block, tx, clauseIndex))
+                    }
+                }
+            }
+
+        private fun transferLogsOf(block: Block): List<TransferLog> =
+            block.transactions.flatMap { tx ->
+                tx.outputs.flatMapIndexed { clauseIndex, output ->
+                    output.transfers.map {
+                        TransferLog(
+                            it.sender,
+                            it.recipient,
+                            it.amount,
+                            meta(block, tx, clauseIndex)
+                        )
+                    }
+                }
+            }
+
+        private fun meta(block: Block, tx: Transaction, clauseIndex: Int) =
+            EventMeta(
+                blockID = block.id,
+                blockNumber = block.number,
+                blockTimestamp = block.timestamp,
+                txID = tx.id,
+                txOrigin = tx.origin,
+                clauseIndex = clauseIndex,
+            )
     }
 
     @Nested
