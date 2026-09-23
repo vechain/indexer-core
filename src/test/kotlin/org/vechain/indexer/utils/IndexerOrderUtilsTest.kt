@@ -404,18 +404,14 @@ internal class IndexerOrderUtilsTest {
         }
 
         @Test
-        fun `cross-group dependency chain extracted leaves single standalone group`() {
-            // parent at block 0, child at block 1000 — initially two proximity groups
-            // Chain extraction removes both from their original groups (leaving them empty),
-            // so the chain becomes the sole standalone group
+        fun `dependency chain shares a group despite exceeding the threshold`() {
             val parent = createMockIndexer("parent", currentBlock = 0)
             val child = createMockIndexer("child", dependsOn = parent, currentBlock = 1000)
 
             val result = IndexerOrderUtils.proximityGroups(listOf(parent, child), 100)
 
-            // Both original groups emptied after extraction; chain is the only group
             expectThat(result).hasSize(1)
-            // Should be topologically ordered: parent before child
+            // Topologically ordered: parent before child
             expectThat(result[0]).containsExactly(parent, child)
         }
 
@@ -436,14 +432,13 @@ internal class IndexerOrderUtilsTest {
         }
 
         @Test
-        fun `downstream dependents are extracted along with their chain`() {
+        fun `downstream dependents stay with their chain`() {
             val root = createMockIndexer("root", currentBlock = 0)
             val mid = createMockIndexer("mid", dependsOn = root, currentBlock = 5000)
             val leaf = createMockIndexer("leaf", dependsOn = mid, currentBlock = 5010)
 
             val result = IndexerOrderUtils.proximityGroups(listOf(root, mid, leaf), 100)
 
-            // All three form a dependency chain and get extracted together
             expectThat(result).hasSize(1)
             expectThat(result[0]).containsExactly(root, mid, leaf)
         }
@@ -474,25 +469,35 @@ internal class IndexerOrderUtilsTest {
         }
 
         @Test
-        fun `cross-group chain merges into closest group within threshold`() {
+        fun `a chain spanning two clusters pulls both into one group`() {
             val a = createMockIndexer("a", currentBlock = 0)
             val b = createMockIndexer("b", currentBlock = 50)
             val c = createMockIndexer("c", currentBlock = 2000)
-            // parent in first group, child in second — chain min is 10
             val parent = createMockIndexer("parent", currentBlock = 10)
             val child = createMockIndexer("child", dependsOn = parent, currentBlock = 2010)
 
             val result = IndexerOrderUtils.proximityGroups(listOf(a, b, c, parent, child), 100)
 
-            // Chain (parent@10, child@2010) min=10, closest group is {a@0,b@50} with min=0
-            // gap = |10-0| = 10 <= 100, so merge into that group
-            expectThat(result).hasSize(2)
-            // First group: a, b, parent, child (topologically ordered)
-            val firstGroupNames = result[0].map { it.name }
-            expectThat(firstGroupNames.indexOf("parent") < firstGroupNames.indexOf("child"))
-                .isEqualTo(true)
-            // Second group: c
-            expectThat(result[1]).containsExactly(c)
+            // parent@10 is near a,b and child@2010 is near c; the dependency edge bridges them
+            expectThat(result).hasSize(1)
+            val names = result[0].map { it.name }
+            expectThat(names.toSet()).isEqualTo(setOf("a", "b", "c", "parent", "child"))
+            expectThat(names.indexOf("parent") < names.indexOf("child")).isEqualTo(true)
+        }
+
+        @Test
+        fun `an independent indexer inside a chain's span joins that chain's group`() {
+            // Regression: the indexer sat alone in its own group while the group it overlapped
+            // spanned right across it.
+            val standalone = createMockIndexer("standalone", currentBlock = 600)
+            val root = createMockIndexer("root", currentBlock = 0)
+            val leaf = createMockIndexer("leaf", dependsOn = root, currentBlock = 1000)
+
+            val result = IndexerOrderUtils.proximityGroups(listOf(standalone, root, leaf), 500)
+
+            expectThat(result).hasSize(1)
+            expectThat(result[0].map { it.name }.toSet())
+                .isEqualTo(setOf("root", "standalone", "leaf"))
         }
     }
 }
