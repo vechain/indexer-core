@@ -292,6 +292,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         while (changed) {
             changed = false
             for (child in indexers) {
+                if (!child.alignsWithParent) continue
                 val parent = child.dependsOn?.takeIf { it in indexerSet } ?: continue
 
                 val parentTarget = targets.getValue(parent)
@@ -306,6 +307,9 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
 
         return targets
     }
+
+    private val Indexer.alignsWithParent: Boolean
+        get() = (this as? BlockIndexer)?.alignWithParent ?: true
 
     /**
      * Emits a WARN for each `dependsOn` edge where a persisted child sits above its parent. Prior
@@ -326,6 +330,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         for (child in indexers) {
             if (child.getStatus() == Status.NOT_INITIALISED) continue
             if (child.getLastSyncedBlock() == null) continue
+            if (!child.alignsWithParent) continue
             val parent = child.dependsOn?.takeIf { it in indexerSet } ?: continue
             if (parent.getStatus() == Status.NOT_INITIALISED) continue
             val childBlock = child.getCurrentBlockNumber()

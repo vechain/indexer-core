@@ -34,3 +34,9 @@ Audit each `dependsOn(...)` edge in your topology and decide what your dependant
 - Same-block ordering during forward progress is unchanged: `dependsOn(...)` still guarantees the parent finishes a given block before the child processes that same block.
 - The `AlignmentFailure` aggregation behavior is unchanged: when an ancestor's processor cannot honour the requested rollback, every stuck indexer is surfaced in a single `IllegalStateException`.
 - Fast-sync bypass for indexers with dependants is unchanged.
+
+## 11.2.0: as-of consumers
+
+`dependsOn(parent, align = false)` keeps same-block ordering, group membership and the fast-sync bypass, but startup alignment never rolls the parent back to that child, and a child ahead of its parent on that edge is not warned about. Truncating such a child replays it alone while the parent skips.
+
+Use it only when every read the child makes of parent state is **as of the block being processed** and the parent never prunes that state. A child that reads the parent's current row still needs the default `align = true`, because replaying it against the parent's present state gives different results from the original run. A change to the parent's logic still requires resyncing its children.

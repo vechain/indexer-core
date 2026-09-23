@@ -15,7 +15,9 @@ import org.vechain.indexer.thor.model.BlockRevision
 import org.vechain.indexer.thor.model.Clause
 import org.vechain.indexer.utils.IndexerUtils.ensureStatus
 
-open class BlockIndexer(
+open class BlockIndexer
+@JvmOverloads
+constructor(
     override val name: String,
     protected open val thorClient: ThorClient,
     private val processor: IndexerProcessor,
@@ -24,6 +26,7 @@ open class BlockIndexer(
     protected val eventProcessor: CombinedEventProcessor?,
     private val inspectionClauses: List<Clause>?,
     override val dependsOn: Indexer?,
+    val alignWithParent: Boolean = true,
 ) : Indexer {
 
     override fun getInspectionClauses(): List<Clause>? = inspectionClauses
