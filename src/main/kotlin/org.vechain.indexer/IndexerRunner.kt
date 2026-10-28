@@ -1,5 +1,6 @@
 package org.vechain.indexer
 
+import io.micrometer.core.instrument.MeterRegistry
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -28,8 +29,12 @@ import org.vechain.indexer.utils.IndexerOrderUtils.topologicalOrder
 import org.vechain.indexer.utils.retryOnFailure
 import org.vechain.indexer.utils.retryOnFailureBounded
 
-class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
+class IndexerRunner(
+    private val timeSource: TimeSource = TimeSource.Monotonic,
+    meterRegistry: MeterRegistry? = null,
+) {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
+    private val metrics = RunnerMetrics(meterRegistry)
 
     companion object {
         private val FAST_SYNC_PENDING_STATUSES =
@@ -50,10 +55,11 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             proximityThreshold: Long = 500_000L,
             reshuffleInterval: Duration = 10.minutes,
             catchUpInterval: Duration = 5.minutes,
+            meterRegistry: MeterRegistry? = null,
         ): Job {
             require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
-            val runner = IndexerRunner(TimeSource.Monotonic)
+            val runner = IndexerRunner(TimeSource.Monotonic, meterRegistry)
 
             return scope.launch {
                 runner.run(
@@ -79,6 +85,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         require(indexers.isNotEmpty()) { "At least one indexer is required" }
 
         logger.info("Starting ${indexers.size} Indexer ${indexers.map { it.name }}")
+        metrics.bind(indexers)
 
         bypassFastSyncForIndexersWithDependants(indexers)
 
@@ -100,9 +107,11 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 )
             } catch (e: ReorgException) {
                 logger.error("Reorg detected, restarting all indexers", e)
+                metrics.restart(RunnerMetrics.RestartReason.REORG)
                 // Exception caught, job will complete normally and loop will restart
             } catch (e: StuckBlockException) {
                 logger.error("Stuck block recovered, restarting all indexers", e)
+                metrics.restart(RunnerMetrics.RestartReason.STUCK_BLOCK)
                 // Recovery (rollback + cursor reset) already happened before the throw;
                 // the loop just needs to re-enter so the indexer re-fetches the block.
             }
@@ -141,8 +150,10 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
 
             if (group1.isEmpty() && group3.isEmpty()) {
                 logger.info("All ${indexers.size} indexers caught up — entering steady-state run")
+                metrics.steadyState()
                 return
             }
+            metrics.catchUpPass(group1, group2, group3)
 
             coroutineScope {
                 val group1Done = AtomicBoolean(false)
@@ -545,6 +556,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             }
             val groups = proximityGroups(indexers, proximityThreshold)
             logProximityGroups(groups, indexers.size, proximityThreshold)
+            metrics.proximityGroups(groups)
             if (groups.size <= 1) {
                 // Steady state: once all indexers are close enough, there is no need to exit for
                 // regrouping.
@@ -577,6 +589,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             }
             val groups = proximityGroups(indexers, proximityThreshold)
             logProximityGroups(groups, indexers.size, proximityThreshold)
+            metrics.proximityGroups(groups)
             val groupsToRun = if (groups.size <= 1) listOf(indexers) else groups
             coroutineScope {
                 groupsToRun.forEach { group ->
@@ -683,15 +696,17 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                         throw StuckBlockException(message, cause)
                     },
                 ) {
-                    // Use pre-computed inspection results if indexer has clauses
-                    val indexerIndices = clauseIndexMapping[indexer]
-                    if (indexerIndices != null) {
-                        // Extract only this indexer's results from the batched response
-                        val indexerResults =
-                            indexerIndices.map { preparedBlock.inspectionResults[it] }
-                        indexer.processBlock(block, indexerResults)
-                    } else {
-                        indexer.processBlock(block)
+                    measured(indexer) {
+                        // Use pre-computed inspection results if indexer has clauses
+                        val indexerIndices = clauseIndexMapping[indexer]
+                        if (indexerIndices != null) {
+                            // Extract only this indexer's results from the batched response
+                            val indexerResults =
+                                indexerIndices.map { preparedBlock.inspectionResults[it] }
+                            indexer.processBlock(block, indexerResults)
+                        } else {
+                            indexer.processBlock(block)
+                        }
                     }
                 }
             }
@@ -711,6 +726,21 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                 )
             }
         }
+    }
+
+    private suspend fun measured(indexer: Indexer, process: suspend () -> Unit) {
+        val sample = metrics.startSample()
+        try {
+            process()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ReorgException) {
+            throw e
+        } catch (e: Exception) {
+            metrics.blockFailure(indexer)
+            throw e
+        }
+        sample.stop(metrics.blockTimer(indexer))
     }
 
     // Seeds the prefetcher's lastBlockTimestamp from the block immediately preceding startBlock.

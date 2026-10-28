@@ -23,6 +23,8 @@ That keeps versioned technical documentation close to the code and avoids mainta
   - ABI resource loading, event decoding, filtering, VET transfers, and manual processor usage
 - [`BusinessEvents.md`](./BusinessEvents.md)
   - business event JSON definitions, matching flow, rules, and interaction with ABI events
+- [`Metrics.md`](./Metrics.md)
+  - the Micrometer meters the runner records when given a `MeterRegistry`
 - [`MIGRATION-8.0.0.md`](./MIGRATION-8.0.0.md)
   - breaking changes when upgrading from 7.x
 - [`MIGRATION-11.0.0.md`](./MIGRATION-11.0.0.md)

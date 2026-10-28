@@ -1,5 +1,6 @@
 package org.vechain.indexer
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -2918,6 +2919,110 @@ internal class IndexerRunnerTest {
             runner.warnChildAheadOfParent(listOf(parent, uninitChild))
 
             verify(exactly = 0) { mockLogger.warn(any<String>(), *anyVararg()) }
+        }
+    }
+
+    @Nested
+    inner class Metrics {
+        private val registry = SimpleMeterRegistry()
+
+        private fun blockingThor(): ThorClient {
+            val thorClient = mockk<ThorClient>()
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    delay(100)
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
+                }
+            return thorClient
+        }
+
+        @Test
+        fun `records phase, groups and block timings through catch-up into steady state`() =
+            runTest {
+                val fast = createMockIndexer(name = "fast", fastSyncBlock = { delay(50) })
+                val plain = createMockNonFastSyncableIndexer("plain")
+
+                val runner = IndexerRunner(meterRegistry = registry)
+                val job = launch {
+                    runner.run(
+                        listOf(fast, plain),
+                        1,
+                        blockingThor(),
+                        500_000L,
+                        reshuffleInterval = 15.minutes,
+                        catchUpInterval = 5.minutes,
+                    )
+                }
+                delay(1_000)
+                job.cancelAndJoin()
+
+                expectThat(
+                        registry.get("indexer.runner.phase").tag("phase", "steady").gauge().value()
+                    )
+                    .isEqualTo(1.0)
+                expectThat(
+                        registry
+                            .get("indexer.runner.regroups")
+                            .tag("kind", "catch_up")
+                            .counter()
+                            .count()
+                    )
+                    .isEqualTo(1.0)
+                listOf(fast, plain).forEach { indexer ->
+                    expectThat(
+                            registry
+                                .get("indexer.runner.proximity.group")
+                                .tag(RunnerMetrics.INDEXER_TAG, indexer.name)
+                                .gauge()
+                                .value()
+                        )
+                        .isEqualTo(1.0)
+                    expectThat(
+                            registry
+                                .get("indexer.block.process")
+                                .tag(RunnerMetrics.INDEXER_TAG, indexer.name)
+                                .timer()
+                                .count()
+                        )
+                        .isGreaterThan(0L)
+                }
+            }
+
+        @Test
+        fun `counts a failed block attempt and a reorg restart`() = runTest {
+            var attempts = 0
+            val indexer =
+                createMockNonFastSyncableIndexer(
+                    name = "plain",
+                    processBlock = {
+                        attempts++
+                        when (attempts) {
+                            1 -> throw IllegalStateException("transient")
+                            2 -> throw ReorgException("Reorg at block 0")
+                            else -> delay(5_000)
+                        }
+                    },
+                )
+
+            val runner = IndexerRunner(meterRegistry = registry)
+            val job = launch {
+                runner.run(listOf(indexer), 1, blockingThor(), 500_000L, 15.minutes, 1.minutes)
+            }
+            delay(5_000)
+            job.cancelAndJoin()
+
+            expectThat(
+                    registry
+                        .get("indexer.block.process.failures")
+                        .tag(RunnerMetrics.INDEXER_TAG, indexer.name)
+                        .counter()
+                        .count()
+                )
+                .isEqualTo(1.0)
+            expectThat(
+                    registry.get("indexer.runner.restarts").tag("reason", "reorg").counter().count()
+                )
+                .isEqualTo(1.0)
         }
     }
 }
