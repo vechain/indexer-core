@@ -195,6 +195,8 @@ IndexerRunner.launch(
 )
 ```
 
+`meterRegistry` is optional; with one, the runner records the meters in [`Metrics.md`](./Metrics.md).
+
 `reshuffleInterval` controls steady-state proximity regrouping while indexers are far apart.
 `catchUpInterval` caps how long catch-up work runs before the runner safely reclassifies
 fast-syncing, sync-ready, and blocked indexers. A pass also ends as soon as its fast syncs finish,

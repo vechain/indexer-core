@@ -14,7 +14,7 @@ Gradle Kotlin DSL:
 
 ```kotlin
 dependencies {
-    implementation("org.vechain:indexer-core:11.3.0")
+    implementation("org.vechain:indexer-core:11.4.0")
 }
 ```
 
@@ -22,7 +22,7 @@ Gradle Groovy DSL:
 
 ```groovy
 dependencies {
-    implementation 'org.vechain:indexer-core:11.3.0'
+    implementation 'org.vechain:indexer-core:11.4.0'
 }
 ```
 
@@ -62,6 +62,7 @@ val job =
         scope = scope,
         thorClient = thorClient,
         indexers = listOf(indexer),
+        meterRegistry = meterRegistry, // optional; see docs/Metrics.md
     )
 ```
 
