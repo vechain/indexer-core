@@ -85,6 +85,19 @@ internal class RunnerMetricsTest {
     }
 
     @Test
+    fun `blocks processed keeps counting after a garbage collection`() {
+        val a = StubIndexer("a")
+        metrics.bind(listOf(a.mock))
+        a.status = Status.SYNCING
+        a.block = 100
+        processed("a")
+
+        repeat(3) { System.gc() }
+        a.block = 150
+        expectThat(processed("a")).isEqualTo(50.0)
+    }
+
+    @Test
     fun `catch-up pass and steady state drive phase and catch-up groups`() {
         val (a, b, c) = listOf("a", "b", "c").map { StubIndexer(it).mock }
         metrics.bind(listOf(a, b, c))
