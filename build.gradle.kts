@@ -162,7 +162,7 @@ dependencies {
     implementation("com.github.kittinunf.fuel:fuel:2.3.1")
     implementation("com.github.kittinunf.fuel:fuel-coroutines:2.3.1")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
-    api("io.micrometer:micrometer-core:1.15.12")
+    api("io.micrometer:micrometer-core:1.16.7")
     implementation("org.slf4j:slf4j-api:2.0.13")
     implementation("org.bouncycastle:bcprov-jdk15on:1.70")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.1")
