@@ -29,6 +29,8 @@ internal class RunnerMetrics(meterRegistry: MeterRegistry?) {
     private val proximityGroupCount = AtomicInteger(0)
     private val catchUpGroup = ConcurrentHashMap<String, AtomicInteger>()
     private val proximityGroup = ConcurrentHashMap<String, AtomicInteger>()
+    // FunctionCounter only weakly references its state, so the runner holds it.
+    private val blockProgress = ConcurrentHashMap<String, BlockProgress>()
 
     fun bind(indexers: List<Indexer>) {
         Phase.entries.forEach { p ->
@@ -60,7 +62,8 @@ internal class RunnerMetrics(meterRegistry: MeterRegistry?) {
                 .strongReference(true)
                 .register(registry)
         }
-        FunctionCounter.builder("indexer.blocks.processed", BlockProgress(indexer)) { it.total() }
+        val progress = blockProgress.getOrPut(indexer.name) { BlockProgress(indexer) }
+        FunctionCounter.builder("indexer.blocks.processed", progress) { it.total() }
             .tags(tags)
             .register(registry)
         listOf(catchUpGroup, proximityGroup).forEach { it[indexer.name] = AtomicInteger(0) }
