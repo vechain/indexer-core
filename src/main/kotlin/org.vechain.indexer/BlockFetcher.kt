@@ -40,6 +40,7 @@ class BlockFetcher(
         maxBatchSize: Int,
         deadlineMark: TimeMark? = null,
         initialTimestampSeconds: Long? = null,
+        stopRequested: () -> Boolean = { false },
         onBlockPrepared: suspend (PreparedBlock) -> Unit,
     ) = coroutineScope {
         require(startBlock >= 0) { "startBlock must be >= 0" }
@@ -51,7 +52,9 @@ class BlockFetcher(
         // up — defeating calculateWindowSize when the runner is restarted near the tip.
         var lastBlockTimestamp: Long? = initialTimestampSeconds
 
-        while (isActive && (deadlineMark == null || deadlineMark.hasNotPassedNow())) {
+        while (
+            isActive && !stopRequested() && (deadlineMark == null || deadlineMark.hasNotPassedNow())
+        ) {
             val currentBlock = nextBlockNumber
             val windowSize = calculateWindowSize(lastBlockTimestamp, maxBatchSize)
             if (logger.isDebugEnabled) {
