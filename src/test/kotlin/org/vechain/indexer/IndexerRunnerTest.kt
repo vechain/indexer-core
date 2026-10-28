@@ -1516,6 +1516,37 @@ internal class IndexerRunnerTest {
         }
 
         @Test
+        fun `catch-up ends when fast sync finishes rather than at the interval`() = runTest {
+            val thorClient = mockk<ThorClient>()
+
+            val fastSyncable = createMockIndexer(name = "fast", fastSyncBlock = { delay(50) })
+            val nonFastSyncable = createMockNonFastSyncableIndexer("plain")
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    delay(100)
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
+                }
+
+            val runner = IndexerRunner()
+            val job = launch {
+                runner.run(
+                    listOf(fastSyncable, nonFastSyncable),
+                    1,
+                    thorClient,
+                    500_000L,
+                    reshuffleInterval = 15.minutes,
+                    catchUpInterval = 5.minutes,
+                )
+            }
+
+            delay(1_000)
+            job.cancelAndJoin()
+
+            coVerify(atLeast = 1) { fastSyncable.processBlock(any()) }
+        }
+
+        @Test
         fun `non-fast-syncable depending on fast-syncable waits for fast sync to complete`() =
             runTest {
                 val testTimeSource = TestTimeSource()

@@ -1,5 +1,6 @@
 package org.vechain.indexer
 
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TimeMark
@@ -144,8 +145,12 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             }
 
             coroutineScope {
+                val group1Done = AtomicBoolean(false)
                 if (group1.isNotEmpty()) {
-                    launch { initialiseAndSyncFor(group1, catchUpInterval) }
+                    launch {
+                        initialiseAndSyncFor(group1, catchUpInterval)
+                        group1Done.set(true)
+                    }
                 }
                 if (group2.isNotEmpty()) {
                     launch {
@@ -155,6 +160,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                             batchSize,
                             proximityThreshold,
                             catchUpInterval,
+                            stopRequested = group1Done::get,
                         )
                     }
                 }
@@ -561,10 +567,11 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         batchSize: Int,
         proximityThreshold: Long,
         duration: Duration,
+        stopRequested: () -> Boolean = { false },
     ) {
         val deadlineMark = timeSource.markNow() + duration
         refreshState(indexers)
-        if (deadlineMark.hasNotPassedNow()) {
+        if (deadlineMark.hasNotPassedNow() && !stopRequested()) {
             if (logger.isDebugEnabled) {
                 logger.debug("Evaluating proximity groups for ${indexers.size} indexers")
             }
@@ -573,7 +580,9 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
             val groupsToRun = if (groups.size <= 1) listOf(indexers) else groups
             coroutineScope {
                 groupsToRun.forEach { group ->
-                    launch { runIndexers(group, thorClient, batchSize, deadlineMark) }
+                    launch {
+                        runIndexers(group, thorClient, batchSize, deadlineMark, stopRequested)
+                    }
                 }
             }
         }
@@ -584,6 +593,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
         thorClient: ThorClient,
         batchSize: Int,
         deadlineMark: TimeMark? = null,
+        stopRequested: () -> Boolean = { false },
     ) {
         require(batchSize >= 1) { "batchSize must be >= 1" }
         logger.info("Running indexers...")
@@ -616,6 +626,7 @@ class IndexerRunner(private val timeSource: TimeSource = TimeSource.Monotonic) {
                         maxBatchSize = batchSize,
                         deadlineMark = deadlineMark,
                         initialTimestampSeconds = initialTimestampSeconds,
+                        stopRequested = stopRequested,
                     ) { preparedBlock ->
                         groupChannels.forEach { channel -> channel.send(preparedBlock) }
                     }
