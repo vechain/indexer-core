@@ -272,6 +272,29 @@ internal class BlockFetcherTest {
         }
 
         @Test
+        fun `stops fetching once a stop is requested`() = runTest {
+            val thorClient = mockk<ThorClient>()
+
+            coEvery { thorClient.waitForBlock(any<BlockRevision>()) } coAnswers
+                {
+                    buildBlock(num = (firstArg<BlockRevision>() as BlockRevision.Number).number)
+                }
+
+            val fetcher = BlockFetcher(thorClient, emptyList())
+            val received = mutableListOf<Long>()
+
+            fetcher.prefetchBlocksInOrder(
+                startBlock = 0L,
+                maxBatchSize = 1,
+                stopRequested = { received.size >= 3 },
+            ) { preparedBlock ->
+                received.add(preparedBlock.block.number)
+            }
+
+            expectThat(received).isEqualTo(mutableListOf(0L, 1L, 2L))
+        }
+
+        @Test
         fun `fetches multiple blocks in parallel when behind`() = runTest {
             val thorClient = mockk<ThorClient>()
             val fetchedBlocks = mutableListOf<Long>()

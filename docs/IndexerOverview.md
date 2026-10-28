@@ -196,8 +196,10 @@ IndexerRunner.launch(
 ```
 
 `reshuffleInterval` controls steady-state proximity regrouping while indexers are far apart.
-`catchUpInterval` controls how long catch-up work runs before the runner safely reclassifies
-fast-syncing, sync-ready, and blocked indexers.
+`catchUpInterval` caps how long catch-up work runs before the runner safely reclassifies
+fast-syncing, sync-ready, and blocked indexers. A pass also ends as soon as its fast syncs finish,
+so an indexer that fast-syncs quickly (for example after a restart near the head) joins the
+steady-state run within a block or two rather than waiting out the interval.
 
 ### Proximity Grouping
 
