@@ -29,6 +29,7 @@ internal class RunnerMetrics(meterRegistry: MeterRegistry?) {
     private val proximityGroupCount = AtomicInteger(0)
     private val catchUpGroup = ConcurrentHashMap<String, AtomicInteger>()
     private val proximityGroup = ConcurrentHashMap<String, AtomicInteger>()
+    private val proximityGauges = ConcurrentHashMap.newKeySet<Pair<String, Int>>()
     // FunctionCounter only weakly references its state, so the runner holds it.
     private val blockProgress = ConcurrentHashMap<String, BlockProgress>()
 
@@ -67,16 +68,20 @@ internal class RunnerMetrics(meterRegistry: MeterRegistry?) {
             .tags(tags)
             .register(registry)
         listOf(catchUpGroup, proximityGroup).forEach { it[indexer.name] = AtomicInteger(0) }
-        Gauge.builder("indexer.runner.catch.up.group", catchUpGroup.getValue(indexer.name)) {
-                it.toDouble()
-            }
-            .tags(tags)
-            .strongReference(true)
-            .register(registry)
-        Gauge.builder("indexer.runner.proximity.group", proximityGroup.getValue(indexer.name)) {
-                it.toDouble()
-            }
-            .tags(tags)
+        (1..CATCH_UP_GROUPS).forEach {
+            groupGauge(
+                "indexer.runner.catch.up.group",
+                indexer.name,
+                catchUpGroup.getValue(indexer.name),
+                it
+            )
+        }
+    }
+
+    // One gauge per (indexer, group), 1 for the group the indexer is in; see docs/Metrics.md.
+    private fun groupGauge(name: String, indexer: String, holder: AtomicInteger, group: Int) {
+        Gauge.builder(name, holder) { if (it.get() == group) 1.0 else 0.0 }
+            .tags(Tags.of(INDEXER_TAG, indexer, "group", group.toString()))
             .strongReference(true)
             .register(registry)
     }
@@ -105,7 +110,15 @@ internal class RunnerMetrics(meterRegistry: MeterRegistry?) {
         regroups("proximity").increment()
         proximityGroupCount.set(groups.size)
         proximityGroup.values.forEach { it.set(0) }
-        groups.forEachIndexed { i, group -> group.forEach { proximityGroup[it.name]?.set(i + 1) } }
+        groups.forEachIndexed { i, group ->
+            group.forEach { indexer ->
+                val holder = proximityGroup[indexer.name] ?: return@forEach
+                holder.set(i + 1)
+                if (proximityGauges.add(indexer.name to i + 1)) {
+                    groupGauge("indexer.runner.proximity.group", indexer.name, holder, i + 1)
+                }
+            }
+        }
     }
 
     fun restart(reason: RestartReason) {
@@ -150,6 +163,7 @@ internal class RunnerMetrics(meterRegistry: MeterRegistry?) {
 
     companion object {
         const val INDEXER_TAG = "indexer.name"
+        private const val CATCH_UP_GROUPS = 3
         private val PROCESSING_STATUSES =
             setOf(Status.SYNCING, Status.FAST_SYNCING, Status.FULLY_SYNCED)
     }

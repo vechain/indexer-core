@@ -27,6 +27,16 @@ internal class RunnerMetricsTest {
     private fun gauge(name: String, indexer: String) =
         registry.get(name).tag(RunnerMetrics.INDEXER_TAG, indexer).gauge().value()
 
+    /** The one `group` tag reading 1 for the indexer, or 0 when every gauge reads 0. */
+    private fun group(name: String, indexer: String): Int =
+        registry
+            .find(name)
+            .tag(RunnerMetrics.INDEXER_TAG, indexer)
+            .gauges()
+            .filter { it.value() == 1.0 }
+            .map { it.id.getTag("group")!!.toInt() }
+            .singleOrNull() ?: 0
+
     private fun processed(indexer: String) =
         registry
             .get("indexer.blocks.processed")
@@ -106,8 +116,8 @@ internal class RunnerMetricsTest {
 
         expectThat(registry.get("indexer.runner.phase").tag("phase", "catch_up").gauge().value())
             .isEqualTo(1.0)
-        expectThat(listOf("a", "b", "c").map { gauge("indexer.runner.catch.up.group", it) })
-            .isEqualTo(listOf(1.0, 2.0, 3.0))
+        expectThat(listOf("a", "b", "c").map { group("indexer.runner.catch.up.group", it) })
+            .isEqualTo(listOf(1, 2, 3))
         expectThat(
                 registry.get("indexer.runner.regroups").tag("kind", "catch_up").counter().count()
             )
@@ -119,8 +129,8 @@ internal class RunnerMetricsTest {
             .isEqualTo(1.0)
         expectThat(registry.get("indexer.runner.phase").tag("phase", "catch_up").gauge().value())
             .isEqualTo(0.0)
-        expectThat(listOf("a", "b", "c").map { gauge("indexer.runner.catch.up.group", it) })
-            .isEqualTo(listOf(0.0, 0.0, 0.0))
+        expectThat(listOf("a", "b", "c").map { group("indexer.runner.catch.up.group", it) })
+            .isEqualTo(listOf(0, 0, 0))
     }
 
     @Test
@@ -129,13 +139,13 @@ internal class RunnerMetricsTest {
         metrics.bind(listOf(a, b, c))
 
         metrics.proximityGroups(listOf(listOf(a), listOf(b, c)))
-        expectThat(listOf("a", "b", "c").map { gauge("indexer.runner.proximity.group", it) })
-            .isEqualTo(listOf(1.0, 2.0, 2.0))
+        expectThat(listOf("a", "b", "c").map { group("indexer.runner.proximity.group", it) })
+            .isEqualTo(listOf(1, 2, 2))
         expectThat(registry.get("indexer.runner.proximity.groups").gauge().value()).isEqualTo(2.0)
 
         metrics.proximityGroups(listOf(listOf(b)))
-        expectThat(listOf("a", "b", "c").map { gauge("indexer.runner.proximity.group", it) })
-            .isEqualTo(listOf(0.0, 1.0, 0.0))
+        expectThat(listOf("a", "b", "c").map { group("indexer.runner.proximity.group", it) })
+            .isEqualTo(listOf(0, 1, 0))
         expectThat(
                 registry.get("indexer.runner.regroups").tag("kind", "proximity").counter().count()
             )

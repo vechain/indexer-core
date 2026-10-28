@@ -2972,7 +2972,7 @@ internal class IndexerRunnerTest {
                     expectThat(
                             registry
                                 .get("indexer.runner.proximity.group")
-                                .tag(RunnerMetrics.INDEXER_TAG, indexer.name)
+                                .tags(RunnerMetrics.INDEXER_TAG, indexer.name, "group", "1")
                                 .gauge()
                                 .value()
                         )
